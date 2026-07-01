@@ -13,11 +13,7 @@ import { ChatTopBar } from "@/components/chat/chat-top-bar";
 import { WorkingDirectoryPicker } from "@/components/chat/working-directory-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { serializeChatMessageContent } from "@/lib/chat-message";
-import {
-	DEFAULT_CHAT_TOOL_POLICY,
-	type ChatToolPolicy,
-	trpcClient,
-} from "@/lib/trpc";
+import { trpcClient } from "@/lib/trpc";
 import { useInstallation } from "@/lib/use-installation";
 
 const QUICK_ACTIONS = [
@@ -98,9 +94,6 @@ export default function ChatLandingPage() {
 	const [toolSelection, setToolSelection] = useState<ChatToolSelection | null>(
 		null,
 	);
-	const [chatToolPolicy, setChatToolPolicy] = useState<ChatToolPolicy>(
-		DEFAULT_CHAT_TOOL_POLICY,
-	);
 	const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
 	const [workingDirectory, setWorkingDirectory] = useState("");
 
@@ -164,8 +157,6 @@ export default function ChatLandingPage() {
 				modelId,
 				agentId,
 				projectId,
-				toolMode: chatToolPolicy.mode,
-				toolPolicy: chatToolPolicy,
 			});
 			return { chat, outgoing };
 		},
@@ -241,8 +232,6 @@ export default function ChatLandingPage() {
 									modelId={modelId}
 									toolSelection={toolSelection}
 									onToolSelectionChange={setToolSelection}
-									chatToolPolicy={chatToolPolicy}
-									onChatToolPolicyChange={setChatToolPolicy}
 									attachedFile={attachedFile}
 									onAttachedFileChange={setAttachedFile}
 									onVoiceResult={(text) => {

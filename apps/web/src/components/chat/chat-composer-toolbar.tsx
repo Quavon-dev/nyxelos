@@ -2,7 +2,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import {
-	Bot,
 	Blocks,
 	Check,
 	ChevronDown,
@@ -36,14 +35,8 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/ui/popover";
-import { Switch } from "@/components/ui/switch";
 import type { ChatAttachment } from "@/lib/chat-message";
-import {
-	type ChatToolMode,
-	type ChatToolPolicy,
-	type McpToolListResult,
-	trpcClient,
-} from "@/lib/trpc";
+import { type McpToolListResult, trpcClient } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { ToolsAndSkillsPicker } from "./tools-and-skills-picker";
 
@@ -70,35 +63,6 @@ interface MessageLike {
 	role: string;
 	content: string;
 }
-
-const CHAT_MODES = ["default", "automatic", "auto"] as const;
-
-const CHAT_MODE_LABEL: Record<ChatToolMode, string> = {
-	default: "Default",
-	automatic: "Auto Tools",
-	auto: "AUTO",
-};
-
-const CHAT_MODE_COPY: Record<
-	ChatToolMode,
-	{ title: string; description: string }
-> = {
-	default: {
-		title: "Default",
-		description:
-			"Sensitive tools wait for approval and the assistant may ask before acting.",
-	},
-	automatic: {
-		title: "Automatic Tool Usage",
-		description:
-			"The assistant plans and gathers context on its own, then uses tools directly unless a guardrail still requires approval.",
-	},
-	auto: {
-		title: "AUTO",
-		description:
-			"Fully autonomous. Never asks clarifying or scoping questions — picks the best interpretation, gathers context with tools, and acts immediately. Only reports hard approval blocks.",
-	},
-};
 
 /** Pulls fenced code blocks out of assistant replies — the closest thing
  * this app has to "artifacts" without a real generated-file/canvas backend. */
@@ -183,8 +147,6 @@ export function ChatComposerToolbar({
 	mode,
 	toolSelection,
 	onToolSelectionChange,
-	chatToolPolicy,
-	onChatToolPolicyChange,
 	attachedFile,
 	onAttachedFileChange,
 	onVoiceResult,
@@ -199,8 +161,6 @@ export function ChatComposerToolbar({
 	mode: "full" | "compact";
 	toolSelection: ChatToolSelection | null;
 	onToolSelectionChange: (next: ChatToolSelection | null) => void;
-	chatToolPolicy: ChatToolPolicy;
-	onChatToolPolicyChange: (next: ChatToolPolicy) => void;
 	attachedFile: AttachedFile | null;
 	onAttachedFileChange: (file: AttachedFile | null) => void;
 	onVoiceResult: (text: string) => void;
@@ -233,7 +193,6 @@ export function ChatComposerToolbar({
 			: "Converted to extracted text before sending";
 	})();
 
-	const [modeOpen, setModeOpen] = useState(false);
 	const [mcpOpen, setMcpOpen] = useState(false);
 	const [artifactsOpen, setArtifactsOpen] = useState(false);
 	const [contextOpen, setContextOpen] = useState(false);
@@ -298,56 +257,15 @@ export function ChatComposerToolbar({
 		mcpServerIds: servers.filter((s) => s.enabled).map((s) => s.id),
 		mcpToolFilter: null,
 	};
-	const guardrailsLocked =
-		chatToolPolicy.mode === "default" || chatToolPolicy.mode === "auto";
 	const toolsAndSkillsCustomized = toolSelection !== null;
 	const toolsAndSkillsSummary = toolsAndSkillsCustomized
 		? `${effective.skillIds.length + effective.toolIds.length} selected`
 		: "Skills & Tools";
 	const mcpCustomized = toolSelection !== null;
-	const modeLabel = CHAT_MODE_LABEL[chatToolPolicy.mode];
 
 	function commit(patch: Partial<ChatToolSelection>) {
 		onToolSelectionChange({ ...effective, ...patch });
 	}
-
-	function updateChatToolPolicy(patch: Partial<ChatToolPolicy>) {
-		onChatToolPolicyChange({ ...chatToolPolicy, ...patch });
-	}
-
-	function selectChatMode(modeValue: ChatToolMode) {
-		updateChatToolPolicy(
-			modeValue === "auto"
-				? {
-						mode: "auto",
-						approveFileWrites: false,
-						approveFileDeletes: false,
-						approveCustomCode: false,
-						approveMcpTools: false,
-					}
-				: { mode: modeValue },
-		);
-	}
-
-	// Lets the mode popover be driven like a numbered menu: while it's open,
-	// pressing 1/2/3 picks the matching mode and closes it — mirrors the
-	// Claude Code CLI's own permission-mode switcher.
-	useEffect(() => {
-		if (!modeOpen) return;
-		function handleKeyDown(event: KeyboardEvent) {
-			const index = Number(event.key) - 1;
-			if (!Number.isInteger(index) || index < 0 || index >= CHAT_MODES.length)
-				return;
-			const modeValue = CHAT_MODES[index];
-			if (!modeValue) return;
-			event.preventDefault();
-			selectChatMode(modeValue);
-			setModeOpen(false);
-		}
-		window.addEventListener("keydown", handleKeyDown);
-		return () => window.removeEventListener("keydown", handleKeyDown);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [modeOpen]);
 
 	function toggleServer(serverId: string) {
 		const next = effective.mcpServerIds.includes(serverId)
@@ -675,145 +593,6 @@ export function ChatComposerToolbar({
 					</>
 				)}
 			</div>
-
-			{/* Rendered outside the overflow-x-auto pill row (above) on purpose:
-			 * that row scrolls its contents off-screen once the other pills (File
-			 * search, Skills, Artifacts) don't fit, which was silently hiding the
-			 * MCP server selector with no visible affordance that it still
-			 * existed. Keeping it in its own shrink-0 slot guarantees it's always
-			 * reachable, matching the "always stays visible" intent already noted
-			 * above for compact mode. */}
-			<Popover open={modeOpen} onOpenChange={setModeOpen}>
-				<PopoverTrigger asChild>
-					<button
-						type="button"
-						className={cn(
-							pillClass(chatToolPolicy.mode !== "default"),
-							"shrink-0",
-						)}
-					>
-						<Bot className="size-3.5" />
-						{modeLabel}
-						<ChevronDown className="size-3 opacity-60" />
-					</button>
-				</PopoverTrigger>
-				<PopoverContent align="start" className="w-72 space-y-3">
-					<p className="px-1 text-xs font-medium text-muted-foreground">
-						Mode
-					</p>
-					<div className="space-y-0.5">
-						{CHAT_MODES.map((modeValue, index) => {
-							const selected = chatToolPolicy.mode === modeValue;
-							const option = CHAT_MODE_COPY[modeValue];
-							return (
-								<button
-									key={modeValue}
-									type="button"
-									title={option.description}
-									onClick={() => {
-										selectChatMode(modeValue);
-										setModeOpen(false);
-									}}
-									className={cn(
-										"flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
-										selected ? "bg-primary/10" : "hover:bg-muted/60",
-									)}
-								>
-									<span className="font-medium">{option.title}</span>
-									{selected ? (
-										<Check className="size-3.5 shrink-0 text-primary" />
-									) : (
-										<span className="flex size-5 shrink-0 items-center justify-center rounded border text-[11px] text-muted-foreground">
-											{index + 1}
-										</span>
-									)}
-								</button>
-							);
-						})}
-					</div>
-					<div className="space-y-3 border-t pt-3">
-						<div className="space-y-1">
-							<p className="text-sm font-medium">Approval guardrails</p>
-							{chatToolPolicy.mode === "auto" ? (
-								<p className="text-xs text-muted-foreground">
-									All guardrails are disabled in AUTO mode — the agent executes
-									every tool call directly. Switch to{" "}
-									<strong>Automatic Tool Usage</strong> to enable individual
-									approval controls.
-								</p>
-							) : (
-								<p className="text-xs text-muted-foreground">
-									Default mode always approves every sensitive action first. In
-									Automatic Tool Usage, these switches decide what still goes
-									through Approvals.
-								</p>
-							)}
-						</div>
-						<div className="space-y-2">
-							<div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-								<div>
-									<p className="text-sm font-medium">Approve file writes</p>
-									<p className="text-xs text-muted-foreground">
-										Creating or editing files still waits for approval.
-									</p>
-								</div>
-								<Switch
-									checked={chatToolPolicy.approveFileWrites}
-									disabled={guardrailsLocked}
-									onCheckedChange={(checked) =>
-										updateChatToolPolicy({ approveFileWrites: checked })
-									}
-								/>
-							</div>
-							<div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-								<div>
-									<p className="text-sm font-medium">Approve file deletions</p>
-									<p className="text-xs text-muted-foreground">
-										Deleting files still waits for approval.
-									</p>
-								</div>
-								<Switch
-									checked={chatToolPolicy.approveFileDeletes}
-									disabled={guardrailsLocked}
-									onCheckedChange={(checked) =>
-										updateChatToolPolicy({ approveFileDeletes: checked })
-									}
-								/>
-							</div>
-							<div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-								<div>
-									<p className="text-sm font-medium">Approve custom code</p>
-									<p className="text-xs text-muted-foreground">
-										Custom-code skills still wait for approval.
-									</p>
-								</div>
-								<Switch
-									checked={chatToolPolicy.approveCustomCode}
-									disabled={guardrailsLocked}
-									onCheckedChange={(checked) =>
-										updateChatToolPolicy({ approveCustomCode: checked })
-									}
-								/>
-							</div>
-							<div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-								<div>
-									<p className="text-sm font-medium">Approve MCP tools</p>
-									<p className="text-xs text-muted-foreground">
-										Third-party MCP tool calls still wait for approval.
-									</p>
-								</div>
-								<Switch
-									checked={chatToolPolicy.approveMcpTools}
-									disabled={guardrailsLocked}
-									onCheckedChange={(checked) =>
-										updateChatToolPolicy({ approveMcpTools: checked })
-									}
-								/>
-							</div>
-						</div>
-					</div>
-				</PopoverContent>
-			</Popover>
 
 			<Popover open={toolsPickerOpen} onOpenChange={setToolsPickerOpen}>
 				<PopoverTrigger asChild>

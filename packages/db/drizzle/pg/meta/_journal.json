@@ -134,6 +134,13 @@
       "when": 1783000006001,
       "tag": "0018_task_model_override",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1783000007001,
+      "tag": "0019_workspace_default_tool_policy",
+      "breakpoints": true
     }
   ]
 }

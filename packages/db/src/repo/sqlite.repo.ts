@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { DEFAULT_CHAT_TOOL_POLICY } from "./types";
 import { normalizeChatWorkingDirectory } from "../working-directory";
@@ -695,6 +695,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.select()
 				.from(schema.message)
 				.where(eq(schema.message.chatId, chatId))
+				.orderBy(asc(schema.message.createdAt))
 				.all();
 			return rows.map((r) => ({
 				id: r.id,
@@ -703,6 +704,41 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				content: r.content,
 				createdAt: r.createdAt,
 			}));
+		},
+
+		async updateMessage(id, content) {
+			const row = db
+				.update(schema.message)
+				.set({ content })
+				.where(eq(schema.message.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error("Failed to update message");
+			return {
+				id: row.id,
+				chatId: row.chatId,
+				role: row.role,
+				content: row.content,
+				createdAt: row.createdAt,
+			};
+		},
+
+		async deleteMessage(id) {
+			db.delete(schema.message).where(eq(schema.message.id, id)).run();
+		},
+
+		async deleteMessagesAfter(chatId, messageId) {
+			const rows = db
+				.select()
+				.from(schema.message)
+				.where(eq(schema.message.chatId, chatId))
+				.orderBy(asc(schema.message.createdAt))
+				.all();
+			const index = rows.findIndex((r) => r.id === messageId);
+			if (index === -1) return;
+			const idsToDelete = rows.slice(index + 1).map((r) => r.id);
+			if (idsToDelete.length === 0) return;
+			db.delete(schema.message).where(inArray(schema.message.id, idsToDelete)).run();
 		},
 
 		async createAgent({

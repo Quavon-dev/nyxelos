@@ -472,7 +472,17 @@ export interface DbRepository {
 		role: MessageRole;
 		content: string;
 	}): Promise<MessageRecord>;
+	/** Ordered oldest-first by createdAt — callers (chat-stream.ts's history
+	 * replay, edit/regenerate truncation) depend on this order. */
 	listMessages(chatId: string): Promise<MessageRecord[]>;
+	/** Rewrites a message's content in place — used by the "edit" action on a
+	 * past user turn (see chat-stream.ts's editMessageId handling). */
+	updateMessage(id: string, content: string): Promise<MessageRecord>;
+	deleteMessage(id: string): Promise<void>;
+	/** Deletes every message in the chat that comes after messageId (by
+	 * createdAt order) — used to drop the stale reply/turns that followed an
+	 * edited message before regenerating from it. */
+	deleteMessagesAfter(chatId: string, messageId: string): Promise<void>;
 
 	createAgent(input: {
 		workspaceId: string;

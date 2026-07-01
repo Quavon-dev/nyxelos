@@ -1,16 +1,44 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, NotebookPen, Plug, Settings2 } from "lucide-react";
+import { Bot, NotebookPen, Plug, Settings2, ShieldCheck } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { type AutonomyLevel, type ProbedModelProvider, trpcClient } from "@/lib/trpc";
+import {
+  type AutonomyLevel,
+  type ChatToolMode,
+  type ChatToolPolicy,
+  DEFAULT_CHAT_TOOL_POLICY,
+  type ProbedModelProvider,
+  trpcClient,
+} from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+
+const CHAT_MODES: { value: ChatToolMode; title: string; description: string }[] = [
+  {
+    value: "default",
+    title: "Default",
+    description: "Sensitive tools wait for approval and the assistant may ask before acting.",
+  },
+  {
+    value: "automatic",
+    title: "Automatic Tool Usage",
+    description:
+      "The assistant plans and gathers context on its own, then uses tools directly unless a guardrail still requires approval.",
+  },
+  {
+    value: "auto",
+    title: "AUTO",
+    description:
+      "Fully autonomous. Never asks clarifying or scoping questions — picks the best interpretation, gathers context with tools, and acts immediately. Only reports hard approval blocks.",
+  },
+];
 
 const SECTIONS = [
   {
@@ -23,7 +51,14 @@ const SECTIONS = [
     id: "instructions",
     label: "Instructions",
     icon: NotebookPen,
-    description: "Always prepended as a system-prompt block before every chat and task in this workspace.",
+    description:
+      "Always prepended as a system-prompt block before every chat and task in this workspace.",
+  },
+  {
+    id: "approvals",
+    label: "Approvals",
+    icon: ShieldCheck,
+    description: "Default mode and guardrails applied to every new chat in this workspace.",
   },
   {
     id: "providers",
@@ -72,8 +107,9 @@ export default function WorkspaceSettingsPage() {
   const [icon, setIcon] = useState("");
   const [color, setColor] = useState("");
   const [defaultModelId, setDefaultModelId] = useState("");
-  const [defaultAutonomyLevel, setDefaultAutonomyLevel] =
-    useState<AutonomyLevel>("assisted");
+  const [defaultAutonomyLevel, setDefaultAutonomyLevel] = useState<AutonomyLevel>("assisted");
+  const [defaultToolPolicy, setDefaultToolPolicy] =
+    useState<ChatToolPolicy>(DEFAULT_CHAT_TOOL_POLICY);
   const [providerLabel, setProviderLabel] = useState("");
   const [providerBaseUrl, setProviderBaseUrl] = useState("http://localhost:1234");
   const [providerApiKey, setProviderApiKey] = useState("");
@@ -87,6 +123,7 @@ export default function WorkspaceSettingsPage() {
     setColor(workspaceQuery.data.color ?? "");
     setDefaultModelId(workspaceQuery.data.defaultModelId ?? "");
     setDefaultAutonomyLevel(workspaceQuery.data.defaultAutonomyLevel);
+    setDefaultToolPolicy(workspaceQuery.data.defaultToolPolicy);
   }, [workspaceQuery.data]);
 
   const saveInstructions = useMutation({
@@ -114,6 +151,34 @@ export default function WorkspaceSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] });
     },
   });
+
+  const saveApprovals = useMutation({
+    mutationFn: () =>
+      trpcClient.workspaces.updateSettings.mutate({
+        workspaceId,
+        defaultToolPolicy,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] });
+    },
+  });
+
+  function selectChatMode(modeValue: ChatToolMode) {
+    setDefaultToolPolicy((current) =>
+      modeValue === "auto"
+        ? {
+            mode: "auto",
+            approveFileWrites: false,
+            approveFileDeletes: false,
+            approveCustomCode: false,
+            approveMcpTools: false,
+          }
+        : { ...current, mode: modeValue },
+    );
+  }
+
+  const guardrailsLocked =
+    defaultToolPolicy.mode === "default" || defaultToolPolicy.mode === "auto";
 
   const probeProvider = useMutation({
     mutationFn: async () => {
@@ -270,9 +335,7 @@ export default function WorkspaceSettingsPage() {
                     <select
                       id="workspace-default-autonomy"
                       value={defaultAutonomyLevel}
-                      onChange={(e) =>
-                        setDefaultAutonomyLevel(e.target.value as AutonomyLevel)
-                      }
+                      onChange={(e) => setDefaultAutonomyLevel(e.target.value as AutonomyLevel)}
                       disabled={workspaceQuery.isLoading}
                       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none"
                     >
@@ -293,6 +356,140 @@ export default function WorkspaceSettingsPage() {
                     {saveGeneral.isPending ? "Saving…" : "Save"}
                   </Button>
                   {saveGeneral.isSuccess && (
+                    <span className="text-sm text-muted-foreground">Saved.</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {section === "approvals" && (
+              <div className="space-y-6">
+                <div className="space-y-1.5">
+                  <p className="text-sm font-medium">Mode</p>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {CHAT_MODES.map((option) => {
+                      const selected = defaultToolPolicy.mode === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          title={option.description}
+                          onClick={() => selectChatMode(option.value)}
+                          className={cn(
+                            "rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+                            selected ? "border-primary bg-primary/10" : "hover:bg-muted/60",
+                          )}
+                        >
+                          <div className="font-medium">{option.title}</div>
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            {option.description}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-3 border-t pt-6">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">Approval guardrails</p>
+                    {defaultToolPolicy.mode === "auto" ? (
+                      <p className="text-xs text-muted-foreground">
+                        All guardrails are disabled in AUTO mode — the agent executes every tool
+                        call directly. Switch to <strong>Automatic Tool Usage</strong> to enable
+                        individual approval controls.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Default mode always approves every sensitive action first. In Automatic Tool
+                        Usage, these switches decide what still goes through Approvals.
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium">Approve file writes</p>
+                        <p className="text-xs text-muted-foreground">
+                          Creating or editing files still waits for approval.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={defaultToolPolicy.approveFileWrites}
+                        disabled={guardrailsLocked}
+                        onCheckedChange={(checked) =>
+                          setDefaultToolPolicy((current) => ({
+                            ...current,
+                            approveFileWrites: checked,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium">Approve file deletions</p>
+                        <p className="text-xs text-muted-foreground">
+                          Deleting files still waits for approval.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={defaultToolPolicy.approveFileDeletes}
+                        disabled={guardrailsLocked}
+                        onCheckedChange={(checked) =>
+                          setDefaultToolPolicy((current) => ({
+                            ...current,
+                            approveFileDeletes: checked,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium">Approve custom code</p>
+                        <p className="text-xs text-muted-foreground">
+                          Custom-code skills still wait for approval.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={defaultToolPolicy.approveCustomCode}
+                        disabled={guardrailsLocked}
+                        onCheckedChange={(checked) =>
+                          setDefaultToolPolicy((current) => ({
+                            ...current,
+                            approveCustomCode: checked,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium">Approve MCP tools</p>
+                        <p className="text-xs text-muted-foreground">
+                          Third-party MCP tool calls still wait for approval.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={defaultToolPolicy.approveMcpTools}
+                        disabled={guardrailsLocked}
+                        onCheckedChange={(checked) =>
+                          setDefaultToolPolicy((current) => ({
+                            ...current,
+                            approveMcpTools: checked,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <Button
+                    onClick={() => saveApprovals.mutate()}
+                    disabled={saveApprovals.isPending || workspaceQuery.isLoading}
+                  >
+                    {saveApprovals.isPending ? "Saving…" : "Save"}
+                  </Button>
+                  {saveApprovals.isSuccess && (
                     <span className="text-sm text-muted-foreground">Saved.</span>
                   )}
                 </div>

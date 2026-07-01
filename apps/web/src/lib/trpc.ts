@@ -48,6 +48,7 @@ export type WorkspaceSummary = {
 	color: string | null;
 	defaultModelId: string | null;
 	defaultAutonomyLevel: AutonomyLevel;
+	defaultToolPolicy: ChatToolPolicy;
 };
 
 export type ChatToolMode = "default" | "automatic" | "auto";
@@ -672,6 +673,7 @@ type NyxelTrpcClient = {
 				color?: string | null;
 				defaultModelId?: string | null;
 				defaultAutonomyLevel?: AutonomyLevel;
+				defaultToolPolicy?: ChatToolPolicy;
 			}): Promise<WorkspaceSummary>;
 		};
 	};

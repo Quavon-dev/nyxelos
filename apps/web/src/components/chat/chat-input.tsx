@@ -10,7 +10,6 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { serializeChatMessageContent } from "@/lib/chat-message";
 import type { MultiSelectPrompt } from "@/lib/chat-prompts";
-import type { ChatToolPolicy } from "@/lib/trpc";
 import { MultiSelectPromptCard } from "./multi-select-prompt";
 
 interface MessageLike {
@@ -25,14 +24,11 @@ export function ChatInput({
 	modelId,
 	toolSelection,
 	onToolSelectionChange,
-	chatToolPolicy,
-	onChatToolPolicyChange,
 	attachedFile,
 	onAttachedFileChange,
 	messages,
 	assistantQuestion,
 	assistantPrompt,
-	prefill,
 }: {
 	onSend: (message: string) => void;
 	disabled?: boolean;
@@ -40,17 +36,11 @@ export function ChatInput({
 	modelId?: string;
 	toolSelection: ChatToolSelection | null;
 	onToolSelectionChange: (next: ChatToolSelection | null) => void;
-	chatToolPolicy: ChatToolPolicy;
-	onChatToolPolicyChange: (next: ChatToolPolicy) => void;
 	attachedFile: AttachedFile | null;
 	onAttachedFileChange: (file: AttachedFile | null) => void;
 	messages: MessageLike[];
 	assistantQuestion: string | null;
 	assistantPrompt: MultiSelectPrompt | null;
-	/** Pushes text into the composer imperatively — e.g. the "edit" action on
-	 * a past user turn (see message-actions.tsx). Bump `nonce` on every call
-	 * so the effect fires even when the text repeats verbatim. */
-	prefill?: { text: string; nonce: number };
 }) {
 	const [value, setValue] = useState("");
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -61,15 +51,6 @@ export function ChatInput({
 	useEffect(() => {
 		if (promptKey !== "none") setValue("");
 	}, [promptKey]);
-
-	// The caller (see message-actions.tsx's "edit" action) always constructs a
-	// fresh `prefill` object with a new `nonce`, so depending on the object
-	// itself re-fires exactly on each edit request, not on unrelated renders.
-	useEffect(() => {
-		if (!prefill) return;
-		setValue(prefill.text);
-		requestAnimationFrame(() => textareaRef.current?.focus());
-	}, [prefill]);
 
 	// Attachments are stored inline as a structured envelope so the chat can
 	// render them later without needing a separate upload backend yet.
@@ -144,8 +125,6 @@ export function ChatInput({
 							modelId={modelId}
 							toolSelection={toolSelection}
 							onToolSelectionChange={onToolSelectionChange}
-							chatToolPolicy={chatToolPolicy}
-							onChatToolPolicyChange={onChatToolPolicyChange}
 							attachedFile={attachedFile}
 							onAttachedFileChange={onAttachedFileChange}
 							onVoiceResult={(text) =>

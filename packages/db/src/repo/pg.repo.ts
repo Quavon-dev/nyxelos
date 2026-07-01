@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { DEFAULT_CHAT_TOOL_POLICY } from "./types";
@@ -572,7 +572,8 @@ export function createPgRepository(connectionString: string): DbRepository {
 			const rows = await db
 				.select()
 				.from(schema.message)
-				.where(eq(schema.message.chatId, chatId));
+				.where(eq(schema.message.chatId, chatId))
+				.orderBy(asc(schema.message.createdAt));
 			return rows.map((r) => ({
 				id: r.id,
 				chatId: r.chatId,
@@ -580,6 +581,39 @@ export function createPgRepository(connectionString: string): DbRepository {
 				content: r.content,
 				createdAt: r.createdAt,
 			}));
+		},
+
+		async updateMessage(id, content) {
+			const [row] = await db
+				.update(schema.message)
+				.set({ content })
+				.where(eq(schema.message.id, id))
+				.returning();
+			if (!row) throw new Error("Failed to update message");
+			return {
+				id: row.id,
+				chatId: row.chatId,
+				role: row.role,
+				content: row.content,
+				createdAt: row.createdAt,
+			};
+		},
+
+		async deleteMessage(id) {
+			await db.delete(schema.message).where(eq(schema.message.id, id));
+		},
+
+		async deleteMessagesAfter(chatId, messageId) {
+			const rows = await db
+				.select()
+				.from(schema.message)
+				.where(eq(schema.message.chatId, chatId))
+				.orderBy(asc(schema.message.createdAt));
+			const index = rows.findIndex((r) => r.id === messageId);
+			if (index === -1) return;
+			const idsToDelete = rows.slice(index + 1).map((r) => r.id);
+			if (idsToDelete.length === 0) return;
+			await db.delete(schema.message).where(inArray(schema.message.id, idsToDelete));
 		},
 
 		async createAgent({

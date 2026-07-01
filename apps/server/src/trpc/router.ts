@@ -156,14 +156,16 @@ const taskStatusSchema = z.enum([
 const taskPrioritySchema = z.enum(["low", "normal", "high", "urgent"]);
 const AUTOMATABLE_LEVELS = new Set(["autonomous", "super_agent"]);
 
-function resolveChatToolPolicy(input: {
-	toolMode?: z.infer<typeof chatToolModeSchema>;
-	toolPolicy?: z.infer<typeof chatToolPolicySchema>;
-}) {
-	const mode =
-		input.toolMode ?? input.toolPolicy?.mode ?? DEFAULT_CHAT_TOOL_POLICY.mode;
+function resolveChatToolPolicy(
+	input: {
+		toolMode?: z.infer<typeof chatToolModeSchema>;
+		toolPolicy?: z.infer<typeof chatToolPolicySchema>;
+	},
+	fallback: z.infer<typeof chatToolPolicySchema> = DEFAULT_CHAT_TOOL_POLICY,
+) {
+	const mode = input.toolMode ?? input.toolPolicy?.mode ?? fallback.mode;
 	return {
-		...DEFAULT_CHAT_TOOL_POLICY,
+		...fallback,
 		...input.toolPolicy,
 		mode,
 	};
@@ -523,6 +525,7 @@ export const appRouter = router({
 					color: z.string().nullable().optional(),
 					defaultModelId: z.string().nullable().optional(),
 					defaultAutonomyLevel: autonomyLevelSchema.optional(),
+					defaultToolPolicy: chatToolPolicySchema.optional(),
 				}),
 			)
 			.mutation(({ input }) => getDb().updateWorkspaceSettings(input)),
@@ -562,8 +565,8 @@ export const appRouter = router({
 					if (!agent) throw new Error(`Unknown agent: ${input.agentId}`);
 					modelId = agent.modelId;
 				}
+				const workspace = await db.getWorkspace(input.workspaceId);
 				if (!modelId) {
-					const workspace = await db.getWorkspace(input.workspaceId);
 					modelId = workspace?.defaultModelId ?? undefined;
 				}
 				if (!modelId)
@@ -575,7 +578,10 @@ export const appRouter = router({
 					);
 					agentId = autoAgent.id;
 				}
-				const toolPolicy = resolveChatToolPolicy(input);
+				const toolPolicy = resolveChatToolPolicy(
+					input,
+					workspace?.defaultToolPolicy ?? DEFAULT_CHAT_TOOL_POLICY,
+				);
 				return db.createChat({
 					...input,
 					modelId,
