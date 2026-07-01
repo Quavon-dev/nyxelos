@@ -2,7 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
-import { detectLocalModels, getLmStudioApiKey } from "./detect";
+import { detectLocalModels, getLmStudioApiKey, normalizeOpenAiCompatibleBaseUrl } from "./detect";
 
 export interface CloudModelDefinition {
   id: string;
@@ -155,7 +155,7 @@ export function resolveModel(
 
     const compatible = createOpenAICompatible({
       name: installed.provider.label,
-      baseURL: `${installed.provider.baseUrl.replace(/\/+$/, "")}/v1`,
+      baseURL: `${normalizeOpenAiCompatibleBaseUrl(installed.provider.baseUrl)}/v1`,
       apiKey: installed.provider.apiKey ?? undefined,
     });
     return compatible(installed.nativeModelId);
@@ -207,7 +207,7 @@ function inferOpenAiCompatibleBaseUrl(prefix: string): string {
   };
   const baseUrl = envByPrefix[prefix] ?? defaultByPrefix[prefix];
   if (!baseUrl) throw new Error(`Unknown model id: ${prefix}`);
-  return `${baseUrl.replace(/\/+$/, "")}/v1`;
+  return `${normalizeOpenAiCompatibleBaseUrl(baseUrl)}/v1`;
 }
 
 function inferOpenAiCompatibleApiKey(prefix: string): string | undefined {

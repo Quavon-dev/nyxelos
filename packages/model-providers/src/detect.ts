@@ -79,8 +79,9 @@ export function getLmStudioApiKey(): string | undefined {
   );
 }
 
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, "");
+export function normalizeOpenAiCompatibleBaseUrl(baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/+$/, "");
+  return trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : trimmed;
 }
 
 async function safeFetchJson<T>(
@@ -101,7 +102,7 @@ async function safeFetchJson<T>(
 }
 
 export async function detectOllamaModels(): Promise<DetectedLocalModel[]> {
-  const base = normalizeBaseUrl(getOllamaBaseUrl());
+  const base = normalizeOpenAiCompatibleBaseUrl(getOllamaBaseUrl());
   const data = await safeFetchJson<{ models?: Array<{ name: string }> }>(`${base}/api/tags`);
   if (!data?.models) return [];
 
@@ -120,7 +121,7 @@ export async function probeOpenAiCompatibleEndpoint(input: {
   providerKey?: string;
   providerLabel?: string;
 }): Promise<OpenAiCompatibleProbeResult | null> {
-  const baseUrl = normalizeBaseUrl(input.baseUrl);
+  const baseUrl = normalizeOpenAiCompatibleBaseUrl(input.baseUrl);
   const data = await safeFetchJson<{ data?: Array<{ id: string }> }>(
     `${baseUrl}/v1/models`,
     input.apiKey
