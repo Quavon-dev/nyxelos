@@ -74,10 +74,14 @@ const CHAT_MODE_LABEL: Record<ChatToolMode, string> = {
 	auto: "AUTO",
 };
 
-const CHAT_MODE_COPY: Record<ChatToolMode, { title: string; description: string }> = {
+const CHAT_MODE_COPY: Record<
+	ChatToolMode,
+	{ title: string; description: string }
+> = {
 	default: {
 		title: "Default",
-		description: "Sensitive tools wait for approval and the assistant may ask before acting.",
+		description:
+			"Sensitive tools wait for approval and the assistant may ask before acting.",
 	},
 	automatic: {
 		title: "Automatic Tool Usage",
@@ -309,7 +313,8 @@ export function ChatComposerToolbar({
 		const reader = new FileReader();
 		const isImage = file.type.startsWith("image/");
 		const isPdf =
-			file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+			file.type === "application/pdf" ||
+			file.name.toLowerCase().endsWith(".pdf");
 		reader.onerror = () => {
 			onAttachedFileChange(null);
 		};
@@ -319,11 +324,7 @@ export function ChatComposerToolbar({
 				kind: isImage ? "image" : isPdf ? "pdf" : "text",
 				mimeType:
 					file.type ||
-					(isImage
-						? "image/*"
-						: isPdf
-							? "application/pdf"
-							: "text/plain"),
+					(isImage ? "image/*" : isPdf ? "application/pdf" : "text/plain"),
 				content: String(reader.result ?? ""),
 			});
 		};
@@ -617,7 +618,10 @@ export function ChatComposerToolbar({
 				<PopoverTrigger asChild>
 					<button
 						type="button"
-						className={cn(pillClass(chatToolPolicy.mode !== "default"), "shrink-0")}
+						className={cn(
+							pillClass(chatToolPolicy.mode !== "default"),
+							"shrink-0",
+						)}
 					>
 						<Bot className="size-3.5" />
 						{modeLabel}
@@ -628,7 +632,8 @@ export function ChatComposerToolbar({
 					<div className="space-y-1">
 						<p className="font-medium">Chat execution mode</p>
 						<p className="text-xs text-muted-foreground">
-							Choose how independently this chat should plan, gather context, and use tools.
+							Choose how independently this chat should plan, gather context,
+							and use tools.
 						</p>
 					</div>
 					<div className="space-y-2">
@@ -642,14 +647,18 @@ export function ChatComposerToolbar({
 									onClick={() => updateChatToolPolicy({ mode: modeValue })}
 									className={cn(
 										"w-full rounded-lg border px-3 py-2 text-left transition-colors",
-										selected ? "border-primary bg-primary/5" : "hover:bg-muted/60",
+										selected
+											? "border-primary bg-primary/5"
+											: "hover:bg-muted/60",
 									)}
 								>
 									<div className="flex items-center gap-2 text-sm font-medium">
 										<span>{option.title}</span>
 										{selected && <Check className="size-3.5 text-primary" />}
 									</div>
-									<p className="mt-1 text-xs text-muted-foreground">{option.description}</p>
+									<p className="mt-1 text-xs text-muted-foreground">
+										{option.description}
+									</p>
 								</button>
 							);
 						})}
@@ -658,52 +667,70 @@ export function ChatComposerToolbar({
 						<div className="space-y-1">
 							<p className="text-sm font-medium">Approval guardrails</p>
 							<p className="text-xs text-muted-foreground">
-								Default mode always approves every sensitive action first. In Automatic Tool Usage and AUTO, these switches decide what still goes through Approvals.
+								Default mode always approves every sensitive action first. In
+								Automatic Tool Usage and AUTO, these switches decide what still
+								goes through Approvals.
 							</p>
 						</div>
 						<div className="space-y-2">
 							<div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
 								<div>
 									<p className="text-sm font-medium">Approve file writes</p>
-									<p className="text-xs text-muted-foreground">Creating or editing files still waits for approval.</p>
+									<p className="text-xs text-muted-foreground">
+										Creating or editing files still waits for approval.
+									</p>
 								</div>
 								<Switch
 									checked={chatToolPolicy.approveFileWrites}
 									disabled={guardrailsLocked}
-									onCheckedChange={(checked) => updateChatToolPolicy({ approveFileWrites: checked })}
+									onCheckedChange={(checked) =>
+										updateChatToolPolicy({ approveFileWrites: checked })
+									}
 								/>
 							</div>
 							<div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
 								<div>
 									<p className="text-sm font-medium">Approve file deletions</p>
-									<p className="text-xs text-muted-foreground">Deleting files still waits for approval.</p>
+									<p className="text-xs text-muted-foreground">
+										Deleting files still waits for approval.
+									</p>
 								</div>
 								<Switch
 									checked={chatToolPolicy.approveFileDeletes}
 									disabled={guardrailsLocked}
-									onCheckedChange={(checked) => updateChatToolPolicy({ approveFileDeletes: checked })}
+									onCheckedChange={(checked) =>
+										updateChatToolPolicy({ approveFileDeletes: checked })
+									}
 								/>
 							</div>
 							<div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
 								<div>
 									<p className="text-sm font-medium">Approve custom code</p>
-									<p className="text-xs text-muted-foreground">Custom-code skills still wait for approval.</p>
+									<p className="text-xs text-muted-foreground">
+										Custom-code skills still wait for approval.
+									</p>
 								</div>
 								<Switch
 									checked={chatToolPolicy.approveCustomCode}
 									disabled={guardrailsLocked}
-									onCheckedChange={(checked) => updateChatToolPolicy({ approveCustomCode: checked })}
+									onCheckedChange={(checked) =>
+										updateChatToolPolicy({ approveCustomCode: checked })
+									}
 								/>
 							</div>
 							<div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
 								<div>
 									<p className="text-sm font-medium">Approve MCP tools</p>
-									<p className="text-xs text-muted-foreground">Third-party MCP tool calls still wait for approval.</p>
+									<p className="text-xs text-muted-foreground">
+										Third-party MCP tool calls still wait for approval.
+									</p>
 								</div>
 								<Switch
 									checked={chatToolPolicy.approveMcpTools}
 									disabled={guardrailsLocked}
-									onCheckedChange={(checked) => updateChatToolPolicy({ approveMcpTools: checked })}
+									onCheckedChange={(checked) =>
+										updateChatToolPolicy({ approveMcpTools: checked })
+									}
 								/>
 							</div>
 						</div>
