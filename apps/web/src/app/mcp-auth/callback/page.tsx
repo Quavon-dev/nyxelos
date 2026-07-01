@@ -18,6 +18,15 @@ const DETAIL: Record<AuthState["status"], string> = {
   error: "Retry the connection from Nyxel after fixing the provider or endpoint settings.",
 };
 
+// Module-level so the in-flight exchange survives React Strict Mode's
+// mount -> cleanup -> remount cycle in dev. Without this, the first effect
+// instance starts the mutation and gets torn down (cancelled = true) before
+// it resolves, the second instance sees the attempt already recorded and
+// skips starting a new one, and nobody left with cancelled === false is
+// around to move the UI out of "working" — the spinner hangs forever even
+// though the exchange actually succeeded server-side.
+const pendingAuthExchanges = new Map<string, ReturnType<typeof trpcClient.mcpServers.finishAuth.mutate>>();
+
 export default function McpAuthCallbackPage() {
   const searchParams = useSearchParams();
   const code = searchParams.get("code");
@@ -43,20 +52,19 @@ export default function McpAuthCallbackPage() {
     }
 
     let cancelled = false;
-    const attemptKey = `nyxel:mcp-auth-attempt:${serverId}:${code}`;
+    const attemptKey = `${serverId}:${code}`;
 
-    // Next dev runs effects twice under Strict Mode; do not exchange the same
-    // single-use OAuth code more than once.
-    if (window.sessionStorage.getItem(attemptKey)) {
-      return;
+    // Reuse the same in-flight (or already-settled) exchange across Strict
+    // Mode's double effect invocation instead of starting a second one.
+    let exchange = pendingAuthExchanges.get(attemptKey);
+    if (!exchange) {
+      exchange = trpcClient.mcpServers.finishAuth.mutate({ id: serverId, code });
+      pendingAuthExchanges.set(attemptKey, exchange);
     }
-    window.sessionStorage.setItem(attemptKey, "pending");
 
-    void trpcClient.mcpServers.finishAuth
-      .mutate({ id: serverId, code })
+    exchange
       .then(() => {
         if (cancelled) return;
-        window.sessionStorage.setItem(attemptKey, "done");
         window.opener?.postMessage(
           { type: "nyxel:mcp-auth-complete", serverId },
           window.location.origin,
@@ -76,8 +84,8 @@ export default function McpAuthCallbackPage() {
         }, 900);
       })
       .catch((err: Error) => {
+        pendingAuthExchanges.delete(attemptKey);
         if (cancelled) return;
-        window.sessionStorage.removeItem(attemptKey);
         setState({
           status: "error",
           message: err.message || "Failed to finish MCP sign-in.",
