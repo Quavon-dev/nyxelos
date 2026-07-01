@@ -1,6 +1,10 @@
 export type MessageRole = "user" | "assistant" | "system" | "tool";
 
-export type AgentAutonomyLevel = "chat" | "assisted" | "autonomous" | "super_agent";
+export type AgentAutonomyLevel =
+	| "chat"
+	| "assisted"
+	| "autonomous"
+	| "super_agent";
 export type InstallationMode = "pc" | "server";
 export type ModelProviderKind = "anthropic" | "openai" | "openai_compatible";
 
@@ -13,199 +17,199 @@ export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
 export type ChatToolMode = "default" | "automatic" | "auto";
 
 export interface ChatToolPolicy {
-  mode: ChatToolMode;
-  approveFileWrites: boolean;
-  approveFileDeletes: boolean;
-  approveCustomCode: boolean;
-  approveMcpTools: boolean;
+	mode: ChatToolMode;
+	approveFileWrites: boolean;
+	approveFileDeletes: boolean;
+	approveCustomCode: boolean;
+	approveMcpTools: boolean;
 }
 
 export const DEFAULT_CHAT_TOOL_POLICY: ChatToolPolicy = {
-  mode: "default",
-  approveFileWrites: true,
-  approveFileDeletes: true,
-  approveCustomCode: true,
-  approveMcpTools: true,
+	mode: "default",
+	approveFileWrites: true,
+	approveFileDeletes: true,
+	approveCustomCode: true,
+	approveMcpTools: true,
 };
 
 export type SkillKind =
-  | "http_fetch"
-  | "file_read"
-  | "file_write"
-  | "file_list"
-  | "file_delete"
-  | "kb_search"
-  | "custom_code";
+	| "http_fetch"
+	| "file_read"
+	| "file_write"
+	| "file_list"
+	| "file_delete"
+	| "kb_search"
+	| "custom_code";
 
 export type AutomationTriggerType = "cron" | "file_watch";
 
 export interface WorkspaceRecord {
-  id: string;
-  name: string;
-  customInstructions: string | null;
+	id: string;
+	name: string;
+	customInstructions: string | null;
 }
 
 export interface InstallationRecord {
-  id: string;
-  mode: InstallationMode;
-  ownerUserId: string;
-  primaryWorkspaceId: string;
-  appUrl: string | null;
-  createdAt: Date;
-  updatedAt: Date;
+	id: string;
+	mode: InstallationMode;
+	ownerUserId: string;
+	primaryWorkspaceId: string;
+	appUrl: string | null;
+	createdAt: Date;
+	updatedAt: Date;
 }
 
 export interface ChatRecord {
-  id: string;
-  workspaceId: string;
-  agentId: string | null;
-  projectId: string | null;
-  title: string;
-  modelId: string;
-  archivedAt: Date | null;
-  pinnedAt: Date | null;
-  shareId: string | null;
-  sharedAt: Date | null;
-  toolMode: ChatToolMode;
-  toolPolicy: ChatToolPolicy;
-  createdAt: Date;
+	id: string;
+	workspaceId: string;
+	agentId: string | null;
+	projectId: string | null;
+	title: string;
+	modelId: string;
+	archivedAt: Date | null;
+	pinnedAt: Date | null;
+	shareId: string | null;
+	sharedAt: Date | null;
+	toolMode: ChatToolMode;
+	toolPolicy: ChatToolPolicy;
+	createdAt: Date;
 }
 
 export interface ProjectRecord {
-  id: string;
-  workspaceId: string;
-  name: string;
-  createdAt: Date;
+	id: string;
+	workspaceId: string;
+	name: string;
+	createdAt: Date;
 }
 
 export interface MessageRecord {
-  id: string;
-  chatId: string;
-  role: MessageRole;
-  content: string;
-  createdAt: Date;
+	id: string;
+	chatId: string;
+	role: MessageRole;
+	content: string;
+	createdAt: Date;
 }
 
 export interface AgentRecord {
-  id: string;
-  workspaceId: string;
-  name: string;
-  systemPrompt: string | null;
-  modelId: string;
-  autonomyLevel: AgentAutonomyLevel;
-  skillIds: string[];
-  mcpServerIds: string[];
-  /** Per-tool allow-list narrowing mcpServerIds, entries shaped
-   * "serverId::toolName". Null means every tool from every listed server. */
-  mcpToolFilter: string[] | null;
-  /** Only meaningful for autonomyLevel "super_agent" — see ADR-0011. */
-  delegateAgentIds: string[];
-  createdAt: Date;
+	id: string;
+	workspaceId: string;
+	name: string;
+	systemPrompt: string | null;
+	modelId: string;
+	autonomyLevel: AgentAutonomyLevel;
+	skillIds: string[];
+	mcpServerIds: string[];
+	/** Per-tool allow-list narrowing mcpServerIds, entries shaped
+	 * "serverId::toolName". Null means every tool from every listed server. */
+	mcpToolFilter: string[] | null;
+	/** Only meaningful for autonomyLevel "super_agent" — see ADR-0011. */
+	delegateAgentIds: string[];
+	createdAt: Date;
 }
 
 export interface UserRecord {
-  id: string;
-  name: string;
-  email: string;
+	id: string;
+	name: string;
+	email: string;
 }
 
 export interface AutomationRecord {
-  id: string;
-  workspaceId: string;
-  agentId: string;
-  name: string;
-  triggerType: AutomationTriggerType;
-  cronExpression: string;
-  watchPath: string | null;
-  watchGlob: string | null;
-  lastWatchCheckAt: Date | null;
-  prompt: string;
-  enabled: boolean;
-  lastRunAt: Date | null;
-  nextRunAt: Date | null;
-  createdAt: Date;
+	id: string;
+	workspaceId: string;
+	agentId: string;
+	name: string;
+	triggerType: AutomationTriggerType;
+	cronExpression: string;
+	watchPath: string | null;
+	watchGlob: string | null;
+	lastWatchCheckAt: Date | null;
+	prompt: string;
+	enabled: boolean;
+	lastRunAt: Date | null;
+	nextRunAt: Date | null;
+	createdAt: Date;
 }
 
 export interface SkillRecord {
-  id: string;
-  workspaceId: string;
-  name: string;
-  description: string;
-  kind: SkillKind;
-  config: Record<string, unknown>;
-  sensitive: boolean;
-  enabled: boolean;
-  createdAt: Date;
+	id: string;
+	workspaceId: string;
+	name: string;
+	description: string;
+	kind: SkillKind;
+	config: Record<string, unknown>;
+	sensitive: boolean;
+	enabled: boolean;
+	createdAt: Date;
 }
 
 export interface ApprovalRequestRecord {
-  id: string;
-  workspaceId: string;
-  agentId: string;
-  chatId: string | null;
-  automationId: string | null;
-  kind: ApprovalKind;
-  skillId: string | null;
-  mcpServerId: string | null;
-  mcpToolName: string | null;
-  toolLabel: string;
-  input: Record<string, unknown>;
-  status: ApprovalStatus;
-  resultOutput: unknown;
-  errorMessage: string | null;
-  createdAt: Date;
-  resolvedAt: Date | null;
+	id: string;
+	workspaceId: string;
+	agentId: string;
+	chatId: string | null;
+	automationId: string | null;
+	kind: ApprovalKind;
+	skillId: string | null;
+	mcpServerId: string | null;
+	mcpToolName: string | null;
+	toolLabel: string;
+	input: Record<string, unknown>;
+	status: ApprovalStatus;
+	resultOutput: unknown;
+	errorMessage: string | null;
+	createdAt: Date;
+	resolvedAt: Date | null;
 }
 
 export interface AuditLogRecord {
-  id: string;
-  workspaceId: string;
-  agentId: string | null;
-  chatId: string | null;
-  automationId: string | null;
-  actor: AuditActor;
-  toolLabel: string;
-  input: unknown;
-  output: unknown;
-  status: AuditStatus;
-  createdAt: Date;
+	id: string;
+	workspaceId: string;
+	agentId: string | null;
+	chatId: string | null;
+	automationId: string | null;
+	actor: AuditActor;
+	toolLabel: string;
+	input: unknown;
+	output: unknown;
+	status: AuditStatus;
+	createdAt: Date;
 }
 
 export interface McpServerRecord {
-  id: string;
-  workspaceId: string;
-  name: string;
-  transport: McpTransport;
-  command: string | null;
-  args: string[] | null;
-  url: string | null;
-  enabled: boolean;
-  createdAt: Date;
+	id: string;
+	workspaceId: string;
+	name: string;
+	transport: McpTransport;
+	command: string | null;
+	args: string[] | null;
+	url: string | null;
+	enabled: boolean;
+	createdAt: Date;
 }
 
 export interface KnowledgeBaseConfigRecord {
-  workspaceId: string;
-  vaultPath: string;
-  obsidianRestUrl: string | null;
-  obsidianApiKey: string | null;
-  docsAgentEnabled: boolean;
-  injectIntoPrompts: boolean;
-  lastDocsSyncAt: Date | null;
-  lastDocsSyncError: string | null;
-  updatedAt: Date;
+	workspaceId: string;
+	vaultPath: string;
+	obsidianRestUrl: string | null;
+	obsidianApiKey: string | null;
+	docsAgentEnabled: boolean;
+	injectIntoPrompts: boolean;
+	lastDocsSyncAt: Date | null;
+	lastDocsSyncError: string | null;
+	updatedAt: Date;
 }
 
 export interface ModelInstallationRecord {
-  id: string;
-  workspaceId: string;
-  label: string;
-  providerKind: ModelProviderKind;
-  baseUrl: string;
-  apiKey: string | null;
-  modelIds: string[];
-  enabled: boolean;
-  createdAt: Date;
-  updatedAt: Date;
+	id: string;
+	workspaceId: string;
+	label: string;
+	providerKind: ModelProviderKind;
+	baseUrl: string;
+	apiKey: string | null;
+	modelIds: string[];
+	enabled: boolean;
+	createdAt: Date;
+	updatedAt: Date;
 }
 
 /**
@@ -216,210 +220,233 @@ export interface ModelInstallationRecord {
  * See ADR-0006 for why this is an interface rather than a shared instance.
  */
 export interface DbRepository {
-  readonly driver: "pg" | "sqlite";
+	readonly driver: "pg" | "sqlite";
 
-  getOrCreateDemoUser(): Promise<{ id: string; name: string; email: string }>;
-  getUser(userId: string): Promise<UserRecord | null>;
-  getInstallation(): Promise<InstallationRecord | null>;
-  completeInstallation(input: {
-    mode: InstallationMode;
-    ownerUserId: string;
-    primaryWorkspaceId: string;
-    appUrl?: string | null;
-  }): Promise<InstallationRecord>;
+	getOrCreateDemoUser(): Promise<{ id: string; name: string; email: string }>;
+	getUser(userId: string): Promise<UserRecord | null>;
+	getInstallation(): Promise<InstallationRecord | null>;
+	completeInstallation(input: {
+		mode: InstallationMode;
+		ownerUserId: string;
+		primaryWorkspaceId: string;
+		appUrl?: string | null;
+	}): Promise<InstallationRecord>;
 
-  createWorkspace(input: { userId: string; name: string }): Promise<WorkspaceRecord>;
-  listWorkspacesByUser(userId: string): Promise<WorkspaceRecord[]>;
-  listWorkspaces(): Promise<WorkspaceRecord[]>;
-  getWorkspace(workspaceId: string): Promise<WorkspaceRecord | null>;
-  updateWorkspaceInstructions(input: {
-    workspaceId: string;
-    customInstructions: string | null;
-  }): Promise<WorkspaceRecord>;
+	createWorkspace(input: {
+		userId: string;
+		name: string;
+	}): Promise<WorkspaceRecord>;
+	listWorkspacesByUser(userId: string): Promise<WorkspaceRecord[]>;
+	listWorkspaces(): Promise<WorkspaceRecord[]>;
+	getWorkspace(workspaceId: string): Promise<WorkspaceRecord | null>;
+	updateWorkspaceInstructions(input: {
+		workspaceId: string;
+		customInstructions: string | null;
+	}): Promise<WorkspaceRecord>;
 
-  createModelInstallation(input: {
-    workspaceId: string;
-    label: string;
-    providerKind: ModelProviderKind;
-    baseUrl: string;
-    apiKey?: string | null;
-    modelIds: string[];
-    enabled?: boolean;
-  }): Promise<ModelInstallationRecord>;
-  listModelInstallationsByWorkspace(workspaceId: string): Promise<ModelInstallationRecord[]>;
-  getModelInstallation(id: string): Promise<ModelInstallationRecord | null>;
-  deleteModelInstallation(id: string): Promise<void>;
+	createModelInstallation(input: {
+		workspaceId: string;
+		label: string;
+		providerKind: ModelProviderKind;
+		baseUrl: string;
+		apiKey?: string | null;
+		modelIds: string[];
+		enabled?: boolean;
+	}): Promise<ModelInstallationRecord>;
+	listModelInstallationsByWorkspace(
+		workspaceId: string,
+	): Promise<ModelInstallationRecord[]>;
+	getModelInstallation(id: string): Promise<ModelInstallationRecord | null>;
+	deleteModelInstallation(id: string): Promise<void>;
 
-  createChat(input: {
-    workspaceId: string;
-    title: string;
-    modelId: string;
-    agentId?: string | null;
-    projectId?: string | null;
-    toolMode?: ChatToolMode;
-    toolPolicy?: ChatToolPolicy;
-  }): Promise<ChatRecord>;
-  listChatsByWorkspace(workspaceId: string): Promise<ChatRecord[]>;
-  listArchivedChatsByWorkspace(workspaceId: string): Promise<ChatRecord[]>;
-  listChatsByProject(projectId: string): Promise<ChatRecord[]>;
-  getChat(chatId: string): Promise<ChatRecord | null>;
-  getChatByShareId(shareId: string): Promise<ChatRecord | null>;
-  renameChat(chatId: string, title: string): Promise<ChatRecord>;
-  setChatArchived(chatId: string, archived: boolean): Promise<ChatRecord>;
-  setChatPinned(chatId: string, pinned: boolean): Promise<ChatRecord>;
-  setChatProject(chatId: string, projectId: string | null): Promise<ChatRecord>;
-  /** Turning sharing on assigns a share token the first time (idempotent
-   * afterwards); turning it off clears the token so the old link 404s. */
-  setChatShared(chatId: string, shared: boolean): Promise<ChatRecord>;
-  /** Clones a chat (and its messages) into a new chat in the same
-   * workspace/project — the "Duplizieren" sidebar action. The duplicate is
-   * never pinned/shared/archived even if the source was. */
-  duplicateChat(chatId: string): Promise<ChatRecord>;
-  deleteChat(chatId: string): Promise<void>;
-  /** Re-points a chat at a different agent — used when a chat's skill/MCP
-   * selection is edited mid-conversation: rather than mutating a shared
-   * agent (which could be reused by other chats), the caller forks a new
-   * one-off agent and calls this to bind the chat to it going forward. */
-  updateChatAgent(chatId: string, agentId: string | null): Promise<ChatRecord>;
-  updateChatToolPolicy(input: {
-    chatId: string;
-    toolMode: ChatToolMode;
-    toolPolicy: ChatToolPolicy;
-  }): Promise<ChatRecord>;
+	createChat(input: {
+		workspaceId: string;
+		title: string;
+		modelId: string;
+		agentId?: string | null;
+		projectId?: string | null;
+		toolMode?: ChatToolMode;
+		toolPolicy?: ChatToolPolicy;
+	}): Promise<ChatRecord>;
+	listChatsByWorkspace(workspaceId: string): Promise<ChatRecord[]>;
+	listArchivedChatsByWorkspace(workspaceId: string): Promise<ChatRecord[]>;
+	listChatsByProject(projectId: string): Promise<ChatRecord[]>;
+	getChat(chatId: string): Promise<ChatRecord | null>;
+	getChatByShareId(shareId: string): Promise<ChatRecord | null>;
+	renameChat(chatId: string, title: string): Promise<ChatRecord>;
+	setChatArchived(chatId: string, archived: boolean): Promise<ChatRecord>;
+	setChatPinned(chatId: string, pinned: boolean): Promise<ChatRecord>;
+	setChatProject(chatId: string, projectId: string | null): Promise<ChatRecord>;
+	/** Turning sharing on assigns a share token the first time (idempotent
+	 * afterwards); turning it off clears the token so the old link 404s. */
+	setChatShared(chatId: string, shared: boolean): Promise<ChatRecord>;
+	/** Clones a chat (and its messages) into a new chat in the same
+	 * workspace/project — the "Duplizieren" sidebar action. The duplicate is
+	 * never pinned/shared/archived even if the source was. */
+	duplicateChat(chatId: string): Promise<ChatRecord>;
+	deleteChat(chatId: string): Promise<void>;
+	/** Re-points a chat at a different agent — used when a chat's skill/MCP
+	 * selection is edited mid-conversation: rather than mutating a shared
+	 * agent (which could be reused by other chats), the caller forks a new
+	 * one-off agent and calls this to bind the chat to it going forward. */
+	updateChatAgent(chatId: string, agentId: string | null): Promise<ChatRecord>;
+	updateChatToolPolicy(input: {
+		chatId: string;
+		toolMode: ChatToolMode;
+		toolPolicy: ChatToolPolicy;
+	}): Promise<ChatRecord>;
 
-  createProject(input: { workspaceId: string; name: string }): Promise<ProjectRecord>;
-  listProjectsByWorkspace(workspaceId: string): Promise<ProjectRecord[]>;
-  getProject(projectId: string): Promise<ProjectRecord | null>;
-  renameProject(projectId: string, name: string): Promise<ProjectRecord>;
-  /** Deletes the project itself; member chats are kept and simply fall back
-   * to projectId null (see the "set null" FK in packages/db/src/schema). */
-  deleteProject(projectId: string): Promise<void>;
-  /** Clones a project and every chat (with messages) filed under it — the
-   * "Duplizieren" action on a project row. */
-  duplicateProject(projectId: string): Promise<ProjectRecord>;
+	createProject(input: {
+		workspaceId: string;
+		name: string;
+	}): Promise<ProjectRecord>;
+	listProjectsByWorkspace(workspaceId: string): Promise<ProjectRecord[]>;
+	getProject(projectId: string): Promise<ProjectRecord | null>;
+	renameProject(projectId: string, name: string): Promise<ProjectRecord>;
+	/** Deletes the project itself; member chats are kept and simply fall back
+	 * to projectId null (see the "set null" FK in packages/db/src/schema). */
+	deleteProject(projectId: string): Promise<void>;
+	/** Clones a project and every chat (with messages) filed under it — the
+	 * "Duplizieren" action on a project row. */
+	duplicateProject(projectId: string): Promise<ProjectRecord>;
 
-  addMessage(input: { chatId: string; role: MessageRole; content: string }): Promise<MessageRecord>;
-  listMessages(chatId: string): Promise<MessageRecord[]>;
+	addMessage(input: {
+		chatId: string;
+		role: MessageRole;
+		content: string;
+	}): Promise<MessageRecord>;
+	listMessages(chatId: string): Promise<MessageRecord[]>;
 
-  createAgent(input: {
-    workspaceId: string;
-    name: string;
-    systemPrompt?: string | null;
-    modelId: string;
-    autonomyLevel?: AgentAutonomyLevel;
-    skillIds?: string[];
-    mcpServerIds?: string[];
-    mcpToolFilter?: string[] | null;
-    delegateAgentIds?: string[];
-  }): Promise<AgentRecord>;
-  listAgentsByWorkspace(workspaceId: string): Promise<AgentRecord[]>;
-  getAgent(agentId: string): Promise<AgentRecord | null>;
+	createAgent(input: {
+		workspaceId: string;
+		name: string;
+		systemPrompt?: string | null;
+		modelId: string;
+		autonomyLevel?: AgentAutonomyLevel;
+		skillIds?: string[];
+		mcpServerIds?: string[];
+		mcpToolFilter?: string[] | null;
+		delegateAgentIds?: string[];
+	}): Promise<AgentRecord>;
+	listAgentsByWorkspace(workspaceId: string): Promise<AgentRecord[]>;
+	getAgent(agentId: string): Promise<AgentRecord | null>;
 
-  createMcpServer(input: {
-    workspaceId: string;
-    name: string;
-    transport: McpTransport;
-    command?: string | null;
-    args?: string[] | null;
-    url?: string | null;
-  }): Promise<McpServerRecord>;
-  listMcpServersByWorkspace(workspaceId: string): Promise<McpServerRecord[]>;
-  getMcpServer(id: string): Promise<McpServerRecord | null>;
-  deleteMcpServer(id: string): Promise<void>;
+	createMcpServer(input: {
+		workspaceId: string;
+		name: string;
+		transport: McpTransport;
+		command?: string | null;
+		args?: string[] | null;
+		url?: string | null;
+	}): Promise<McpServerRecord>;
+	listMcpServersByWorkspace(workspaceId: string): Promise<McpServerRecord[]>;
+	getMcpServer(id: string): Promise<McpServerRecord | null>;
+	deleteMcpServer(id: string): Promise<void>;
 
-  getKnowledgeBaseConfig(workspaceId: string): Promise<KnowledgeBaseConfigRecord | null>;
-  listKnowledgeBaseConfigs(): Promise<KnowledgeBaseConfigRecord[]>;
-  upsertKnowledgeBaseConfig(input: {
-    workspaceId: string;
-    vaultPath: string;
-    obsidianRestUrl?: string | null;
-    obsidianApiKey?: string | null;
-    docsAgentEnabled?: boolean;
-    injectIntoPrompts?: boolean;
-  }): Promise<KnowledgeBaseConfigRecord>;
-  updateKnowledgeBaseSyncStatus(input: {
-    workspaceId: string;
-    lastDocsSyncAt?: Date | null;
-    lastDocsSyncError?: string | null;
-  }): Promise<KnowledgeBaseConfigRecord>;
+	getKnowledgeBaseConfig(
+		workspaceId: string,
+	): Promise<KnowledgeBaseConfigRecord | null>;
+	listKnowledgeBaseConfigs(): Promise<KnowledgeBaseConfigRecord[]>;
+	upsertKnowledgeBaseConfig(input: {
+		workspaceId: string;
+		vaultPath: string;
+		obsidianRestUrl?: string | null;
+		obsidianApiKey?: string | null;
+		docsAgentEnabled?: boolean;
+		injectIntoPrompts?: boolean;
+	}): Promise<KnowledgeBaseConfigRecord>;
+	updateKnowledgeBaseSyncStatus(input: {
+		workspaceId: string;
+		lastDocsSyncAt?: Date | null;
+		lastDocsSyncError?: string | null;
+	}): Promise<KnowledgeBaseConfigRecord>;
 
-  createAutomation(input: {
-    workspaceId: string;
-    agentId: string;
-    name: string;
-    triggerType?: AutomationTriggerType;
-    cronExpression?: string;
-    watchPath?: string | null;
-    watchGlob?: string | null;
-    prompt: string;
-    enabled?: boolean;
-    nextRunAt?: Date | null;
-  }): Promise<AutomationRecord>;
-  listAutomationsByWorkspace(workspaceId: string): Promise<AutomationRecord[]>;
-  listDueAutomations(now: Date): Promise<AutomationRecord[]>;
-  /** Enabled automations with triggerType "file_watch" — polled by the
-   * scheduler independently of listDueAutomations (which is nextRunAt/cron
-   * only). See ADR-0013. */
-  listFileWatchAutomations(): Promise<AutomationRecord[]>;
-  getAutomation(id: string): Promise<AutomationRecord | null>;
-  updateAutomationRun(input: {
-    id: string;
-    lastRunAt: Date;
-    nextRunAt: Date | null;
-  }): Promise<AutomationRecord>;
-  setAutomationNextRun(id: string, nextRunAt: Date | null): Promise<AutomationRecord>;
-  setAutomationEnabled(id: string, enabled: boolean): Promise<AutomationRecord>;
-  setAutomationWatchCheckedAt(id: string, lastWatchCheckAt: Date): Promise<AutomationRecord>;
-  deleteAutomation(id: string): Promise<void>;
+	createAutomation(input: {
+		workspaceId: string;
+		agentId: string;
+		name: string;
+		triggerType?: AutomationTriggerType;
+		cronExpression?: string;
+		watchPath?: string | null;
+		watchGlob?: string | null;
+		prompt: string;
+		enabled?: boolean;
+		nextRunAt?: Date | null;
+	}): Promise<AutomationRecord>;
+	listAutomationsByWorkspace(workspaceId: string): Promise<AutomationRecord[]>;
+	listDueAutomations(now: Date): Promise<AutomationRecord[]>;
+	/** Enabled automations with triggerType "file_watch" — polled by the
+	 * scheduler independently of listDueAutomations (which is nextRunAt/cron
+	 * only). See ADR-0013. */
+	listFileWatchAutomations(): Promise<AutomationRecord[]>;
+	getAutomation(id: string): Promise<AutomationRecord | null>;
+	updateAutomationRun(input: {
+		id: string;
+		lastRunAt: Date;
+		nextRunAt: Date | null;
+	}): Promise<AutomationRecord>;
+	setAutomationNextRun(
+		id: string,
+		nextRunAt: Date | null,
+	): Promise<AutomationRecord>;
+	setAutomationEnabled(id: string, enabled: boolean): Promise<AutomationRecord>;
+	setAutomationWatchCheckedAt(
+		id: string,
+		lastWatchCheckAt: Date,
+	): Promise<AutomationRecord>;
+	deleteAutomation(id: string): Promise<void>;
 
-  createSkill(input: {
-    workspaceId: string;
-    name: string;
-    description: string;
-    kind: SkillKind;
-    config: Record<string, unknown>;
-    sensitive?: boolean;
-    enabled?: boolean;
-  }): Promise<SkillRecord>;
-  listSkillsByWorkspace(workspaceId: string): Promise<SkillRecord[]>;
-  getSkill(id: string): Promise<SkillRecord | null>;
-  setSkillEnabled(id: string, enabled: boolean): Promise<SkillRecord>;
-  deleteSkill(id: string): Promise<void>;
+	createSkill(input: {
+		workspaceId: string;
+		name: string;
+		description: string;
+		kind: SkillKind;
+		config: Record<string, unknown>;
+		sensitive?: boolean;
+		enabled?: boolean;
+	}): Promise<SkillRecord>;
+	listSkillsByWorkspace(workspaceId: string): Promise<SkillRecord[]>;
+	getSkill(id: string): Promise<SkillRecord | null>;
+	setSkillEnabled(id: string, enabled: boolean): Promise<SkillRecord>;
+	deleteSkill(id: string): Promise<void>;
 
-  createApprovalRequest(input: {
-    workspaceId: string;
-    agentId: string;
-    chatId?: string | null;
-    automationId?: string | null;
-    kind: ApprovalKind;
-    skillId?: string | null;
-    mcpServerId?: string | null;
-    mcpToolName?: string | null;
-    toolLabel: string;
-    input: Record<string, unknown>;
-  }): Promise<ApprovalRequestRecord>;
-  listApprovalsByWorkspace(
-    workspaceId: string,
-    status?: ApprovalStatus,
-  ): Promise<ApprovalRequestRecord[]>;
-  getApprovalRequest(id: string): Promise<ApprovalRequestRecord | null>;
-  resolveApprovalRequest(input: {
-    id: string;
-    status: "approved" | "rejected";
-    resultOutput?: unknown;
-    errorMessage?: string | null;
-  }): Promise<ApprovalRequestRecord>;
+	createApprovalRequest(input: {
+		workspaceId: string;
+		agentId: string;
+		chatId?: string | null;
+		automationId?: string | null;
+		kind: ApprovalKind;
+		skillId?: string | null;
+		mcpServerId?: string | null;
+		mcpToolName?: string | null;
+		toolLabel: string;
+		input: Record<string, unknown>;
+	}): Promise<ApprovalRequestRecord>;
+	listApprovalsByWorkspace(
+		workspaceId: string,
+		status?: ApprovalStatus,
+	): Promise<ApprovalRequestRecord[]>;
+	getApprovalRequest(id: string): Promise<ApprovalRequestRecord | null>;
+	resolveApprovalRequest(input: {
+		id: string;
+		status: "approved" | "rejected";
+		resultOutput?: unknown;
+		errorMessage?: string | null;
+	}): Promise<ApprovalRequestRecord>;
 
-  createAuditLog(input: {
-    workspaceId: string;
-    agentId?: string | null;
-    chatId?: string | null;
-    automationId?: string | null;
-    actor: AuditActor;
-    toolLabel: string;
-    input?: unknown;
-    output?: unknown;
-    status: AuditStatus;
-  }): Promise<AuditLogRecord>;
-  listAuditLogByWorkspace(workspaceId: string, limit?: number): Promise<AuditLogRecord[]>;
+	createAuditLog(input: {
+		workspaceId: string;
+		agentId?: string | null;
+		chatId?: string | null;
+		automationId?: string | null;
+		actor: AuditActor;
+		toolLabel: string;
+		input?: unknown;
+		output?: unknown;
+		status: AuditStatus;
+	}): Promise<AuditLogRecord>;
+	listAuditLogByWorkspace(
+		workspaceId: string,
+		limit?: number,
+	): Promise<AuditLogRecord[]>;
 }

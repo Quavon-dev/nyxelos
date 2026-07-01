@@ -4,5 +4,5 @@ import { fileURLToPath } from "node:url";
 // `bun dev`, `bun db:migrate`, and direct package entrypoints all hit the
 // same database file.
 export const DEFAULT_SQLITE_PATH = fileURLToPath(
-  new URL("../../../apps/server/nyxel.sqlite", import.meta.url),
+	new URL("../../../apps/server/nyxel.sqlite", import.meta.url),
 );

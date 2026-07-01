@@ -1,13 +1,13 @@
 import { mkdirSync } from "node:fs";
 import {
-  createWorkspaceFileDeleteSkill,
-  createWorkspaceFileListSkill,
-  createWorkspaceFileReadSkill,
-  createWorkspaceFileWriteSkill,
-  createWebFetchSkill,
-  createWriteNoteSkill,
-  getCurrentTimeSkill,
-  SkillRegistry,
+	createWorkspaceFileDeleteSkill,
+	createWorkspaceFileListSkill,
+	createWorkspaceFileReadSkill,
+	createWorkspaceFileWriteSkill,
+	createWebFetchSkill,
+	createWriteNoteSkill,
+	getCurrentTimeSkill,
+	SkillRegistry,
 } from "@nyxel/skills-sdk";
 
 /**
@@ -22,7 +22,9 @@ const workspaceRootDir = process.env.NYXEL_WORKSPACE_ROOT ?? process.cwd();
 mkdirSync(notesDir, { recursive: true });
 
 skillRegistry.register(getCurrentTimeSkill);
-skillRegistry.register(createWebFetchSkill(["api.github.com", "raw.githubusercontent.com"]));
+skillRegistry.register(
+	createWebFetchSkill(["api.github.com", "raw.githubusercontent.com"]),
+);
 skillRegistry.register(createWorkspaceFileReadSkill(workspaceRootDir));
 skillRegistry.register(createWorkspaceFileListSkill(workspaceRootDir));
 skillRegistry.register(createWorkspaceFileWriteSkill(workspaceRootDir));
