@@ -3,9 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "dev": "next dev --turbopack -p 3000",
-    "build": "next build",
-    "start": "next start -p 3000",
+    "dev": "bunx next dev --turbopack -p 3000",
+    "build": "bunx next build",
+    "start": "bunx next start -p 3000",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -20,6 +20,8 @@
     "tailwind-merge": "latest"
   },
   "devDependencies": {
+    "@nyxel/db": "workspace:*",
+    "@nyxel/model-providers": "workspace:*",
     "@nyxel/server": "workspace:*",
     "@tailwindcss/postcss": "latest",
     "@types/bun": "latest",
