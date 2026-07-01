@@ -17,7 +17,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { trpcClient } from "@/lib/trpc";
+import { serializeChatMessageContent } from "@/lib/chat-message";
+import { DEFAULT_CHAT_TOOL_POLICY, type ChatToolPolicy, trpcClient } from "@/lib/trpc";
 import { useInstallation } from "@/lib/use-installation";
 
 const QUICK_ACTIONS = [
@@ -85,6 +86,7 @@ export default function ChatLandingPage() {
   const [message, setMessage] = useState("");
   const [modelId, setModelId] = useState("");
   const [toolSelection, setToolSelection] = useState<ChatToolSelection | null>(null);
+  const [chatToolPolicy, setChatToolPolicy] = useState<ChatToolPolicy>(DEFAULT_CHAT_TOOL_POLICY);
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
 
   useEffect(() => {
@@ -95,6 +97,9 @@ export default function ChatLandingPage() {
     mutationFn: async () => {
       if (!workspaceId) throw new Error("Installation is incomplete.");
       if (!modelId) throw new Error("No model selected.");
+      if (!message.trim() && !attachedFile) {
+        throw new Error("Add a message or attach a file.");
+      }
 
       // A plain chat (toolSelection === null) gets the workspace's default
       // agent — every skill, every enabled MCP server — provisioned
@@ -116,29 +121,29 @@ export default function ChatLandingPage() {
         agentId = agent.id;
       }
 
-      // A file attached via the "File search" pill isn't uploaded anywhere —
-      // its text content is read client-side and folded straight into the
-      // first message so the model sees it as context.
       const outgoing = attachedFile
-        ? `${message.trim()}\n\n---\nAttached file: ${attachedFile.name}\n\`\`\`\n${attachedFile.content}\n\`\`\``
+        ? serializeChatMessageContent(message.trim(), [attachedFile])
         : message.trim();
 
       const chat = await trpcClient.chats.create.mutate({
         workspaceId,
-        title: message.trim().slice(0, 60) || "New chat",
+        title: message.trim().slice(0, 60) || attachedFile?.name || "New chat",
         modelId,
         agentId,
+        toolMode: chatToolPolicy.mode,
+        toolPolicy: chatToolPolicy,
       });
       return { chat, outgoing };
     },
     onSuccess: ({ chat, outgoing }) => {
-      router.push(`/chat/${chat.id}?draft=${encodeURIComponent(outgoing)}`);
+      sessionStorage.setItem(`nyxel:chat-draft:${chat.id}`, outgoing);
+      router.push(`/chat/${chat.id}`);
     },
   });
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!message.trim() || !modelId || createChat.isPending) return;
+    if ((!message.trim() && !attachedFile) || !modelId || createChat.isPending) return;
     createChat.mutate();
   }
 
@@ -209,6 +214,8 @@ export default function ChatLandingPage() {
                 workspaceId={workspaceId}
                 toolSelection={toolSelection}
                 onToolSelectionChange={setToolSelection}
+                chatToolPolicy={chatToolPolicy}
+                onChatToolPolicyChange={setChatToolPolicy}
                 attachedFile={attachedFile}
                 onAttachedFileChange={setAttachedFile}
                 onVoiceResult={(text) => setMessage((prev) => (prev ? `${prev} ${text}` : text))}
@@ -216,7 +223,7 @@ export default function ChatLandingPage() {
             </div>
             <button
               type="submit"
-              disabled={!message.trim() || !modelId || createChat.isPending}
+              disabled={(!message.trim() && !attachedFile) || !modelId || createChat.isPending}
               className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
             >
               <ArrowUp className="size-4" />

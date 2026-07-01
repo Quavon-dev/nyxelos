@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import {
+	Bot,
 	Blocks,
 	Check,
 	ChevronDown,
@@ -9,11 +10,12 @@ import {
 	CircleDashed,
 	Copy,
 	Download,
+	FileText,
+	Image,
 	Mic,
 	MicOff,
 	Paperclip,
 	Plug,
-	Search,
 	Settings2,
 	Sparkles,
 	X,
@@ -34,7 +36,14 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/ui/popover";
-import { type McpToolListResult, trpcClient } from "@/lib/trpc";
+import { Switch } from "@/components/ui/switch";
+import type { ChatAttachment } from "@/lib/chat-message";
+import {
+	type ChatToolMode,
+	type ChatToolPolicy,
+	type McpToolListResult,
+	trpcClient,
+} from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 
 export interface ChatToolSelection {
@@ -49,6 +58,8 @@ export interface ChatToolSelection {
 
 export interface AttachedFile {
 	name: string;
+	kind: ChatAttachment["kind"];
+	mimeType: string;
 	content: string;
 }
 
@@ -56,6 +67,29 @@ interface MessageLike {
 	role: string;
 	content: string;
 }
+
+const CHAT_MODE_LABEL: Record<ChatToolMode, string> = {
+	default: "Default",
+	automatic: "Auto Tools",
+	auto: "AUTO",
+};
+
+const CHAT_MODE_COPY: Record<ChatToolMode, { title: string; description: string }> = {
+	default: {
+		title: "Default",
+		description: "Sensitive tools wait for approval and the assistant may ask before acting.",
+	},
+	automatic: {
+		title: "Automatic Tool Usage",
+		description:
+			"The assistant plans and gathers context on its own, then uses tools directly unless a guardrail still requires approval.",
+	},
+	auto: {
+		title: "AUTO",
+		description:
+			"No confirmation questions. The assistant plans, gathers context, and acts directly unless a configured guardrail sends that action to approval.",
+	},
+};
 
 /** Pulls fenced code blocks out of assistant replies — the closest thing
  * this app has to "artifacts" without a real generated-file/canvas backend. */
@@ -139,6 +173,8 @@ export function ChatComposerToolbar({
 	mode,
 	toolSelection,
 	onToolSelectionChange,
+	chatToolPolicy,
+	onChatToolPolicyChange,
 	attachedFile,
 	onAttachedFileChange,
 	onVoiceResult,
@@ -148,11 +184,14 @@ export function ChatComposerToolbar({
 	mode: "full" | "compact";
 	toolSelection: ChatToolSelection | null;
 	onToolSelectionChange: (next: ChatToolSelection | null) => void;
+	chatToolPolicy: ChatToolPolicy;
+	onChatToolPolicyChange: (next: ChatToolPolicy) => void;
 	attachedFile: AttachedFile | null;
 	onAttachedFileChange: (file: AttachedFile | null) => void;
 	onVoiceResult: (text: string) => void;
 	messages?: MessageLike[];
 }) {
+	const [modeOpen, setModeOpen] = useState(false);
 	const [mcpOpen, setMcpOpen] = useState(false);
 	const [artifactsOpen, setArtifactsOpen] = useState(false);
 	const [contextOpen, setContextOpen] = useState(false);
@@ -161,8 +200,8 @@ export function ChatComposerToolbar({
 
 	// Compact mode (in-thread) keeps the composer clean by default — Skills
 	// and Artifacts only take up space in the row once the user has actually
-	// reached for them via the settings menu below. File search shows itself
-	// automatically once a file is attached, so it needs no separate flag.
+	// reached for them via the settings menu below. Attachments show up
+	// automatically once a file is attached, so they need no separate flag.
 	// MCP Server always stays visible: it's the one control that must remain
 	// reachable so tool changes mid-conversation are never buried in a menu.
 	const [skillsPinned, setSkillsPinned] = useState(false);
@@ -212,8 +251,10 @@ export function ChatComposerToolbar({
 		mcpServerIds: servers.filter((s) => s.enabled).map((s) => s.id),
 		mcpToolFilter: null,
 	};
+	const guardrailsLocked = chatToolPolicy.mode === "default";
 	const skillsActive = effective.skillsEnabled;
 	const mcpCustomized = toolSelection !== null;
+	const modeLabel = CHAT_MODE_LABEL[chatToolPolicy.mode];
 
 	function commit(patch: Partial<ChatToolSelection>) {
 		onToolSelectionChange({ ...effective, ...patch });
@@ -221,6 +262,10 @@ export function ChatComposerToolbar({
 
 	function toggleSkills() {
 		commit({ skillsEnabled: !effective.skillsEnabled });
+	}
+
+	function updateChatToolPolicy(patch: Partial<ChatToolPolicy>) {
+		onChatToolPolicyChange({ ...chatToolPolicy, ...patch });
 	}
 
 	function toggleServer(serverId: string) {
@@ -262,13 +307,31 @@ export function ChatComposerToolbar({
 		e.target.value = "";
 		if (!file) return;
 		const reader = new FileReader();
+		const isImage = file.type.startsWith("image/");
+		const isPdf =
+			file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+		reader.onerror = () => {
+			onAttachedFileChange(null);
+		};
 		reader.onload = () => {
 			onAttachedFileChange({
 				name: file.name,
+				kind: isImage ? "image" : isPdf ? "pdf" : "text",
+				mimeType:
+					file.type ||
+					(isImage
+						? "image/*"
+						: isPdf
+							? "application/pdf"
+							: "text/plain"),
 				content: String(reader.result ?? ""),
 			});
 		};
-		reader.readAsText(file);
+		if (isImage || isPdf) {
+			reader.readAsDataURL(file);
+		} else {
+			reader.readAsText(file);
+		}
 	}
 
 	const mcpSummary = mcpCustomized
@@ -294,7 +357,7 @@ export function ChatComposerToolbar({
 			<input
 				ref={fileInputRef}
 				type="file"
-				accept=".txt,.md,.json,.csv,.log,.ts,.tsx,.js,.jsx,.py,.yml,.yaml"
+				accept="image/*,.pdf,.txt,.md,.json,.csv,.log,.ts,.tsx,.js,.jsx,.py,.yml,.yaml"
 				className="hidden"
 				onChange={handleFilePick}
 			/>
@@ -318,8 +381,8 @@ export function ChatComposerToolbar({
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="start" className="w-56">
 							<DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
-								<Search className="size-4" />
-								File search{attachedFile ? ` — ${attachedFile.name}` : ""}
+								<Paperclip className="size-4" />
+								Attachment{attachedFile ? ` — ${attachedFile.name}` : ""}
 							</DropdownMenuItem>
 							<DropdownMenuItem onSelect={toggleSkills}>
 								<Sparkles className="size-4" />
@@ -366,13 +429,13 @@ export function ChatComposerToolbar({
 							)}
 							aria-label={
 								attachedFile
-									? `Remove attached file (${attachedFile.name})`
-									: "Attach a file"
+									? `Remove attachment (${attachedFile.name})`
+									: "Attach an image, PDF, or text file"
 							}
 							title={
 								attachedFile
 									? `Attached: ${attachedFile.name}`
-									: "Attach a file"
+									: "Attach an image, PDF, or text file"
 							}
 						>
 							<Paperclip className="size-4" />
@@ -392,8 +455,8 @@ export function ChatComposerToolbar({
 								<DropdownMenuItem
 									onSelect={() => fileInputRef.current?.click()}
 								>
-									<Search className="size-4" />
-									File search
+									<Paperclip className="size-4" />
+									Attachment
 									{attachedFile && <Check className="ml-auto size-3.5" />}
 								</DropdownMenuItem>
 								<DropdownMenuItem
@@ -435,9 +498,15 @@ export function ChatComposerToolbar({
 								type="button"
 								onClick={() => onAttachedFileChange(null)}
 								className={pillClass(true)}
-								title="Remove attached file"
+								title="Remove attachment"
 							>
-								<Search className="size-3.5" />
+								{attachedFile.kind === "image" ? (
+									<Image className="size-3.5" />
+								) : attachedFile.kind === "pdf" ? (
+									<FileText className="size-3.5" />
+								) : (
+									<Paperclip className="size-3.5" />
+								)}
 								{attachedFile.name}
 								<X className="size-3 opacity-70" />
 							</button>
@@ -491,12 +560,18 @@ export function ChatComposerToolbar({
 							className={pillClass(Boolean(attachedFile))}
 							title={
 								attachedFile
-									? "Remove attached file"
-									: "Attach a text file as context"
+									? "Remove attachment"
+									: "Attach an image, PDF, or text file"
 							}
 						>
-							<Search className="size-3.5" />
-							{attachedFile ? attachedFile.name : "File search"}
+							{attachedFile?.kind === "image" ? (
+								<Image className="size-3.5" />
+							) : attachedFile?.kind === "pdf" ? (
+								<FileText className="size-3.5" />
+							) : (
+								<Paperclip className="size-3.5" />
+							)}
+							{attachedFile ? attachedFile.name : "Attachment"}
 							{attachedFile && <X className="size-3 opacity-70" />}
 						</button>
 
@@ -538,6 +613,104 @@ export function ChatComposerToolbar({
 			 * existed. Keeping it in its own shrink-0 slot guarantees it's always
 			 * reachable, matching the "always stays visible" intent already noted
 			 * above for compact mode. */}
+			<Popover open={modeOpen} onOpenChange={setModeOpen}>
+				<PopoverTrigger asChild>
+					<button
+						type="button"
+						className={cn(pillClass(chatToolPolicy.mode !== "default"), "shrink-0")}
+					>
+						<Bot className="size-3.5" />
+						{modeLabel}
+						<ChevronDown className="size-3 opacity-60" />
+					</button>
+				</PopoverTrigger>
+				<PopoverContent align="start" className="w-96 space-y-4">
+					<div className="space-y-1">
+						<p className="font-medium">Chat execution mode</p>
+						<p className="text-xs text-muted-foreground">
+							Choose how independently this chat should plan, gather context, and use tools.
+						</p>
+					</div>
+					<div className="space-y-2">
+						{(["default", "automatic", "auto"] as const).map((modeValue) => {
+							const selected = chatToolPolicy.mode === modeValue;
+							const option = CHAT_MODE_COPY[modeValue];
+							return (
+								<button
+									key={modeValue}
+									type="button"
+									onClick={() => updateChatToolPolicy({ mode: modeValue })}
+									className={cn(
+										"w-full rounded-lg border px-3 py-2 text-left transition-colors",
+										selected ? "border-primary bg-primary/5" : "hover:bg-muted/60",
+									)}
+								>
+									<div className="flex items-center gap-2 text-sm font-medium">
+										<span>{option.title}</span>
+										{selected && <Check className="size-3.5 text-primary" />}
+									</div>
+									<p className="mt-1 text-xs text-muted-foreground">{option.description}</p>
+								</button>
+							);
+						})}
+					</div>
+					<div className="space-y-3 border-t pt-3">
+						<div className="space-y-1">
+							<p className="text-sm font-medium">Approval guardrails</p>
+							<p className="text-xs text-muted-foreground">
+								Default mode always approves every sensitive action first. In Automatic Tool Usage and AUTO, these switches decide what still goes through Approvals.
+							</p>
+						</div>
+						<div className="space-y-2">
+							<div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+								<div>
+									<p className="text-sm font-medium">Approve file writes</p>
+									<p className="text-xs text-muted-foreground">Creating or editing files still waits for approval.</p>
+								</div>
+								<Switch
+									checked={chatToolPolicy.approveFileWrites}
+									disabled={guardrailsLocked}
+									onCheckedChange={(checked) => updateChatToolPolicy({ approveFileWrites: checked })}
+								/>
+							</div>
+							<div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+								<div>
+									<p className="text-sm font-medium">Approve file deletions</p>
+									<p className="text-xs text-muted-foreground">Deleting files still waits for approval.</p>
+								</div>
+								<Switch
+									checked={chatToolPolicy.approveFileDeletes}
+									disabled={guardrailsLocked}
+									onCheckedChange={(checked) => updateChatToolPolicy({ approveFileDeletes: checked })}
+								/>
+							</div>
+							<div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+								<div>
+									<p className="text-sm font-medium">Approve custom code</p>
+									<p className="text-xs text-muted-foreground">Custom-code skills still wait for approval.</p>
+								</div>
+								<Switch
+									checked={chatToolPolicy.approveCustomCode}
+									disabled={guardrailsLocked}
+									onCheckedChange={(checked) => updateChatToolPolicy({ approveCustomCode: checked })}
+								/>
+							</div>
+							<div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+								<div>
+									<p className="text-sm font-medium">Approve MCP tools</p>
+									<p className="text-xs text-muted-foreground">Third-party MCP tool calls still wait for approval.</p>
+								</div>
+								<Switch
+									checked={chatToolPolicy.approveMcpTools}
+									disabled={guardrailsLocked}
+									onCheckedChange={(checked) => updateChatToolPolicy({ approveMcpTools: checked })}
+								/>
+							</div>
+						</div>
+					</div>
+				</PopoverContent>
+			</Popover>
+
 			<Popover open={mcpOpen} onOpenChange={setMcpOpen}>
 				<PopoverTrigger asChild>
 					<button

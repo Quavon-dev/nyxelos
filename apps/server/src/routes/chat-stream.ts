@@ -3,6 +3,7 @@ import { streamChat } from "@nyxel/model-providers";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { resolveAgentRuntimeConfig } from "../auto-agent";
+import { summarizeChatMessageForModel } from "../chat-message";
 import { getKnowledgeBaseContextForPrompt } from "../knowledge-base";
 import { getInstalledProvidersForWorkspace } from "../models";
 import { buildToolsForAgent } from "../tools";
@@ -21,6 +22,15 @@ const CHAT_FOLLOW_UP_GUIDANCE = [
 	"Keep the question short and specific so the user can answer it directly in the next message.",
 	'If the user needs to choose more than one option, respond with a single fenced code block tagged `nyxel-multiselect` that contains strict JSON in this shape: {"kind":"multi_select","question":"...","options":[{"id":"stable-id","label":"Display label"}]}. Keep any surrounding prose minimal.',
 ].join(" ");
+
+const CHAT_MODE_GUIDANCE = {
+	default:
+		"Ask for confirmation before any sensitive action. When information is missing, ask one concise follow-up question instead of guessing.",
+	automatic:
+		"Operate with automatic tool usage. Make a short internal plan, gather the missing local context with tools before asking the user, and carry out code and file changes directly when the path is clear. Only ask the user when a real product decision or a hard permission boundary blocks progress.",
+	auto:
+		"Operate as a fully autonomous agent. Make a short internal plan, gather the needed context with tools, and execute the best safe changes directly. Do not ask follow-up questions for permission or confirmation; if a policy sends a tool call to approval, report that specific block and continue with any unblocked work.",
+} as const;
 
 const STREAM_HEADERS = {
 	"Content-Type": "text/plain; charset=utf-8",
@@ -93,13 +103,17 @@ export function registerChatStreamRoute(app: Hono) {
 			[
 				workspace?.customInstructions,
 				agent?.systemPrompt,
-				CHAT_FOLLOW_UP_GUIDANCE,
+				CHAT_MODE_GUIDANCE[chat.toolMode],
+				chat.toolMode === "auto" ? null : CHAT_FOLLOW_UP_GUIDANCE,
 				knowledgeBaseContext,
 			]
 				.filter(Boolean)
 				.join("\n\n") || undefined;
 		const tools = agent
-			? await buildToolsForAgent(agent, { chatId })
+			? await buildToolsForAgent(agent, {
+					chatId,
+					chatToolPolicy: chat.toolPolicy,
+				})
 			: undefined;
 		const modelId = agent?.modelId ?? chat.modelId;
 		const installedProviders = await getInstalledProvidersForWorkspace(
@@ -108,6 +122,13 @@ export function registerChatStreamRoute(app: Hono) {
 
 		await db.addMessage({ chatId, role: "user", content: message });
 		const history = await db.listMessages(chatId);
+		const modelMessages = history.map((entry) => ({
+			role: entry.role === "tool" ? "assistant" : entry.role,
+			content:
+				entry.role === "user"
+					? summarizeChatMessageForModel(entry.content)
+					: entry.content,
+		}));
 
 		// resolveModel() (called synchronously inside streamChat) throws for an
 		// unknown/misconfigured model id — e.g. a stale chat.modelId pointing at
@@ -122,10 +143,7 @@ export function registerChatStreamRoute(app: Hono) {
 				systemPrompt,
 				installedProviders,
 				tools,
-				messages: history.map((m) => ({
-					role: m.role === "tool" ? "assistant" : m.role,
-					content: m.content,
-				})),
+				messages: modelMessages,
 				onFinish: ({ text }) => {
 					finalizedText = text;
 				},

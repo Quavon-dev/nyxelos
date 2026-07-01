@@ -8,7 +8,9 @@ import {
   type ChatToolSelection,
 } from "@/components/chat/chat-composer-toolbar";
 import { Textarea } from "@/components/ui/textarea";
+import { serializeChatMessageContent } from "@/lib/chat-message";
 import type { MultiSelectPrompt } from "@/lib/chat-prompts";
+import type { ChatToolPolicy } from "@/lib/trpc";
 import { MultiSelectPromptCard } from "./multi-select-prompt";
 
 interface MessageLike {
@@ -22,6 +24,8 @@ export function ChatInput({
   workspaceId,
   toolSelection,
   onToolSelectionChange,
+  chatToolPolicy,
+  onChatToolPolicyChange,
   attachedFile,
   onAttachedFileChange,
   messages,
@@ -33,6 +37,8 @@ export function ChatInput({
   workspaceId: string | undefined;
   toolSelection: ChatToolSelection | null;
   onToolSelectionChange: (next: ChatToolSelection | null) => void;
+  chatToolPolicy: ChatToolPolicy;
+  onChatToolPolicyChange: (next: ChatToolPolicy) => void;
   attachedFile: AttachedFile | null;
   onAttachedFileChange: (file: AttachedFile | null) => void;
   messages: MessageLike[];
@@ -61,10 +67,10 @@ export function ChatInput({
           .map((option) => option.label)
       : [];
 
-    if (!value.trim() && selectedLabels.length === 0) return;
+    if (!value.trim() && selectedLabels.length === 0 && !attachedFile) return;
 
-    // Same client-side "file search" behavior as the landing page: fold the
-    // attached file's text straight into the outgoing message.
+    // Attachments are stored inline as a structured envelope so the chat can
+    // render them later without needing a separate upload backend yet.
     const answerText =
       assistantPrompt && selectedLabels.length > 0
         ? [
@@ -76,7 +82,7 @@ export function ChatInput({
         : value.trim();
 
     const outgoing = attachedFile
-      ? `${answerText}\n\n---\nAttached file: ${attachedFile.name}\n\`\`\`\n${attachedFile.content}\n\`\`\``
+      ? serializeChatMessageContent(answerText, [attachedFile])
       : answerText;
 
     onSend(outgoing);
@@ -136,6 +142,8 @@ export function ChatInput({
               workspaceId={workspaceId}
               toolSelection={toolSelection}
               onToolSelectionChange={onToolSelectionChange}
+              chatToolPolicy={chatToolPolicy}
+              onChatToolPolicyChange={onChatToolPolicyChange}
               attachedFile={attachedFile}
               onAttachedFileChange={onAttachedFileChange}
               onVoiceResult={(text) => setValue((prev) => (prev ? `${prev} ${text}` : text))}
@@ -145,7 +153,10 @@ export function ChatInput({
           <button
             type="submit"
             disabled={
-              disabled || (!value.trim() && (!assistantPrompt || selectedOptionIds.length === 0))
+              disabled ||
+              (!value.trim() &&
+                (!assistantPrompt || selectedOptionIds.length === 0) &&
+                !attachedFile)
             }
             className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
           >

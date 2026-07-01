@@ -7,7 +7,7 @@ import type { AttachedFile, ChatToolSelection } from "@/components/chat/chat-com
 import { ChatInput } from "@/components/chat/chat-input";
 import { MessageList } from "@/components/chat/message-list";
 import { parseAssistantContent } from "@/lib/chat-prompts";
-import { trpcClient } from "@/lib/trpc";
+import { DEFAULT_CHAT_TOOL_POLICY, type ChatToolPolicy, trpcClient } from "@/lib/trpc";
 import { useChatStream } from "@/lib/use-chat-stream";
 import { useInstallation } from "@/lib/use-installation";
 
@@ -86,6 +86,7 @@ export default function ChatPage() {
   const { sendMessage, streamingMessage, isStreaming, error } = useChatStream(chatId);
 
   const [toolSelection, setToolSelection] = useState<ChatToolSelection | null>(null);
+  const [chatToolPolicy, setChatToolPolicy] = useState<ChatToolPolicy>(DEFAULT_CHAT_TOOL_POLICY);
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
   const initializedToolsRef = useRef(false);
 
@@ -107,6 +108,11 @@ export default function ChatPage() {
       });
     }
   }, [agentQuery.data]);
+
+  useEffect(() => {
+    if (!chat) return;
+    setChatToolPolicy(chat.toolPolicy);
+  }, [chat]);
 
   // Mid-conversation tool changes can't safely mutate the chat's existing
   // agent (it may be a shared "Auto assistant" reused elsewhere), so instead
@@ -137,6 +143,22 @@ export default function ChatPage() {
     },
   });
 
+  const updateChatToolPolicy = useMutation({
+    mutationFn: async (next: ChatToolPolicy) => {
+      if (!chat) throw new Error("Chat isn't loaded yet.");
+      return trpcClient.chats.setToolPolicy.mutate({
+        chatId,
+        toolMode: next.mode,
+        toolPolicy: next,
+      });
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["chats", "list", workspaceId], (old: typeof chatsQuery.data) =>
+        old?.map((c) => (c.id === chatId ? updated : c)),
+      );
+    },
+  });
+
   function handleToolSelectionChange(next: ChatToolSelection | null) {
     setToolSelection(next);
     // Resetting to "default" still pins a concrete agent (rather than
@@ -151,13 +173,24 @@ export default function ChatPage() {
     forkAgent.mutate(toFork);
   }
 
+  function handleChatToolPolicyChange(next: ChatToolPolicy) {
+    setChatToolPolicy(next);
+    updateChatToolPolicy.mutate(next);
+  }
+
   // A chat created from the landing page's composer arrives here with its
   // first message tucked into ?draft= — send it once, then drop the param
   // from the URL so refreshing doesn't resend it.
   useEffect(() => {
-    if (draft && !sentDraftRef.current) {
+    const sessionDraft =
+      typeof window !== "undefined"
+        ? window.sessionStorage.getItem(`nyxel:chat-draft:${chatId}`)
+        : null;
+    const nextDraft = draft ?? sessionDraft;
+    if (nextDraft && !sentDraftRef.current) {
       sentDraftRef.current = true;
-      sendMessage(draft);
+      sendMessage(nextDraft);
+      window.sessionStorage.removeItem(`nyxel:chat-draft:${chatId}`);
       router.replace(`/chat/${chatId}`);
     }
   }, [draft, chatId, sendMessage, router]);
@@ -165,9 +198,11 @@ export default function ChatPage() {
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col p-4">
       <MessageList messages={messagesQuery.data ?? []} streamingMessage={streamingMessage} />
-      {(error || forkAgent.isError) && (
+      {(error || forkAgent.isError || updateChatToolPolicy.isError) && (
         <p className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error ?? (forkAgent.error as Error).message}
+          {error ??
+            (forkAgent.error as Error | undefined)?.message ??
+            (updateChatToolPolicy.error as Error | undefined)?.message}
         </p>
       )}
       <ChatInput
@@ -176,6 +211,8 @@ export default function ChatPage() {
         workspaceId={workspaceId}
         toolSelection={toolSelection}
         onToolSelectionChange={handleToolSelectionChange}
+        chatToolPolicy={chatToolPolicy}
+        onChatToolPolicyChange={handleChatToolPolicyChange}
         attachedFile={attachedFile}
         onAttachedFileChange={setAttachedFile}
         messages={messagesQuery.data ?? []}
