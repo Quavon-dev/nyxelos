@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
 	UnauthorizedError,
 	auth as runOAuthFlow,
+	type OAuthDiscoveryState,
 	type OAuthClientProvider,
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -70,6 +71,7 @@ class InMemoryMcpOAuthProvider implements OAuthClientProvider {
 	private savedTokens?: OAuthTokens;
 	private savedCodeVerifier?: string;
 	private lastAuthorizationUrl?: URL;
+	private savedDiscoveryState?: OAuthDiscoveryState;
 
 	constructor(
 		private readonly callbackUrl: string,
@@ -107,6 +109,14 @@ class InMemoryMcpOAuthProvider implements OAuthClientProvider {
 		this.savedTokens = tokens;
 	}
 
+	saveDiscoveryState(state: OAuthDiscoveryState): void {
+		this.savedDiscoveryState = state;
+	}
+
+	discoveryState(): OAuthDiscoveryState | undefined {
+		return this.savedDiscoveryState;
+	}
+
 	redirectToAuthorization(authorizationUrl: URL): void {
 		this.lastAuthorizationUrl = authorizationUrl;
 	}
@@ -124,6 +134,10 @@ class InMemoryMcpOAuthProvider implements OAuthClientProvider {
 
 	getAuthorizationUrl(): URL | undefined {
 		return this.lastAuthorizationUrl;
+	}
+
+	hasPendingAuthorization(): boolean {
+		return Boolean(this.savedCodeVerifier && this.lastAuthorizationUrl);
 	}
 }
 
@@ -217,9 +231,14 @@ export class McpClientManager {
 		throw err;
 	}
 
+	rememberConfig(config: McpServerConfig): void {
+		this.configs.set(config.id, config);
+		this.getOrCreateOAuthProvider(config);
+	}
+
 	async connect(config: McpServerConfig): Promise<void> {
 		if (this.servers.has(config.id)) return;
-		this.configs.set(config.id, config);
+		this.rememberConfig(config);
 		const client = new Client({ name: "nyxel", version: "0.1.0" });
 		const transport = createTransport(
 			config,
@@ -267,6 +286,11 @@ export class McpClientManager {
 				`MCP server "${config.name}" has no OAuth provider configured.`,
 			);
 		}
+		if (!provider.hasPendingAuthorization()) {
+			throw new Error(
+				`MCP server "${config.name}" has no pending OAuth session. Start sign-in again from Nyxel.`,
+			);
+		}
 		await this.exchangeAuthorizationCode(provider, {
 			serverUrl: config.url,
 			authorizationCode,
@@ -277,7 +301,7 @@ export class McpClientManager {
 	async listTools(serverId: string): Promise<McpToolSummary[]> {
 		const entry = this.servers.get(serverId);
 		if (!entry) throw new Error(`Not connected to MCP server: ${serverId}`);
-		let tools;
+		let tools: Awaited<ReturnType<Client["listTools"]>>["tools"];
 		try {
 			({ tools } = await entry.client.listTools());
 		} catch (err) {

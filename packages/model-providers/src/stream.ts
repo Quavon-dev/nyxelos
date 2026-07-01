@@ -25,6 +25,68 @@ export interface StreamChatInput {
   onError?: (event: { error: unknown }) => void;
 }
 
+const INLINE_SYSTEM_PROMPT_MODEL_PREFIXES = new Set([
+  "jan",
+  "llamacpp",
+  "lmstudio",
+  "localai",
+  "ollama",
+  "textgen",
+  "vllm",
+]);
+
+function findInstalledProvider(
+  modelId: string,
+  installedProviders: InstalledModelProvider[],
+): InstalledModelProvider | null {
+  if (!modelId.startsWith("custom:")) return null;
+
+  const remainder = modelId.slice("custom:".length);
+  const slashIndex = remainder.indexOf("/");
+  if (slashIndex === -1) return null;
+
+  const providerId = remainder.slice(0, slashIndex);
+  return installedProviders.find((provider) => provider.id === providerId) ?? null;
+}
+
+function shouldInlineSystemPrompt(
+  modelId: string,
+  installedProviders: InstalledModelProvider[],
+): boolean {
+  const installedProvider = findInstalledProvider(modelId, installedProviders);
+  if (installedProvider) {
+    return installedProvider.providerKind === "openai_compatible";
+  }
+
+  const prefix = modelId.split("/")[0] ?? "";
+  return INLINE_SYSTEM_PROMPT_MODEL_PREFIXES.has(prefix);
+}
+
+function inlineSystemPromptIntoMessages(
+  messages: ChatMessageInput[],
+  systemPrompt: string,
+): ChatMessageInput[] {
+  const firstUserIndex = messages.findIndex((message) => message.role === "user");
+  const preamble = [
+    "System instructions for this conversation:",
+    systemPrompt,
+    "User message:",
+  ].join("\n\n");
+
+  if (firstUserIndex === -1) {
+    return [{ role: "user", content: preamble }, ...messages];
+  }
+
+  return messages.map((message, index) =>
+    index === firstUserIndex
+      ? {
+          ...message,
+          content: `${preamble}\n\n${message.content}`,
+        }
+      : message,
+  );
+}
+
 /** Streams a chat completion for the given model. Returns the Vercel AI SDK
  * stream result; apps/server pipes `.toTextStreamResponse()` /
  * `.toUIMessageStreamResponse()` straight onto an SSE HTTP response. */
@@ -37,11 +99,20 @@ export function streamChat({
   onFinish,
   onError,
 }: StreamChatInput) {
-  const model = resolveModel(modelId, installedProviders);
+  const resolvedInstalledProviders = installedProviders ?? [];
+  const model = resolveModel(modelId, resolvedInstalledProviders);
+  const inlineSystemPrompt =
+    systemPrompt && shouldInlineSystemPrompt(modelId, resolvedInstalledProviders)
+      ? systemPrompt
+      : undefined;
+  const preparedMessages = inlineSystemPrompt
+    ? inlineSystemPromptIntoMessages(messages, inlineSystemPrompt)
+    : messages;
+
   return streamText({
     model,
-    system: systemPrompt,
-    messages,
+    system: inlineSystemPrompt ? undefined : systemPrompt,
+    messages: preparedMessages,
     tools,
     // Without this, streamText stops right after a tool call instead of
     // continuing on to produce a final answer from the tool's result.

@@ -11,17 +11,16 @@ type AuthState =
 
 export default function McpAuthCallbackPage() {
   const searchParams = useSearchParams();
+  const code = searchParams.get("code");
+  const error = searchParams.get("error");
+  const serverId = searchParams.get("serverId");
+  const workspaceId = searchParams.get("workspaceId");
   const [state, setState] = useState<AuthState>({
     status: "working",
     message: "Completing MCP sign-in…",
   });
 
   useEffect(() => {
-    const code = searchParams.get("code");
-    const error = searchParams.get("error");
-    const serverId = searchParams.get("serverId");
-    const workspaceId = searchParams.get("workspaceId");
-
     if (error) {
       setState({ status: "error", message: `MCP sign-in was rejected: ${error}` });
       return;
@@ -35,11 +34,20 @@ export default function McpAuthCallbackPage() {
     }
 
     let cancelled = false;
+    const attemptKey = `nyxel:mcp-auth-attempt:${serverId}:${code}`;
+
+    // Next dev runs effects twice under Strict Mode; do not exchange the same
+    // single-use OAuth code more than once.
+    if (window.sessionStorage.getItem(attemptKey)) {
+      return;
+    }
+    window.sessionStorage.setItem(attemptKey, "pending");
 
     void trpcClient.mcpServers.finishAuth
       .mutate({ id: serverId, code })
       .then(() => {
         if (cancelled) return;
+        window.sessionStorage.setItem(attemptKey, "done");
         window.opener?.postMessage({ type: "nyxel:mcp-auth-complete", serverId }, window.location.origin);
         setState({
           status: "success",
@@ -57,6 +65,7 @@ export default function McpAuthCallbackPage() {
       })
       .catch((err: Error) => {
         if (cancelled) return;
+        window.sessionStorage.removeItem(attemptKey);
         setState({
           status: "error",
           message: err.message || "Failed to finish MCP sign-in.",
@@ -66,7 +75,7 @@ export default function McpAuthCallbackPage() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams]);
+  }, [code, error, serverId, workspaceId]);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-6">

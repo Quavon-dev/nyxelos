@@ -13,10 +13,8 @@ function buildMcpOAuthCallbackUrl(server: McpServerRecord): string {
   return url.toString();
 }
 
-export async function ensureMcpServerConnected(server: McpServerRecord): Promise<void> {
-  if (!server.enabled) throw new Error(`MCP server "${server.name}" is disabled.`);
-  if (mcpManager.isConnected(server.id)) return;
-  await mcpManager.connect({
+function toMcpServerConfig(server: McpServerRecord) {
+  return {
     id: server.id,
     name: server.name,
     transport: server.transport,
@@ -30,7 +28,13 @@ export async function ensureMcpServerConnected(server: McpServerRecord): Promise
             clientName: `Nyxel · ${server.name}`,
           }
         : undefined,
-  });
+  };
+}
+
+export async function ensureMcpServerConnected(server: McpServerRecord): Promise<void> {
+  if (!server.enabled) throw new Error(`MCP server "${server.name}" is disabled.`);
+  if (mcpManager.isConnected(server.id)) return;
+  await mcpManager.connect(toMcpServerConfig(server));
 }
 
 export async function completeMcpServerAuthorization(
@@ -38,25 +42,6 @@ export async function completeMcpServerAuthorization(
   authorizationCode: string,
 ): Promise<void> {
   if (!server.enabled) throw new Error(`MCP server "${server.name}" is disabled.`);
-  await mcpManager.connect({
-    id: server.id,
-    name: server.name,
-    transport: server.transport,
-    command: server.command,
-    args: server.args,
-    url: server.url,
-    oauth:
-      server.transport === "http"
-        ? {
-            callbackUrl: buildMcpOAuthCallbackUrl(server),
-            clientName: `Nyxel · ${server.name}`,
-          }
-        : undefined,
-  }).catch((err) => {
-    // The first connect seeds config/provider state. If auth is still required,
-    // completion below will exchange the returned code for tokens.
-    if (err instanceof Error && err.name === "McpAuthorizationRequiredError") return;
-    throw err;
-  });
+  mcpManager.rememberConfig(toMcpServerConfig(server));
   await mcpManager.completeAuthorization(server.id, authorizationCode);
 }
