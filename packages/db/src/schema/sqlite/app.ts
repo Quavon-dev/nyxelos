@@ -6,6 +6,7 @@ export type MessageRole = "user" | "assistant" | "system" | "tool";
 /** See ../pg/app.ts — Phase 2 implements "autonomous"/"super_agent" behavior. */
 export type AgentAutonomyLevel = "chat" | "assisted" | "autonomous" | "super_agent";
 export type InstallationMode = "pc" | "server";
+export type ModelProviderKind = "openai_compatible";
 
 export type McpTransport = "stdio" | "http";
 
@@ -35,6 +36,21 @@ export const workspace = sqliteTable("workspace", {
   name: text("name").notNull(),
   customInstructions: text("custom_instructions"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const modelInstallation = sqliteTable("model_installation", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  providerKind: text("provider_kind").notNull().$type<ModelProviderKind>(),
+  baseUrl: text("base_url").notNull(),
+  apiKey: text("api_key"),
+  modelIds: text("model_ids", { mode: "json" }).notNull().default([]).$type<string[]>(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
 export const agent = sqliteTable("agent", {

@@ -45,7 +45,10 @@ export default function HomePage() {
   });
   const modelsQuery = useQuery({
     queryKey: ["models", "list"],
-    queryFn: () => trpcClient.models.list.query(),
+    queryFn: () =>
+      trpcClient.models.list.query({
+        workspaceId: installationQuery.data?.record?.primaryWorkspaceId,
+      }),
     enabled: installationQuery.data?.isInstalled === true,
   });
 
@@ -79,7 +82,7 @@ export default function HomePage() {
     mutationFn: async () => {
       const workspaceId = installationQuery.data?.record?.primaryWorkspaceId;
       if (!workspaceId) throw new Error("Installation is incomplete.");
-      const models = await trpcClient.models.list.query();
+      const models = await trpcClient.models.list.query({ workspaceId });
       const modelId = models[0]?.id;
       if (!modelId) {
         throw new Error("No models available. Start Ollama/LM Studio or add an API key.");

@@ -3,6 +3,7 @@ import { streamChat } from "@nyxel/model-providers";
 import { type Tool, tool } from "ai";
 import { z } from "zod";
 import { logAudit } from "./audit";
+import { getInstalledProvidersForWorkspace } from "./models";
 import type { AgentRunContext } from "./tools";
 
 /**
@@ -58,11 +59,13 @@ export async function buildDelegateToAgentTool(
         [workspace?.customInstructions, subAgent.systemPrompt].filter(Boolean).join("\n\n") ||
         undefined;
       const subTools = await buildToolsForAgent(subAgent, { ...ctx, allowDelegation: false });
+      const installedProviders = await getInstalledProvidersForWorkspace(subAgent.workspaceId);
 
       try {
         const result = streamChat({
           modelId: subAgent.modelId,
           systemPrompt,
+          installedProviders,
           tools: subTools,
           messages: [{ role: "user", content: task }],
         });

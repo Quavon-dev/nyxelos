@@ -3,6 +3,7 @@ import { getDb } from "@nyxel/db";
 import { streamChat } from "@nyxel/model-providers";
 import { CronExpressionParser } from "cron-parser";
 import { logAudit } from "./audit";
+import { getInstalledProvidersForWorkspace } from "./models";
 import { buildToolsForAgent } from "./tools";
 
 const POLL_INTERVAL_MS = 30_000;
@@ -39,6 +40,7 @@ export async function runAutomation(automation: AutomationRecord): Promise<void>
   const systemPrompt =
     [workspace?.customInstructions, agent.systemPrompt].filter(Boolean).join("\n\n") || undefined;
   const tools = await buildToolsForAgent(agent, { automationId: automation.id });
+  const installedProviders = await getInstalledProvidersForWorkspace(automation.workspaceId);
 
   let outputText: string;
   let status: "success" | "error";
@@ -46,6 +48,7 @@ export async function runAutomation(automation: AutomationRecord): Promise<void>
     const result = streamChat({
       modelId: agent.modelId,
       systemPrompt,
+      installedProviders,
       tools,
       messages: [{ role: "user", content: automation.prompt }],
     });

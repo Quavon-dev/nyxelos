@@ -119,6 +119,51 @@ export function createPgRepository(connectionString: string): DbRepository {
       return { id: row.id, name: row.name, customInstructions: row.customInstructions };
     },
 
+    async createModelInstallation({
+      workspaceId,
+      label,
+      providerKind,
+      baseUrl,
+      apiKey,
+      modelIds,
+      enabled,
+    }) {
+      const [row] = await db
+        .insert(schema.modelInstallation)
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          label,
+          providerKind,
+          baseUrl,
+          apiKey: apiKey ?? null,
+          modelIds,
+          enabled: enabled ?? true,
+          updatedAt: new Date(),
+        })
+        .returning();
+      if (!row) throw new Error("Failed to create model installation");
+      return row;
+    },
+
+    async listModelInstallationsByWorkspace(workspaceId) {
+      return db
+        .select()
+        .from(schema.modelInstallation)
+        .where(eq(schema.modelInstallation.workspaceId, workspaceId));
+    },
+
+    async getModelInstallation(id) {
+      const row = await db.query.modelInstallation.findFirst({
+        where: eq(schema.modelInstallation.id, id),
+      });
+      return row ?? null;
+    },
+
+    async deleteModelInstallation(id) {
+      await db.delete(schema.modelInstallation).where(eq(schema.modelInstallation.id, id));
+    },
+
     async createChat({ workspaceId, title, modelId, agentId }) {
       const [row] = await db
         .insert(schema.chat)

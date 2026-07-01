@@ -1,5 +1,5 @@
 import { getDb } from "@nyxel/db";
-import { listAvailableModels } from "@nyxel/model-providers";
+import { listAvailableModels, probeOpenAiCompatibleEndpoint } from "@nyxel/model-providers";
 import { z } from "zod";
 import { resolveApprovalDecision } from "../approvals";
 import { auth } from "../auth";
@@ -10,6 +10,7 @@ import {
   runDocsAgentForWorkspace,
 } from "../knowledge-base";
 import { ensureMcpServerConnected, mcpManager } from "../mcp-runtime";
+import { getInstalledProvidersForWorkspace } from "../models";
 import { computeNextRunAt, runAutomation } from "../scheduler";
 import { skillRegistry } from "../skills-registry";
 import { publicProcedure, router } from "./trpc";
@@ -18,6 +19,7 @@ const autonomyLevelSchema = z.enum(["chat", "assisted", "autonomous", "super_age
 const mcpTransportSchema = z.enum(["stdio", "http"]);
 const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);
 const installationModeSchema = z.enum(["pc", "server"]);
+const modelProviderKindSchema = z.enum(["openai_compatible"]);
 const AUTOMATABLE_LEVELS = new Set(["autonomous", "super_agent"]);
 
 export const appRouter = router({
@@ -83,7 +85,76 @@ export const appRouter = router({
   }),
 
   models: router({
-    list: publicProcedure.query(() => listAvailableModels()),
+    list: publicProcedure
+      .input(z.object({ workspaceId: z.string().optional() }).optional())
+      .query(async ({ input }) => {
+        const providers = input?.workspaceId
+          ? await getInstalledProvidersForWorkspace(input.workspaceId)
+          : [];
+        return listAvailableModels(providers);
+      }),
+    installations: publicProcedure
+      .input(z.object({ workspaceId: z.string() }))
+      .query(({ input }) => getDb().listModelInstallationsByWorkspace(input.workspaceId)),
+    probe: publicProcedure
+      .input(
+        z.object({
+          label: z.string().min(1).optional(),
+          baseUrl: z.string().url(),
+          apiKey: z.string().min(1).optional(),
+        }),
+      )
+      .query(async ({ input }) => {
+        const detected = await probeOpenAiCompatibleEndpoint({
+          baseUrl: input.baseUrl,
+          apiKey: input.apiKey,
+          providerLabel: input.label,
+        });
+        if (!detected) {
+          throw new Error(`No OpenAI-compatible models found at ${input.baseUrl}.`);
+        }
+        return detected;
+      }),
+    installCustom: publicProcedure
+      .input(
+        z.object({
+          workspaceId: z.string(),
+          label: z.string().min(1),
+          providerKind: modelProviderKindSchema.default("openai_compatible"),
+          baseUrl: z.string().url(),
+          apiKey: z.string().min(1).optional(),
+          modelIds: z.array(z.string().min(1)).min(1).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const detected = await probeOpenAiCompatibleEndpoint({
+          baseUrl: input.baseUrl,
+          apiKey: input.apiKey,
+          providerLabel: input.label,
+        });
+        if (!detected) {
+          throw new Error(`No OpenAI-compatible models found at ${input.baseUrl}.`);
+        }
+
+        const modelIds =
+          input.modelIds?.length &&
+          input.modelIds.every((modelId) => detected.modelIds.includes(modelId))
+            ? input.modelIds
+            : detected.modelIds;
+
+        return getDb().createModelInstallation({
+          workspaceId: input.workspaceId,
+          label: input.label,
+          providerKind: input.providerKind,
+          baseUrl: detected.baseUrl,
+          apiKey: input.apiKey ?? null,
+          modelIds,
+          enabled: true,
+        });
+      }),
+    deleteInstallation: publicProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ input }) => getDb().deleteModelInstallation(input.id)),
   }),
 
   skills: router({

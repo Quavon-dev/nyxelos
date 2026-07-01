@@ -133,6 +133,56 @@ export function createSqliteRepository(filePath: string): DbRepository {
       return { id: row.id, name: row.name, customInstructions: row.customInstructions };
     },
 
+    async createModelInstallation({
+      workspaceId,
+      label,
+      providerKind,
+      baseUrl,
+      apiKey,
+      modelIds,
+      enabled,
+    }) {
+      const now = new Date();
+      const row = db
+        .insert(schema.modelInstallation)
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          label,
+          providerKind,
+          baseUrl,
+          apiKey: apiKey ?? null,
+          modelIds,
+          enabled: enabled ?? true,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning()
+        .get();
+      return row;
+    },
+
+    async listModelInstallationsByWorkspace(workspaceId) {
+      return db
+        .select()
+        .from(schema.modelInstallation)
+        .where(eq(schema.modelInstallation.workspaceId, workspaceId))
+        .all();
+    },
+
+    async getModelInstallation(id) {
+      const row = db
+        .select()
+        .from(schema.modelInstallation)
+        .where(eq(schema.modelInstallation.id, id))
+        .get();
+      return row ?? null;
+    },
+
+    async deleteModelInstallation(id) {
+      db.delete(schema.modelInstallation).where(eq(schema.modelInstallation.id, id)).run();
+    },
+
     async createChat({ workspaceId, title, modelId, agentId }) {
       const row = db
         .insert(schema.chat)

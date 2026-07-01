@@ -1,20 +1,25 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
-import { detectLocalModels, getLmStudioBaseUrl, getOllamaBaseUrl } from "./detect";
+import { detectLocalModels } from "./detect";
 
 export interface CloudModelDefinition {
-  /** e.g. "anthropic/claude-sonnet-5" */
   id: string;
   label: string;
   provider: "anthropic";
-  /** The provider-native model identifier. */
   modelName: string;
 }
 
-// Cloud models only show up once the matching API key is configured
-// (see ARCHITECTURE.md section 7 — API keys live encrypted at rest;
-// for this Phase 0 slice they're read from the environment).
+export interface InstalledModelProvider {
+  id: string;
+  label: string;
+  providerKind: "openai_compatible";
+  baseUrl: string;
+  apiKey: string | null;
+  modelIds: string[];
+  enabled: boolean;
+}
+
 const CLOUD_MODELS: CloudModelDefinition[] = [
   {
     id: "anthropic/claude-sonnet-5",
@@ -33,30 +38,113 @@ const CLOUD_MODELS: CloudModelDefinition[] = [
 export interface ModelSummary {
   id: string;
   label: string;
-  kind: "local" | "cloud";
+  kind: "local" | "cloud" | "custom";
+  provider: string;
+  providerLabel: string;
 }
 
-export async function listAvailableModels(): Promise<ModelSummary[]> {
+export function toInstalledModelProvider(installation: {
+  id: string;
+  label: string;
+  providerKind: "openai_compatible";
+  baseUrl: string;
+  apiKey: string | null;
+  modelIds: string[];
+  enabled: boolean;
+}): InstalledModelProvider {
+  return {
+    id: installation.id,
+    label: installation.label,
+    providerKind: installation.providerKind,
+    baseUrl: installation.baseUrl,
+    apiKey: installation.apiKey,
+    modelIds: installation.modelIds,
+    enabled: installation.enabled,
+  };
+}
+
+export async function listAvailableModels(
+  installedProviders: InstalledModelProvider[] = [],
+): Promise<ModelSummary[]> {
   const local = await detectLocalModels();
   const cloud: ModelSummary[] = process.env.ANTHROPIC_API_KEY
-    ? CLOUD_MODELS.map((m) => ({ id: m.id, label: m.label, kind: "cloud" as const }))
+    ? CLOUD_MODELS.map((m) => ({
+        id: m.id,
+        label: m.label,
+        kind: "cloud" as const,
+        provider: m.provider,
+        providerLabel: "Anthropic",
+      }))
     : [];
+  const custom: ModelSummary[] = installedProviders
+    .filter((provider) => provider.enabled)
+    .flatMap((provider) =>
+      provider.modelIds.map((modelId) => ({
+        id: `custom:${provider.id}/${modelId}`,
+        label: `${modelId} (${provider.label})`,
+        kind: "custom" as const,
+        provider: provider.providerKind,
+        providerLabel: provider.label,
+      })),
+    );
 
-  return [...local.map((m) => ({ id: m.id, label: m.label, kind: "local" as const })), ...cloud];
+  return [
+    ...local.map((m) => ({
+      id: m.id,
+      label: `${m.label} (${m.providerLabel})`,
+      kind: "local" as const,
+      provider: m.provider,
+      providerLabel: m.providerLabel,
+    })),
+    ...custom,
+    ...cloud,
+  ];
 }
 
-function getLocalBaseUrl(prefix: string): string | undefined {
-  if (prefix === "ollama") return `${getOllamaBaseUrl()}/v1`;
-  if (prefix === "lmstudio") return `${getLmStudioBaseUrl()}/v1`;
-  return undefined;
+function resolveInstalledProvider(
+  modelId: string,
+  installedProviders: InstalledModelProvider[],
+): { provider: InstalledModelProvider; nativeModelId: string } | null {
+  if (!modelId.startsWith("custom:")) return null;
+
+  const remainder = modelId.slice("custom:".length);
+  const slashIndex = remainder.indexOf("/");
+  if (slashIndex === -1) return null;
+
+  const providerId = remainder.slice(0, slashIndex);
+  const nativeModelId = remainder.slice(slashIndex + 1);
+  if (!providerId || !nativeModelId) return null;
+
+  const provider = installedProviders.find((candidate) => candidate.id === providerId);
+  if (!provider) return null;
+
+  return { provider, nativeModelId };
 }
 
-/** Resolves a model id (e.g. "ollama/llama3.1:8b" or "anthropic/claude-sonnet-5")
- * to a Vercel AI SDK LanguageModel instance. */
-export function resolveModel(modelId: string): LanguageModel {
+export function resolveModel(
+  modelId: string,
+  installedProviders: InstalledModelProvider[] = [],
+): LanguageModel {
+  const installed = resolveInstalledProvider(modelId, installedProviders);
+  if (installed) {
+    if (!installed.provider.enabled) {
+      throw new Error(`Installed model provider "${installed.provider.label}" is disabled.`);
+    }
+
+    if (!installed.provider.modelIds.includes(installed.nativeModelId)) {
+      throw new Error(`Unknown installed model "${installed.nativeModelId}" for ${modelId}.`);
+    }
+
+    const compatible = createOpenAICompatible({
+      name: installed.provider.label,
+      baseURL: `${installed.provider.baseUrl.replace(/\/+$/, "")}/v1`,
+      apiKey: installed.provider.apiKey ?? undefined,
+    });
+    return compatible(installed.nativeModelId);
+  }
+
   const [prefix, ...rest] = modelId.split("/");
   const nativeId = rest.join("/");
-
   if (!prefix) throw new Error(`Unknown model id: ${modelId}`);
 
   if (prefix === "anthropic") {
@@ -66,9 +154,39 @@ export function resolveModel(modelId: string): LanguageModel {
     return anthropic(def.modelName);
   }
 
-  const baseURL = getLocalBaseUrl(prefix);
-  if (!baseURL) throw new Error(`Unknown model id: ${modelId}`);
+  if (prefix === "ollama") {
+    const compatible = createOpenAICompatible({
+      name: "ollama",
+      baseURL: `${process.env.OLLAMA_BASE_URL?.replace(/\/+$/, "") ?? "http://localhost:11434"}/v1`,
+    });
+    return compatible(nativeId);
+  }
 
-  const compatible = createOpenAICompatible({ name: prefix, baseURL });
+  const compatible = createOpenAICompatible({
+    name: prefix,
+    baseURL: inferOpenAiCompatibleBaseUrl(prefix),
+  });
   return compatible(nativeId);
+}
+
+function inferOpenAiCompatibleBaseUrl(prefix: string): string {
+  const envByPrefix: Record<string, string | undefined> = {
+    lmstudio: process.env.LMSTUDIO_BASE_URL,
+    vllm: process.env.VLLM_BASE_URL,
+    localai: process.env.LOCALAI_BASE_URL,
+    llamacpp: process.env.LLAMACPP_BASE_URL,
+    textgen: process.env.TEXTGEN_BASE_URL,
+    jan: process.env.JAN_BASE_URL,
+  };
+  const defaultByPrefix: Record<string, string> = {
+    lmstudio: "http://localhost:1234",
+    vllm: "http://localhost:8000",
+    localai: "http://localhost:8080",
+    llamacpp: "http://localhost:8081",
+    textgen: "http://localhost:5000",
+    jan: "http://localhost:1337",
+  };
+  const baseUrl = envByPrefix[prefix] ?? defaultByPrefix[prefix];
+  if (!baseUrl) throw new Error(`Unknown model id: ${prefix}`);
+  return `${baseUrl.replace(/\/+$/, "")}/v1`;
 }

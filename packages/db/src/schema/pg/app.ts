@@ -15,6 +15,7 @@ export const agentAutonomyLevel = pgEnum("agent_autonomy_level", [
 
 export const mcpTransport = pgEnum("mcp_transport", ["stdio", "http"]);
 export const installationMode = pgEnum("installation_mode", ["pc", "server"]);
+export const modelProviderKind = pgEnum("model_provider_kind", ["openai_compatible"]);
 
 /** See ADR-0009: pending approvals are resolved out-of-band, not by pausing
  * the model's tool-calling loop mid-stream. */
@@ -55,6 +56,21 @@ export const workspace = pgTable("workspace", {
   name: text("name").notNull(),
   customInstructions: text("custom_instructions"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const modelInstallation = pgTable("model_installation", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  providerKind: modelProviderKind("provider_kind").notNull(),
+  baseUrl: text("base_url").notNull(),
+  apiKey: text("api_key"),
+  modelIds: jsonb("model_ids").notNull().default([]).$type<string[]>(),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 /** A saved agent configuration: system prompt, model, and which skills/MCP

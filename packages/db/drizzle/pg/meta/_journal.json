@@ -36,6 +36,13 @@
       "when": 1782901800000,
       "tag": "0004_self_hosting_polish",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782903405544,
+      "tag": "0005_purple_tusk",
+      "breakpoints": true
     }
   ]
 }

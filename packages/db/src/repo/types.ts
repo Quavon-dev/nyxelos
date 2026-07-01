@@ -2,6 +2,7 @@ export type MessageRole = "user" | "assistant" | "system" | "tool";
 
 export type AgentAutonomyLevel = "chat" | "assisted" | "autonomous" | "super_agent";
 export type InstallationMode = "pc" | "server";
+export type ModelProviderKind = "openai_compatible";
 
 export type McpTransport = "stdio" | "http";
 
@@ -126,6 +127,19 @@ export interface KnowledgeBaseConfigRecord {
   updatedAt: Date;
 }
 
+export interface ModelInstallationRecord {
+  id: string;
+  workspaceId: string;
+  label: string;
+  providerKind: ModelProviderKind;
+  baseUrl: string;
+  apiKey: string | null;
+  modelIds: string[];
+  enabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 /**
  * A dialect-agnostic data access interface. `packages/db` ships one
  * implementation per SQL dialect (pg.repo.ts, sqlite.repo.ts) so the rest of
@@ -153,6 +167,19 @@ export interface DbRepository {
     workspaceId: string;
     customInstructions: string | null;
   }): Promise<WorkspaceRecord>;
+
+  createModelInstallation(input: {
+    workspaceId: string;
+    label: string;
+    providerKind: ModelProviderKind;
+    baseUrl: string;
+    apiKey?: string | null;
+    modelIds: string[];
+    enabled?: boolean;
+  }): Promise<ModelInstallationRecord>;
+  listModelInstallationsByWorkspace(workspaceId: string): Promise<ModelInstallationRecord[]>;
+  getModelInstallation(id: string): Promise<ModelInstallationRecord | null>;
+  deleteModelInstallation(id: string): Promise<void>;
 
   createChat(input: {
     workspaceId: string;

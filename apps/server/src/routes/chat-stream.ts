@@ -2,6 +2,7 @@ import { getDb } from "@nyxel/db";
 import { streamChat } from "@nyxel/model-providers";
 import type { Hono } from "hono";
 import { z } from "zod";
+import { getInstalledProvidersForWorkspace } from "../models";
 import { buildToolsForAgent } from "../tools";
 
 const bodySchema = z.object({
@@ -42,6 +43,7 @@ export function registerChatStreamRoute(app: Hono) {
       undefined;
     const tools = agent ? await buildToolsForAgent(agent, { chatId }) : undefined;
     const modelId = agent?.modelId ?? chat.modelId;
+    const installedProviders = await getInstalledProvidersForWorkspace(chat.workspaceId);
 
     await db.addMessage({ chatId, role: "user", content: message });
     const history = await db.listMessages(chatId);
@@ -56,6 +58,7 @@ export function registerChatStreamRoute(app: Hono) {
       result = streamChat({
         modelId,
         systemPrompt,
+        installedProviders,
         tools,
         messages: history.map((m) => ({
           role: m.role === "tool" ? "assistant" : m.role,

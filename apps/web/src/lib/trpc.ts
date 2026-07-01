@@ -5,7 +5,9 @@ const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL ?? "http://localhost:3001"
 export type ModelSummary = {
   id: string;
   label: string;
-  kind: "local" | "cloud";
+  kind: "local" | "cloud" | "custom";
+  provider: string;
+  providerLabel: string;
 };
 
 export type AutonomyLevel = "chat" | "assisted" | "autonomous" | "super_agent";
@@ -191,6 +193,28 @@ export type KnowledgeBaseGraph = {
   edges: { source: string; target: string }[];
 };
 
+export type ModelProviderKind = "openai_compatible";
+
+export type ModelInstallationSummary = {
+  id: string;
+  workspaceId: string;
+  label: string;
+  providerKind: ModelProviderKind;
+  baseUrl: string;
+  apiKey: string | null;
+  modelIds: string[];
+  enabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type ProbedModelProvider = {
+  providerKey: string;
+  providerLabel: string;
+  baseUrl: string;
+  modelIds: string[];
+};
+
 type NyxelTrpcClient = {
   demoUser: {
     query(): Promise<DemoUser>;
@@ -212,7 +236,30 @@ type NyxelTrpcClient = {
   };
   models: {
     list: {
-      query(): Promise<ModelSummary[]>;
+      query(input?: { workspaceId?: string }): Promise<ModelSummary[]>;
+    };
+    installations: {
+      query(input: { workspaceId: string }): Promise<ModelInstallationSummary[]>;
+    };
+    probe: {
+      query(input: {
+        label?: string;
+        baseUrl: string;
+        apiKey?: string;
+      }): Promise<ProbedModelProvider>;
+    };
+    installCustom: {
+      mutate(input: {
+        workspaceId: string;
+        label: string;
+        providerKind?: ModelProviderKind;
+        baseUrl: string;
+        apiKey?: string;
+        modelIds?: string[];
+      }): Promise<ModelInstallationSummary>;
+    };
+    deleteInstallation: {
+      mutate(input: { id: string }): Promise<void>;
     };
   };
   skills: {

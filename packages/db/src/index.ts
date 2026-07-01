@@ -19,5 +19,7 @@ export type {
   McpTransport,
   MessageRecord,
   MessageRole,
+  ModelInstallationRecord,
+  ModelProviderKind,
   WorkspaceRecord,
 } from "./repo/types";
