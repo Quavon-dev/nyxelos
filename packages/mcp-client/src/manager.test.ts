@@ -82,3 +82,33 @@ test("completeAuthorization asks to restart sign-in when PKCE state is missing",
     /has no pending OAuth session\. Start sign-in again from Nyxel\./,
   );
 });
+
+test("completeAuthorization times out when the OAuth exchange hangs", async () => {
+  const manager = new McpClientManager(
+    () => new Promise<"AUTHORIZED">(() => undefined),
+    20,
+  );
+
+  const config = {
+    id: "server-3",
+    name: "Notion",
+    transport: "http" as const,
+    url: "https://example.com/mcp",
+    oauth: {
+      callbackUrl: "http://localhost:3000/mcp-auth/callback?serverId=server-3&workspaceId=workspace-1",
+      clientName: "Nyxel · Notion",
+    },
+  };
+
+  manager.rememberConfig(config);
+  const provider = (manager as unknown as ManagerInternals).oauthProviders.get(config.id);
+  provider?.saveCodeVerifier("pkce-verifier");
+  provider?.redirectToAuthorization(new URL("https://example.com/authorize"));
+
+  const startedAt = Date.now();
+  await assert.rejects(
+    manager.completeAuthorization(config.id, "auth-code-789"),
+    /did not finish OAuth sign-in within 0\.02 seconds\. Retry the connection from Nyxel\./,
+  );
+  assert.ok(Date.now() - startedAt < 1000);
+});

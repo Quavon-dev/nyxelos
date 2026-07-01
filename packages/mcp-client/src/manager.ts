@@ -20,6 +20,28 @@ import {
 	type McpToolSummary,
 } from "./types";
 
+const OAUTH_EXCHANGE_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(
+	promise: Promise<T>,
+	timeoutMs: number,
+	onTimeout: () => Error,
+): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		const timer = setTimeout(() => reject(onTimeout()), timeoutMs);
+		void promise.then(
+			(value) => {
+				clearTimeout(timer);
+				resolve(value);
+			},
+			(err) => {
+				clearTimeout(timer);
+				reject(err);
+			},
+		);
+	});
+}
+
 function parseHttpMcpUrl(config: McpServerConfig): URL {
 	if (!config.url) {
 		throw new McpInvalidConfigurationError({
@@ -183,7 +205,10 @@ export class McpClientManager {
 	private configs = new Map<string, McpServerConfig>();
 	private oauthProviders = new Map<string, InMemoryMcpOAuthProvider>();
 
-	constructor(private readonly exchangeAuthorizationCode = runOAuthFlow) {}
+	constructor(
+		private readonly exchangeAuthorizationCode = runOAuthFlow,
+		private readonly oauthExchangeTimeoutMs = OAUTH_EXCHANGE_TIMEOUT_MS,
+	) {}
 
 	private getOrCreateOAuthProvider(
 		config: McpServerConfig,
@@ -291,10 +316,17 @@ export class McpClientManager {
 				`MCP server "${config.name}" has no pending OAuth session. Start sign-in again from Nyxel.`,
 			);
 		}
-		await this.exchangeAuthorizationCode(provider, {
-			serverUrl: config.url,
-			authorizationCode,
-		});
+		await withTimeout(
+			this.exchangeAuthorizationCode(provider, {
+				serverUrl: config.url,
+				authorizationCode,
+			}),
+			this.oauthExchangeTimeoutMs,
+			() =>
+				new Error(
+					`MCP server "${config.name}" did not finish OAuth sign-in within ${this.oauthExchangeTimeoutMs / 1000} seconds. Retry the connection from Nyxel.`,
+				),
+		);
 		await this.disconnect(serverId);
 	}
 

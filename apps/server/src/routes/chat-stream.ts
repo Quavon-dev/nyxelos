@@ -25,6 +25,29 @@ const STREAM_HEADERS = {
 	"X-Accel-Buffering": "no",
 };
 
+const EMPTY_ASSISTANT_RESPONSE =
+	"Ich konnte gerade keine sichtbare Antwort erzeugen. Bitte versuchen Sie es erneut oder formulieren Sie Ihre Anfrage etwas anders.";
+
+function ensureVisibleAssistantResponse(text: string): string {
+	return text.trim() ? text : EMPTY_ASSISTANT_RESPONSE;
+}
+
+async function persistAssistantMessage(chatId: string, content: string) {
+	const db = getDb();
+	try {
+		await db.addMessage({
+			chatId,
+			role: "assistant",
+			content,
+		});
+	} catch (err) {
+		console.error(
+			`Failed to persist assistant message for chat ${chatId}:`,
+			err,
+		);
+	}
+}
+
 function isClosedStreamControllerError(err: unknown): boolean {
 	return (
 		err instanceof Error &&
@@ -135,9 +158,9 @@ export function registerChatStreamRoute(app: Hono) {
 						}
 					}
 
-					const assistantText = finalizedText.trim()
-						? finalizedText
-						: streamedText;
+					const assistantText = ensureVisibleAssistantResponse(
+						finalizedText.trim() ? finalizedText : streamedText,
+					);
 
 					if (
 						!clientDisconnected &&
@@ -152,20 +175,7 @@ export function registerChatStreamRoute(app: Hono) {
 						}
 					}
 
-					if (assistantText.trim()) {
-						try {
-							await db.addMessage({
-								chatId,
-								role: "assistant",
-								content: assistantText,
-							});
-						} catch (err) {
-							console.error(
-								`Failed to persist assistant message for chat ${chatId}:`,
-								err,
-							);
-						}
-					}
+					await persistAssistantMessage(chatId, assistantText);
 					if (!clientDisconnected) {
 						controller.close();
 					}
@@ -178,13 +188,21 @@ export function registerChatStreamRoute(app: Hono) {
 						err instanceof Error
 							? err.message
 							: "Model stream failed mid-response.";
+					const assistantText = ensureVisibleAssistantResponse(
+						streamedText ||
+							`Ich konnte die Antwort nicht vollständig streamen. ${messageText}`,
+					);
 					console.error(
 						`Model stream failed mid-response for chat ${chatId}:`,
 						err,
 					);
-					controller.enqueue(
-						encoder.encode(`\n\n[stream error] ${messageText}`),
-					);
+					await persistAssistantMessage(chatId, assistantText);
+					const missingSuffix = assistantText.startsWith(streamedText)
+						? assistantText.slice(streamedText.length)
+						: assistantText;
+					if (missingSuffix) {
+						controller.enqueue(encoder.encode(missingSuffix));
+					}
 					controller.close();
 				}
 			},

@@ -6,6 +6,9 @@ import { useCallback, useState } from "react";
 const SERVER_URL =
 	process.env.NEXT_PUBLIC_SERVER_URL ?? "http://localhost:3001";
 
+const EMPTY_ASSISTANT_RESPONSE =
+	"Ich konnte gerade keine sichtbare Antwort erzeugen. Bitte versuchen Sie es erneut oder formulieren Sie Ihre Anfrage etwas anders.";
+
 export interface StreamingMessage {
 	role: "assistant";
 	content: string;
@@ -82,13 +85,8 @@ export function useChatStream(chatId: string) {
 				}
 
 				full += decoder.decode();
-				if (full) {
-					setStreamingMessage({ role: "assistant", content: full });
-				}
-
-				if (!full.trim()) {
-					throw new Error("Model returned no visible text.");
-				}
+				const visibleResponse = full.trim() ? full : EMPTY_ASSISTANT_RESPONSE;
+				setStreamingMessage({ role: "assistant", content: visibleResponse });
 			} catch (err) {
 				setError(
 					err instanceof Error
