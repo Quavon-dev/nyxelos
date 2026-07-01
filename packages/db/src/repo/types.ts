@@ -120,6 +120,7 @@ export interface WorkspaceRecord {
 	color: string | null;
 	defaultModelId: string | null;
 	defaultAutonomyLevel: AgentAutonomyLevel;
+	defaultToolPolicy: ChatToolPolicy;
 }
 
 export interface InstallationRecord {
@@ -390,6 +391,7 @@ export interface DbRepository {
 		color?: string | null;
 		defaultModelId?: string | null;
 		defaultAutonomyLevel?: AgentAutonomyLevel;
+		defaultToolPolicy?: ChatToolPolicy;
 	}): Promise<WorkspaceRecord>;
 
 	createModelInstallation(input: {

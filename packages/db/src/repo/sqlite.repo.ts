@@ -77,6 +77,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			color: row.color,
 			defaultModelId: row.defaultModelId,
 			defaultAutonomyLevel: row.defaultAutonomyLevel,
+			defaultToolPolicy: row.defaultToolPolicy ?? DEFAULT_CHAT_TOOL_POLICY,
 		};
 	}
 
