@@ -6,6 +6,10 @@ import { resolveAgentRuntimeConfig } from "../auto-agent";
 import { getKnowledgeBaseContextForPrompt } from "../knowledge-base";
 import { getInstalledProvidersForWorkspace } from "../models";
 import { buildToolsForAgent } from "../tools";
+import {
+	buildStreamFailureResponse,
+	ensureVisibleAssistantResponse,
+} from "./chat-stream-response";
 
 const bodySchema = z.object({
 	chatId: z.string(),
@@ -24,13 +28,6 @@ const STREAM_HEADERS = {
 	Connection: "keep-alive",
 	"X-Accel-Buffering": "no",
 };
-
-const EMPTY_ASSISTANT_RESPONSE =
-	"Ich konnte gerade keine sichtbare Antwort erzeugen. Bitte versuchen Sie es erneut oder formulieren Sie Ihre Anfrage etwas anders.";
-
-function ensureVisibleAssistantResponse(text: string): string {
-	return text.trim() ? text : EMPTY_ASSISTANT_RESPONSE;
-}
 
 async function persistAssistantMessage(chatId: string, content: string) {
 	const db = getDb();
@@ -188,9 +185,9 @@ export function registerChatStreamRoute(app: Hono) {
 						err instanceof Error
 							? err.message
 							: "Model stream failed mid-response.";
-					const assistantText = ensureVisibleAssistantResponse(
-						streamedText ||
-							`Ich konnte die Antwort nicht vollständig streamen. ${messageText}`,
+					const assistantText = buildStreamFailureResponse(
+						streamedText,
+						messageText,
 					);
 					console.error(
 						`Model stream failed mid-response for chat ${chatId}:`,
