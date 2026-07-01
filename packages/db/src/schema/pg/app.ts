@@ -201,6 +201,10 @@ export const modelInstallation = pgTable("model_installation", {
 	baseUrl: text("base_url").notNull(),
 	apiKey: text("api_key"),
 	modelIds: jsonb("model_ids").notNull().default([]).$type<string[]>(),
+	// Subset of modelIds hidden from the model picker without removing them
+	// from the installation — lets a user temporarily hide a model without
+	// losing it (re-enabling doesn't require re-adding). See models.setModelEnabled.
+	disabledModelIds: jsonb("disabled_model_ids").notNull().default([]).$type<string[]>(),
 	enabled: boolean("enabled").notNull().default(true),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),

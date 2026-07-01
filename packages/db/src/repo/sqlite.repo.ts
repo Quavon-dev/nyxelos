@@ -266,6 +266,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			baseUrl,
 			apiKey,
 			modelIds,
+			disabledModelIds,
 			enabled,
 		}) {
 			const now = new Date();
@@ -279,6 +280,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					baseUrl,
 					apiKey: apiKey ?? null,
 					modelIds,
+					disabledModelIds: disabledModelIds ?? [],
 					enabled: enabled ?? true,
 					createdAt: now,
 					updatedAt: now,

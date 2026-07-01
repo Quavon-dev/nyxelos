@@ -189,6 +189,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 			baseUrl,
 			apiKey,
 			modelIds,
+			disabledModelIds,
 			enabled,
 		}) {
 			const [row] = await db
@@ -201,6 +202,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 					baseUrl,
 					apiKey: apiKey ?? null,
 					modelIds,
+					disabledModelIds: disabledModelIds ?? [],
 					enabled: enabled ?? true,
 					updatedAt: new Date(),
 				})

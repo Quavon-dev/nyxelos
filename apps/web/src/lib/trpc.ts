@@ -433,6 +433,15 @@ export type AuditLogSummary = {
 	createdAt: Date;
 };
 
+export type McpConnectorConfigField = {
+	key: string;
+	label: string;
+	description?: string;
+	placeholder?: string;
+	kind: "secret-file" | "secret-value";
+	envVar: string;
+};
+
 export type McpConnectorCatalogEntry = {
 	key: string;
 	name: string;
@@ -442,6 +451,7 @@ export type McpConnectorCatalogEntry = {
 	url?: string;
 	command?: string;
 	args?: string[];
+	configFields?: McpConnectorConfigField[];
 };
 
 export type McpServerSummary = {
@@ -989,6 +999,13 @@ type NyxelTrpcClient = {
 				args?: string[];
 				url?: string;
 				env?: Record<string, string>;
+			}): Promise<McpServerSummary>;
+		};
+		connectWithConfig: {
+			mutate(input: {
+				workspaceId: string;
+				key: string;
+				values: Record<string, string>;
 			}): Promise<McpServerSummary>;
 		};
 		delete: {

@@ -32,6 +32,7 @@ import {
 	runDocsAgentForWorkspace,
 } from "../knowledge-base";
 import { MCP_CONNECTOR_CATALOG } from "../mcp-connectors";
+import { writeMcpSecretFile } from "../mcp-secrets";
 import {
 	completeMcpServerAuthorization,
 	ensureMcpServerConnected,
@@ -1174,6 +1175,46 @@ export const appRouter = router({
 				url: input.url?.trim(),
 			}),
 		),
+		// For catalog entries with configFields — writes any "secret-file" values
+		// to a local file and builds the stdio server's env from the result,
+		// since those commands only accept a credentials *path*, not the secret
+		// itself as an argument.
+		connectWithConfig: publicProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					key: z.string(),
+					values: z.record(z.string(), z.string()),
+				}),
+			)
+			.mutation(({ input }) => {
+				const entry = MCP_CONNECTOR_CATALOG.find((e) => e.key === input.key);
+				if (!entry) throw new Error(`Unknown connector: ${input.key}`);
+				if (entry.transport !== "stdio" || !entry.command) {
+					throw new Error(
+						`"${entry.name}" doesn't support connecting with a config form.`,
+					);
+				}
+				const env: Record<string, string> = {};
+				for (const field of entry.configFields ?? []) {
+					const value = input.values[field.key]?.trim();
+					if (!value) {
+						throw new Error(`"${field.label}" is required to connect ${entry.name}.`);
+					}
+					env[field.envVar] =
+						field.kind === "secret-file"
+							? writeMcpSecretFile(input.workspaceId, `${entry.key}-${field.key}`, value)
+							: value;
+				}
+				return getDb().createMcpServer({
+					workspaceId: input.workspaceId,
+					name: entry.name,
+					transport: "stdio",
+					command: entry.command,
+					args: entry.args,
+					env,
+				});
+			}),
 		delete: publicProcedure
 			.input(z.object({ id: z.string() }))
 			.mutation(({ input }) => getDb().deleteMcpServer(input.id)),

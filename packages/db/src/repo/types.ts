@@ -373,6 +373,9 @@ export interface ModelInstallationRecord {
 	baseUrl: string;
 	apiKey: string | null;
 	modelIds: string[];
+	/** Subset of modelIds hidden from the model picker without removing them —
+	 * see models.setModelEnabled. */
+	disabledModelIds: string[];
 	enabled: boolean;
 	createdAt: Date;
 	updatedAt: Date;
@@ -495,6 +498,7 @@ export interface DbRepository {
 		baseUrl: string;
 		apiKey?: string | null;
 		modelIds: string[];
+		disabledModelIds?: string[];
 		enabled?: boolean;
 	}): Promise<ModelInstallationRecord>;
 	listModelInstallationsByWorkspace(
@@ -505,6 +509,7 @@ export interface DbRepository {
 		id: string;
 		label?: string;
 		modelIds?: string[];
+		disabledModelIds?: string[];
 		enabled?: boolean;
 	}): Promise<ModelInstallationRecord>;
 	deleteModelInstallation(id: string): Promise<void>;

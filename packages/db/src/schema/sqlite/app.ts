@@ -181,6 +181,12 @@ export const modelInstallation = sqliteTable("model_installation", {
 		.notNull()
 		.default([])
 		.$type<string[]>(),
+	// Subset of modelIds hidden from the model picker without removing them —
+	// see ../pg/app.ts.
+	disabledModelIds: text("disabled_model_ids", { mode: "json" })
+		.notNull()
+		.default([])
+		.$type<string[]>(),
 	enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),

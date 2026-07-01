@@ -70,6 +70,71 @@ function serverIdentity(server: Pick<McpServerSummary, "url" | "command" | "args
 
 type ConnectorFilter = "all" | "connected" | "not_connected";
 
+function ConnectorConfigDialog({
+	entry,
+	onOpenChange,
+	onSubmit,
+	isPending,
+	error,
+}: {
+	entry: McpConnectorCatalogEntry | null;
+	onOpenChange: (open: boolean) => void;
+	onSubmit: (values: Record<string, string>) => void;
+	isPending: boolean;
+	error: string | null;
+}) {
+	const [values, setValues] = useState<Record<string, string>>({});
+
+	useEffect(() => {
+		setValues({});
+	}, []);
+
+	if (!entry) return null;
+
+	return (
+		<Dialog open={Boolean(entry)} onOpenChange={onOpenChange}>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>Connect {entry.name}</DialogTitle>
+					<DialogDescription>{entry.description}</DialogDescription>
+				</DialogHeader>
+				<div className="space-y-4">
+					{(entry.configFields ?? []).map((field) => (
+						<div className="grid gap-2" key={field.key}>
+							<Label htmlFor={`config-${field.key}`}>{field.label}</Label>
+							{field.description && (
+								<p className="text-xs text-muted-foreground">
+									{field.description}
+								</p>
+							)}
+							<Input
+								id={`config-${field.key}`}
+								placeholder={field.placeholder}
+								value={values[field.key] ?? ""}
+								onChange={(e) =>
+									setValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+								}
+							/>
+						</div>
+					))}
+					{error && <p className="text-sm text-destructive">{error}</p>}
+				</div>
+				<DialogFooter showCloseButton>
+					<Button
+						onClick={() => onSubmit(values)}
+						disabled={
+							isPending ||
+							(entry.configFields ?? []).some((f) => !values[f.key]?.trim())
+						}
+					>
+						{isPending ? "Connecting…" : "Connect"}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
 function ConnectorCatalog({
 	workspaceId,
 	servers,
@@ -82,6 +147,9 @@ function ConnectorCatalog({
 	const queryClient = useQueryClient();
 	const [search, setSearch] = useState("");
 	const [filter, setFilter] = useState<ConnectorFilter>("all");
+	const [configEntry, setConfigEntry] = useState<McpConnectorCatalogEntry | null>(
+		null,
+	);
 
 	const catalogQuery = useQuery({
 		queryKey: ["mcpConnectorCatalog"],
@@ -117,6 +185,20 @@ function ConnectorCatalog({
 			),
 		onSuccess: (server) => {
 			queryClient.invalidateQueries({ queryKey: ["mcpServers", workspaceId] });
+			onConnected(server.id);
+		},
+	});
+
+	const connectWithConfigMutation = useMutation({
+		mutationFn: (vars: { entry: McpConnectorCatalogEntry; values: Record<string, string> }) =>
+			trpcClient.mcpServers.connectWithConfig.mutate({
+				workspaceId,
+				key: vars.entry.key,
+				values: vars.values,
+			}),
+		onSuccess: (server) => {
+			queryClient.invalidateQueries({ queryKey: ["mcpServers", workspaceId] });
+			setConfigEntry(null);
 			onConnected(server.id);
 		},
 	});
@@ -226,7 +308,11 @@ function ConnectorCatalog({
 											size="sm"
 											variant="outline"
 											className="shrink-0"
-											onClick={() => connectMutation.mutate(entry)}
+											onClick={() =>
+												entry.configFields?.length
+													? setConfigEntry(entry)
+													: connectMutation.mutate(entry)
+											}
 											disabled={isConnecting}
 										>
 											{isConnecting ? "Connecting…" : "Connect"}
@@ -243,6 +329,20 @@ function ConnectorCatalog({
 					</p>
 				)}
 			</CardContent>
+			<ConnectorConfigDialog
+				entry={configEntry}
+				onOpenChange={(open) => !open && setConfigEntry(null)}
+				onSubmit={(values) =>
+					configEntry &&
+					connectWithConfigMutation.mutate({ entry: configEntry, values })
+				}
+				isPending={connectWithConfigMutation.isPending}
+				error={
+					connectWithConfigMutation.isError
+						? (connectWithConfigMutation.error as Error).message
+						: null
+				}
+			/>
 		</Card>
 	);
 }

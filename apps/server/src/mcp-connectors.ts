@@ -1,3 +1,17 @@
+export interface McpConnectorConfigField {
+	/** Key this value is submitted under from the "Connect" dialog. */
+	key: string;
+	label: string;
+	description?: string;
+	placeholder?: string;
+	/** "secret-file" writes the submitted value to a local file and points
+	 * envVar at its path (for tools that only accept a credentials file path,
+	 * not the file contents directly). "secret-value" sets envVar to the
+	 * submitted value as-is. */
+	kind: "secret-file" | "secret-value";
+	envVar: string;
+}
+
 export interface McpConnectorCatalogEntry {
 	/** Stable key used to match an existing configured server back to its catalog entry. */
 	key: string;
@@ -14,6 +28,11 @@ export interface McpConnectorCatalogEntry {
 	/** Local command to spawn. Required when transport is "stdio". */
 	command?: string;
 	args?: string[];
+	/** When set, "Connect" opens a form collecting these values instead of
+	 * connecting immediately — for stdio connectors whose command needs a
+	 * secret (an OAuth credentials file, an API token) that has nowhere else
+	 * to come from. */
+	configFields?: McpConnectorConfigField[];
 }
 
 // Verified, officially published remote MCP endpoints. "Connectors" is just
@@ -231,5 +250,26 @@ export const MCP_CONNECTOR_CATALOG: McpConnectorCatalogEntry[] = [
 		description: "Static analysis and security scanning. No sign-in required.",
 		category: "Developer tools",
 		url: "https://mcp.semgrep.ai/sse",
+	},
+	{
+		key: "google-calendar",
+		name: "Google Calendar",
+		description:
+			"Read, create, and manage events. No hosted Google server exists for this — runs locally via @cocal/google-calendar-mcp, and needs your own Google Cloud OAuth client (Desktop app type) since Google doesn't support anonymous dynamic client registration.",
+		category: "Productivity",
+		transport: "stdio",
+		command: "npx",
+		args: ["-y", "@cocal/google-calendar-mcp"],
+		configFields: [
+			{
+				key: "credentialsJson",
+				label: "OAuth client credentials (gcp-oauth.keys.json)",
+				description:
+					"From Google Cloud Console → APIs & Services → Credentials → your Desktop app OAuth client → Download JSON. Paste the full file contents.",
+				placeholder: '{"installed":{"client_id":"...","project_id":"...","client_secret":"..."}}',
+				kind: "secret-file",
+				envVar: "GOOGLE_OAUTH_CREDENTIALS",
+			},
+		],
 	},
 ];
