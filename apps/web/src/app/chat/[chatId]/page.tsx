@@ -11,15 +11,16 @@ import { trpcClient } from "@/lib/trpc";
 import { useChatStream } from "@/lib/use-chat-stream";
 import { useInstallation } from "@/lib/use-installation";
 
+function getLastAssistantContent(messages: Array<{ role: string; content: string }>) {
+  const lastMessage = messages.at(-1);
+  if (lastMessage?.role !== "assistant") return null;
+
+  const content = lastMessage.content.trim();
+  return content || null;
+}
+
 function getPendingAssistantQuestion(messages: Array<{ role: string; content: string }>) {
-  const lastAssistantIndex = [...messages]
-    .map((message, index) => ({ message, index }))
-    .reverse()
-    .find(({ message }) => message.role === "assistant")?.index;
-
-  if (lastAssistantIndex === undefined) return null;
-
-  const content = messages[lastAssistantIndex]?.content.trim();
+  const content = getLastAssistantContent(messages);
   if (!content) return null;
 
   const parsed = parseAssistantContent(content);
@@ -34,14 +35,7 @@ function getPendingAssistantQuestion(messages: Array<{ role: string; content: st
 }
 
 function getPendingAssistantPrompt(messages: Array<{ role: string; content: string }>) {
-  const lastAssistantIndex = [...messages]
-    .map((message, index) => ({ message, index }))
-    .reverse()
-    .find(({ message }) => message.role === "assistant")?.index;
-
-  if (lastAssistantIndex === undefined) return null;
-
-  const content = messages[lastAssistantIndex]?.content.trim();
+  const content = getLastAssistantContent(messages);
   if (!content) return null;
 
   const parsed = parseAssistantContent(content);
@@ -169,7 +163,7 @@ export default function ChatPage() {
   }, [draft, chatId, sendMessage, router]);
 
   return (
-    <div className="mx-auto flex h-full max-w-2xl flex-col p-4">
+    <div className="mx-auto flex h-full max-w-3xl flex-col p-4">
       <MessageList messages={messagesQuery.data ?? []} streamingMessage={streamingMessage} />
       {(error || forkAgent.isError) && (
         <p className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">

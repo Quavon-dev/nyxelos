@@ -78,14 +78,15 @@ function parsePlainMultiSelectPrompt(content: string): ParsedAssistantContent | 
     itemIndices.push(index);
     options.push({
       id: `option-${options.length + 1}`,
-      label: stripMarkdown(match[1]),
+      label: stripMarkdown(match[1] ?? ""),
     });
   });
 
   if (options.length < 2 || itemIndices.length === 0) return null;
 
-  const firstItemIndex = itemIndices[0];
-  const lastItemIndex = itemIndices[itemIndices.length - 1];
+  const firstItemIndex = itemIndices.at(0);
+  const lastItemIndex = itemIndices.at(-1);
+  if (firstItemIndex === undefined || lastItemIndex === undefined) return null;
   const trailingLines = lines
     .slice(lastItemIndex + 1)
     .map((line) => line.trim())

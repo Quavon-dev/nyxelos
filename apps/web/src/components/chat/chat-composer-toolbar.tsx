@@ -311,7 +311,19 @@ export function ChatComposerToolbar({
                 <Blocks className="size-4" />
                 Artifacts ({artifacts.length})
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setMcpOpen(true)}>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  // Radix closes the DropdownMenu and returns focus to its
+                  // trigger by default on select. That focus-return races
+                  // against the Popover mounting in the same tick, and the
+                  // Popover's outside-interaction detection can mistake it
+                  // for a dismiss click — opening and immediately closing
+                  // the MCP popover. preventDefault stops Radix's default
+                  // close/focus-return so only our own state change fires.
+                  event.preventDefault();
+                  setMcpOpen(true);
+                }}
+              >
                 <Plug className="size-4" />
                 MCP Server ({mcpSummary})
               </DropdownMenuItem>
@@ -371,7 +383,16 @@ export function ChatComposerToolbar({
                   Artifacts
                   {artifactsPinned && <Check className="ml-auto size-3.5" />}
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setMcpOpen(true)}>
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    // See the "full" mode MCP DropdownMenuItem above: without
+                    // preventDefault, Radix's default menu-close/focus-return
+                    // races the Popover's outside-interaction detection and
+                    // the popover closes itself right after opening.
+                    event.preventDefault();
+                    setMcpOpen(true);
+                  }}
+                >
                   <Plug className="size-4" />
                   MCP Server
                 </DropdownMenuItem>
@@ -459,131 +480,138 @@ export function ChatComposerToolbar({
             </Popover>
           </>
         )}
+      </div>
 
-        <Popover open={mcpOpen} onOpenChange={setMcpOpen}>
-          <PopoverTrigger asChild>
-            <button type="button" className={pillClass(mcpCustomized)}>
-              <Plug className="size-3.5" />
-              {mcpSummary}
-              <ChevronDown className="size-3 opacity-60" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-80">
-            <div className="flex items-center justify-between">
-              <p className="font-medium">MCP servers for this chat</p>
-              {mcpCustomized && (
-                <button
-                  type="button"
-                  onClick={() => onToolSelectionChange(null)}
-                  className="text-xs text-muted-foreground underline-offset-2 hover:underline"
-                >
-                  Reset
-                </button>
-              )}
-            </div>
-            <p className="-mt-2 mb-2 text-xs text-muted-foreground">
-              By default this chat can reach every connected server. Uncheck any it shouldn't use.
-            </p>
-            <div className="max-h-72 space-y-1 overflow-y-auto">
-              {servers.length === 0 && (
-                <p className="text-xs text-muted-foreground">No MCP servers configured yet.</p>
-              )}
-              {servers.map((server) => {
-                const checked = effective.mcpServerIds.includes(server.id);
-                const expanded = expandedServerId === server.id;
-                return (
-                  <div key={server.id} className="rounded-md">
-                    <div className="flex items-center gap-2 rounded-md px-1 py-1.5 hover:bg-muted/60">
-                      <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted">
-                        <Plug className="size-3.5 text-muted-foreground" />
-                      </div>
-                      <div className="flex flex-1 items-center gap-1.5 truncate">
-                        <span className="truncate text-sm font-medium">{server.name}</span>
-                        <span
-                          className={cn(
-                            "size-1.5 shrink-0 rounded-full",
-                            server.enabled ? "bg-emerald-500" : "bg-muted-foreground/40",
-                          )}
-                        />
-                      </div>
-                      {checked && (
-                        <button
-                          type="button"
-                          onClick={() => setExpandedServerId(expanded ? null : server.id)}
-                          className="text-muted-foreground hover:text-foreground"
-                          aria-label="Choose individual tools"
-                        >
-                          {expanded ? (
-                            <ChevronDown className="size-3.5" />
-                          ) : (
-                            <ChevronRight className="size-3.5" />
-                          )}
-                        </button>
-                      )}
-                      <Checkbox
-                        checked={checked}
-                        disabled={!server.enabled}
-                        onCheckedChange={() => toggleServer(server.id)}
+      {/* Rendered outside the overflow-x-auto pill row (above) on purpose:
+       * that row scrolls its contents off-screen once the other pills (File
+       * search, Skills, Artifacts) don't fit, which was silently hiding the
+       * MCP server selector with no visible affordance that it still
+       * existed. Keeping it in its own shrink-0 slot guarantees it's always
+       * reachable, matching the "always stays visible" intent already noted
+       * above for compact mode. */}
+      <Popover open={mcpOpen} onOpenChange={setMcpOpen}>
+        <PopoverTrigger asChild>
+          <button type="button" className={cn(pillClass(mcpCustomized), "shrink-0")}>
+            <Plug className="size-3.5" />
+            {mcpSummary}
+            <ChevronDown className="size-3 opacity-60" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-80">
+          <div className="flex items-center justify-between">
+            <p className="font-medium">MCP servers for this chat</p>
+            {mcpCustomized && (
+              <button
+                type="button"
+                onClick={() => onToolSelectionChange(null)}
+                className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+          <p className="-mt-2 mb-2 text-xs text-muted-foreground">
+            By default this chat can reach every connected server. Uncheck any it shouldn't use.
+          </p>
+          <div className="max-h-72 space-y-1 overflow-y-auto">
+            {servers.length === 0 && (
+              <p className="text-xs text-muted-foreground">No MCP servers configured yet.</p>
+            )}
+            {servers.map((server) => {
+              const checked = effective.mcpServerIds.includes(server.id);
+              const expanded = expandedServerId === server.id;
+              return (
+                <div key={server.id} className="rounded-md">
+                  <div className="flex items-center gap-2 rounded-md px-1 py-1.5 hover:bg-muted/60">
+                    <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted">
+                      <Plug className="size-3.5 text-muted-foreground" />
+                    </div>
+                    <div className="flex flex-1 items-center gap-1.5 truncate">
+                      <span className="truncate text-sm font-medium">{server.name}</span>
+                      <span
+                        className={cn(
+                          "size-1.5 shrink-0 rounded-full",
+                          server.enabled ? "bg-emerald-500" : "bg-muted-foreground/40",
+                        )}
                       />
                     </div>
-                    {expanded && checked && (
-                      <div className="ml-9 space-y-1 border-l pl-3">
-                        {toolsQuery.isLoading && (
-                          <p className="text-xs text-muted-foreground">Loading tools…</p>
+                    {checked && (
+                      <button
+                        type="button"
+                        onClick={() => setExpandedServerId(expanded ? null : server.id)}
+                        className="text-muted-foreground hover:text-foreground"
+                        aria-label="Choose individual tools"
+                      >
+                        {expanded ? (
+                          <ChevronDown className="size-3.5" />
+                        ) : (
+                          <ChevronRight className="size-3.5" />
                         )}
-                        {toolsQuery.isError && (
-                          <p className="text-xs text-destructive">
-                            {(toolsQuery.error as Error).message}
-                          </p>
-                        )}
-                        {authPrompt && (
-                          <div className="space-y-1.5 text-xs text-muted-foreground">
-                            <p>{authPrompt.message}</p>
-                            <button
-                              type="button"
-                              className="font-medium text-foreground underline underline-offset-2"
-                              onClick={() => openAuthorizationWindow(authPrompt.authorizationUrl)}
-                            >
-                              Sign in to load tools
-                            </button>
-                          </div>
-                        )}
-                        {invalidConfigMessage && (
-                          <p className="text-xs text-destructive">{invalidConfigMessage}</p>
-                        )}
-                        {toolsResult?.status === "ready" && availableTools.length === 0 && (
-                          <p className="text-xs text-muted-foreground">No tools exposed.</p>
-                        )}
-                        {availableTools.map((mcpTool) => (
-                          <div key={mcpTool.name} className="flex items-center gap-2">
-                            <Checkbox
-                              id={`${server.id}-${mcpTool.name}`}
-                              checked={isToolChecked(server.id, mcpTool.name)}
-                              onCheckedChange={() =>
-                                toggleTool(
-                                  server.id,
-                                  mcpTool.name,
-                                  availableTools.map((t) => t.name),
-                                )
-                              }
-                            />
-                            <Label
-                              htmlFor={`${server.id}-${mcpTool.name}`}
-                              className="flex-1 truncate font-mono text-xs font-normal"
-                            >
-                              {mcpTool.name}
-                            </Label>
-                          </div>
-                        ))}
-                      </div>
+                      </button>
                     )}
+                    <Checkbox
+                      checked={checked}
+                      disabled={!server.enabled}
+                      onCheckedChange={() => toggleServer(server.id)}
+                    />
                   </div>
-                );
-              })}
-            </div>
-          </PopoverContent>
-        </Popover>
-      </div>
+                  {expanded && checked && (
+                    <div className="ml-9 space-y-1 border-l pl-3">
+                      {toolsQuery.isLoading && (
+                        <p className="text-xs text-muted-foreground">Loading tools…</p>
+                      )}
+                      {toolsQuery.isError && (
+                        <p className="text-xs text-destructive">
+                          {(toolsQuery.error as Error).message}
+                        </p>
+                      )}
+                      {authPrompt && (
+                        <div className="space-y-1.5 text-xs text-muted-foreground">
+                          <p>{authPrompt.message}</p>
+                          <button
+                            type="button"
+                            className="font-medium text-foreground underline underline-offset-2"
+                            onClick={() => openAuthorizationWindow(authPrompt.authorizationUrl)}
+                          >
+                            Sign in to load tools
+                          </button>
+                        </div>
+                      )}
+                      {invalidConfigMessage && (
+                        <p className="text-xs text-destructive">{invalidConfigMessage}</p>
+                      )}
+                      {toolsResult?.status === "ready" && availableTools.length === 0 && (
+                        <p className="text-xs text-muted-foreground">No tools exposed.</p>
+                      )}
+                      {availableTools.map((mcpTool) => (
+                        <div key={mcpTool.name} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`${server.id}-${mcpTool.name}`}
+                            checked={isToolChecked(server.id, mcpTool.name)}
+                            onCheckedChange={() =>
+                              toggleTool(
+                                server.id,
+                                mcpTool.name,
+                                availableTools.map((t) => t.name),
+                              )
+                            }
+                          />
+                          <Label
+                            htmlFor={`${server.id}-${mcpTool.name}`}
+                            className="flex-1 truncate font-mono text-xs font-normal"
+                          >
+                            {mcpTool.name}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </PopoverContent>
+      </Popover>
 
       <div className="flex shrink-0 items-center gap-1">
         {mode === "compact" && (

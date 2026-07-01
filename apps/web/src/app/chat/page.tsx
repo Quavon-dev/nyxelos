@@ -145,7 +145,7 @@ export default function ChatLandingPage() {
   const name = ownerQuery.data?.name?.split(" ")[0];
 
   return (
-    <div className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center gap-8 p-6">
+    <div className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center gap-8 p-6">
       <div className="flex flex-col items-center gap-5 text-center">
         <GreetingOrb />
         <h1 className="text-3xl font-semibold tracking-tight">
@@ -176,12 +176,18 @@ export default function ChatLandingPage() {
             className="resize-none border-0 p-1 text-base shadow-none focus-visible:ring-0"
           />
           <div className="flex items-center gap-2">
+            {/* Small, icon-led trigger with a capped width — this sits in the
+             * same row as the composer's own icon-sized pills, so a
+             * full-height "Model" label + long model name would dwarf
+             * everything next to it. line-clamp-1 (already wired into
+             * SelectTrigger's *:data-[slot=select-value] styles) truncates
+             * long labels once max-w-28 caps the box. */}
             <Select value={modelId} onValueChange={setModelId}>
               <SelectTrigger
                 size="sm"
-                className="shrink-0 gap-1.5 rounded-full border-none bg-muted"
+                className="h-8 max-w-28 shrink-0 gap-1 rounded-full border-none bg-muted px-2.5 text-xs"
               >
-                <Globe className="size-3.5 text-muted-foreground" />
+                <Globe className="size-3.5 shrink-0 text-muted-foreground" />
                 <SelectValue placeholder="Model" />
               </SelectTrigger>
               <SelectContent>
@@ -192,9 +198,14 @@ export default function ChatLandingPage() {
                 ))}
               </SelectContent>
             </Select>
+            {/* Same compact toolbar used in an existing chat thread: Skills
+             * and Artifacts only show up as pills once the user has pinned
+             * them via the "..." menu, so this row stays uncluttered until
+             * something is actually turned on, instead of always showing
+             * every tool as a badge. */}
             <div className="min-w-0 flex-1">
               <ChatComposerToolbar
-                mode="full"
+                mode="compact"
                 workspaceId={workspaceId}
                 toolSelection={toolSelection}
                 onToolSelectionChange={setToolSelection}
