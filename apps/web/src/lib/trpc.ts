@@ -48,9 +48,20 @@ export type ChatSummary = {
   id: string;
   workspaceId: string;
   agentId: string | null;
+  projectId: string | null;
   title: string;
   modelId: string;
   archivedAt: Date | null;
+  pinnedAt: Date | null;
+  shareId: string | null;
+  sharedAt: Date | null;
+  createdAt: Date;
+};
+
+export type ProjectSummary = {
+  id: string;
+  workspaceId: string;
+  name: string;
   createdAt: Date;
 };
 
