@@ -1,6 +1,7 @@
 import { createPgRepository } from "./repo/pg.repo";
 import { createSqliteRepository } from "./repo/sqlite.repo";
 import type { DbRepository } from "./repo/types";
+import { DEFAULT_SQLITE_PATH } from "./sqlite-path";
 
 export type DbDriver = "pg" | "sqlite";
 
@@ -26,6 +27,6 @@ export function getDb(): DbRepository {
       ? createPgRepository(
           process.env.DATABASE_URL ?? "postgres://nyxel:nyxel@localhost:5432/nyxel",
         )
-      : createSqliteRepository(process.env.DATABASE_URL ?? "./nyxel.sqlite");
+      : createSqliteRepository(process.env.DATABASE_URL ?? DEFAULT_SQLITE_PATH);
   return cached;
 }

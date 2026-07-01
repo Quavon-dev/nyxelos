@@ -71,6 +71,13 @@
       "when": 1782913617849,
       "tag": "0009_add_projects_and_chat_extras",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782917346875,
+      "tag": "0010_illegal_thunderbird",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,2 @@
+ALTER TABLE `chat` ADD `tool_mode` text DEFAULT 'default' NOT NULL;--> statement-breakpoint
+ALTER TABLE `chat` ADD `tool_policy` text DEFAULT '{"mode":"default","approveFileWrites":true,"approveFileDeletes":true,"approveCustomCode":true,"approveMcpTools":true}' NOT NULL;

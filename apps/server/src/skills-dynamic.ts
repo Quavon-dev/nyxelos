@@ -17,6 +17,7 @@ import { listKnowledgeBaseDocuments } from "./knowledge-base";
  *   file_read:   { allowedDirs: string[] }
  *   file_list:   { allowedDirs: string[] }
  *   file_write:  { allowedDirs: string[] }
+ *   file_delete: { allowedDirs: string[] }
  *   kb_search:   {} (reads the workspace's configured knowledge-base vault)
  *   custom_code: { allowedHosts: string[], allowedDirs: string[], code: string }
  *                `code` is the body of an async function `(input, ctx) => { ... }`.
@@ -88,6 +89,20 @@ export function buildDynamicSkillDefinition(record: SkillRecord): SkillDefinitio
           const ctx = createSkillContext({ network: [], filesystem: allowedDirs });
           await ctx.writeFile(filePath, content);
           return { path: filePath, bytesWritten: content.length };
+        },
+      };
+
+    case "file_delete":
+      return {
+        ...base,
+        inputSchema: z.object({
+          path: z.string().describe("Absolute path to delete."),
+        }),
+        permissions: { network: [], filesystem: allowedDirs },
+        async run({ path: filePath }) {
+          const ctx = createSkillContext({ network: [], filesystem: allowedDirs });
+          await ctx.deleteFile(filePath);
+          return { path: filePath, deleted: true };
         },
       };
 

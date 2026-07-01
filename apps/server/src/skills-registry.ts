@@ -1,5 +1,9 @@
 import { mkdirSync } from "node:fs";
 import {
+  createWorkspaceFileDeleteSkill,
+  createWorkspaceFileListSkill,
+  createWorkspaceFileReadSkill,
+  createWorkspaceFileWriteSkill,
   createWebFetchSkill,
   createWriteNoteSkill,
   getCurrentTimeSkill,
@@ -14,10 +18,15 @@ import {
 export const skillRegistry = new SkillRegistry();
 
 const notesDir = process.env.NYXEL_NOTES_DIR ?? "/tmp/nyxel-notes";
+const workspaceRootDir = process.env.NYXEL_WORKSPACE_ROOT ?? process.cwd();
 mkdirSync(notesDir, { recursive: true });
 
 skillRegistry.register(getCurrentTimeSkill);
 skillRegistry.register(createWebFetchSkill(["api.github.com", "raw.githubusercontent.com"]));
+skillRegistry.register(createWorkspaceFileReadSkill(workspaceRootDir));
+skillRegistry.register(createWorkspaceFileListSkill(workspaceRootDir));
+skillRegistry.register(createWorkspaceFileWriteSkill(workspaceRootDir));
+skillRegistry.register(createWorkspaceFileDeleteSkill(workspaceRootDir));
 // sensitive:true — see ADR-0009. This is the reference skill for exercising
 // the approval workflow end to end.
 skillRegistry.register(createWriteNoteSkill(notesDir));

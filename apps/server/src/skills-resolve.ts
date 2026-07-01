@@ -62,6 +62,7 @@ function extractPermissions(
     case "file_read":
     case "file_list":
     case "file_write":
+    case "file_delete":
       return { network: [], filesystem: stringArray(config.allowedDirs) };
     case "custom_code":
       return {

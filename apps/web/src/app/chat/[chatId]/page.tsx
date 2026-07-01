@@ -2,12 +2,12 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AttachedFile, ChatToolSelection } from "@/components/chat/chat-composer-toolbar";
 import { ChatInput } from "@/components/chat/chat-input";
 import { MessageList } from "@/components/chat/message-list";
 import { parseAssistantContent } from "@/lib/chat-prompts";
-import { DEFAULT_CHAT_TOOL_POLICY, type ChatToolPolicy, trpcClient } from "@/lib/trpc";
+import { type ChatToolPolicy, DEFAULT_CHAT_TOOL_POLICY, trpcClient } from "@/lib/trpc";
 import { useChatStream } from "@/lib/use-chat-stream";
 import { useInstallation } from "@/lib/use-installation";
 
@@ -67,6 +67,37 @@ export default function ChatPage() {
   const pendingQuestion = getPendingAssistantQuestion(messagesQuery.data ?? []);
   const pendingPrompt = getPendingAssistantPrompt(messagesQuery.data ?? []);
 
+  // Tool calls needing a human decision (see ADR-0009) are a separate
+  // approvals.list query, not part of the message content — filtered here to
+  // this chat and merged into the timeline by MessageList so the person can
+  // approve/reject right where the model paused, instead of having to visit
+  // the workspace's Approvals page.
+  const approvalsQuery = useQuery({
+    queryKey: ["approvals", workspaceId, "all"],
+    queryFn: () => trpcClient.approvals.list.query({ workspaceId: workspaceId ?? "" }),
+    enabled: Boolean(workspaceId),
+    refetchInterval: 4_000,
+  });
+  const chatApprovals = (approvalsQuery.data ?? []).filter((a) => a.chatId === chatId);
+
+  const [actingApprovalId, setActingApprovalId] = useState<string | null>(null);
+  const invalidateApprovals = () => {
+    queryClient.invalidateQueries({ queryKey: ["approvals", workspaceId] });
+    queryClient.invalidateQueries({ queryKey: ["auditLog", workspaceId] });
+  };
+  const approveApproval = useMutation({
+    mutationFn: (id: string) => trpcClient.approvals.approve.mutate({ id }),
+    onMutate: (id: string) => setActingApprovalId(id),
+    onSuccess: invalidateApprovals,
+    onSettled: () => setActingApprovalId(null),
+  });
+  const rejectApproval = useMutation({
+    mutationFn: (id: string) => trpcClient.approvals.reject.mutate({ id }),
+    onMutate: (id: string) => setActingApprovalId(id),
+    onSuccess: invalidateApprovals,
+    onSettled: () => setActingApprovalId(null),
+  });
+
   const agentQuery = useQuery({
     queryKey: ["agents", "get", chat?.agentId],
     queryFn: () => trpcClient.agents.get.query({ id: chat?.agentId ?? "" }),
@@ -84,6 +115,17 @@ export default function ChatPage() {
   });
 
   const { sendMessage, streamingMessage, isStreaming, error } = useChatStream(chatId);
+
+  // A tool call that needs approval is created server-side mid-stream, before
+  // the assistant's final text is flushed — refetch right after the turn
+  // finishes instead of waiting for approvalsQuery's 4s poll.
+  const sendMessageAndCheckApprovals = useCallback(
+    async (message: string) => {
+      await sendMessage(message);
+      queryClient.invalidateQueries({ queryKey: ["approvals", workspaceId] });
+    },
+    [sendMessage, queryClient, workspaceId],
+  );
 
   const [toolSelection, setToolSelection] = useState<ChatToolSelection | null>(null);
   const [chatToolPolicy, setChatToolPolicy] = useState<ChatToolPolicy>(DEFAULT_CHAT_TOOL_POLICY);
@@ -189,15 +231,22 @@ export default function ChatPage() {
     const nextDraft = draft ?? sessionDraft;
     if (nextDraft && !sentDraftRef.current) {
       sentDraftRef.current = true;
-      sendMessage(nextDraft);
+      sendMessageAndCheckApprovals(nextDraft);
       window.sessionStorage.removeItem(`nyxel:chat-draft:${chatId}`);
       router.replace(`/chat/${chatId}`);
     }
-  }, [draft, chatId, sendMessage, router]);
+  }, [draft, chatId, router, sendMessageAndCheckApprovals]);
 
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col p-4">
-      <MessageList messages={messagesQuery.data ?? []} streamingMessage={streamingMessage} />
+      <MessageList
+        messages={messagesQuery.data ?? []}
+        streamingMessage={streamingMessage}
+        approvals={chatApprovals}
+        actingApprovalId={actingApprovalId}
+        onApproveApproval={(id) => approveApproval.mutate(id)}
+        onRejectApproval={(id) => rejectApproval.mutate(id)}
+      />
       {(error || forkAgent.isError || updateChatToolPolicy.isError) && (
         <p className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error ??
@@ -206,7 +255,7 @@ export default function ChatPage() {
         </p>
       )}
       <ChatInput
-        onSend={sendMessage}
+        onSend={sendMessageAndCheckApprovals}
         disabled={isStreaming}
         workspaceId={workspaceId}
         toolSelection={toolSelection}

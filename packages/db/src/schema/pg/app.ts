@@ -26,6 +26,7 @@ export const modelProviderKind = pgEnum("model_provider_kind", [
 export const approvalStatus = pgEnum("approval_status", ["pending", "approved", "rejected"]);
 
 export const approvalKind = pgEnum("approval_kind", ["skill", "mcp"]);
+export const chatToolMode = pgEnum("chat_tool_mode", ["default", "automatic", "auto"]);
 
 /** Who/what caused a logged action. See ARCHITECTURE.md section 5 ("Every
  * action by every agent is logged in the audit log"). */
@@ -46,6 +47,7 @@ export const skillKind = pgEnum("skill_kind", [
   "file_read",
   "file_write",
   "file_list",
+  "file_delete",
   "kb_search",
   "custom_code",
 ]);
@@ -196,6 +198,23 @@ export const chat = pgTable("chat", {
   // chats.share/unshare and chats.getShared.
   shareId: text("share_id").unique(),
   sharedAt: timestamp("shared_at"),
+  toolMode: chatToolMode("tool_mode").notNull().default("default"),
+  toolPolicy: jsonb("tool_policy")
+    .notNull()
+    .default({
+      mode: "default",
+      approveFileWrites: true,
+      approveFileDeletes: true,
+      approveCustomCode: true,
+      approveMcpTools: true,
+    })
+    .$type<{
+      mode: "default" | "automatic" | "auto";
+      approveFileWrites: boolean;
+      approveFileDeletes: boolean;
+      approveCustomCode: boolean;
+      approveMcpTools: boolean;
+    }>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

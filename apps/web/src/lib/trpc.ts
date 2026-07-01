@@ -44,6 +44,24 @@ export type WorkspaceSummary = {
   customInstructions: string | null;
 };
 
+export type ChatToolMode = "default" | "automatic" | "auto";
+
+export type ChatToolPolicy = {
+  mode: ChatToolMode;
+  approveFileWrites: boolean;
+  approveFileDeletes: boolean;
+  approveCustomCode: boolean;
+  approveMcpTools: boolean;
+};
+
+export const DEFAULT_CHAT_TOOL_POLICY: ChatToolPolicy = {
+  mode: "default",
+  approveFileWrites: true,
+  approveFileDeletes: true,
+  approveCustomCode: true,
+  approveMcpTools: true,
+};
+
 export type ChatSummary = {
   id: string;
   workspaceId: string;
@@ -55,6 +73,8 @@ export type ChatSummary = {
   pinnedAt: Date | null;
   shareId: string | null;
   sharedAt: Date | null;
+  toolMode: ChatToolMode;
+  toolPolicy: ChatToolPolicy;
   createdAt: Date;
 };
 
@@ -100,6 +120,7 @@ export type SkillKind =
   | "file_read"
   | "file_write"
   | "file_list"
+  | "file_delete"
   | "kb_search"
   | "custom_code";
 
@@ -399,6 +420,8 @@ type NyxelTrpcClient = {
         modelId?: string;
         agentId?: string;
         projectId?: string | null;
+        toolMode?: ChatToolMode;
+        toolPolicy?: ChatToolPolicy;
       }): Promise<ChatSummary>;
     };
     rename: {
@@ -435,6 +458,13 @@ type NyxelTrpcClient = {
     };
     setAgent: {
       mutate(input: { chatId: string; agentId: string | null }): Promise<ChatSummary>;
+    };
+    setToolPolicy: {
+      mutate(input: {
+        chatId: string;
+        toolMode: ChatToolMode;
+        toolPolicy: ChatToolPolicy;
+      }): Promise<ChatSummary>;
     };
   };
   projects: {

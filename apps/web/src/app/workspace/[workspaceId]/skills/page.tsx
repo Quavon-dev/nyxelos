@@ -51,6 +51,11 @@ const SKILL_KINDS: { value: SkillKind; label: string; description: string }[] = 
     description: "Write/overwrite a file under an allow-listed set of directories.",
   },
   {
+    value: "file_delete",
+    label: "Delete files",
+    description: "Delete a file under an allow-listed set of directories.",
+  },
+  {
     value: "kb_search",
     label: "Knowledge-base search",
     description: "Search this workspace's knowledge-base vault by title/path.",
@@ -62,9 +67,19 @@ const SKILL_KINDS: { value: SkillKind; label: string; description: string }[] = 
   },
 ];
 
-const DEFAULT_SENSITIVE_KINDS = new Set<SkillKind>(["file_write", "custom_code"]);
+const DEFAULT_SENSITIVE_KINDS = new Set<SkillKind>([
+  "file_write",
+  "file_delete",
+  "custom_code",
+]);
 const NEEDS_HOSTS = new Set<SkillKind>(["http_fetch", "custom_code"]);
-const NEEDS_DIRS = new Set<SkillKind>(["file_read", "file_list", "file_write", "custom_code"]);
+const NEEDS_DIRS = new Set<SkillKind>([
+  "file_read",
+  "file_list",
+  "file_write",
+  "file_delete",
+  "custom_code",
+]);
 
 function splitList(value: string): string[] {
   return value

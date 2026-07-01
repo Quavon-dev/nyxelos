@@ -1,6 +1,9 @@
 import {
+  mkdir as fsMkdir,
   readdir as fsReadDir,
   readFile as fsReadFile,
+  stat as fsStat,
+  unlink as fsUnlink,
   writeFile as fsWriteFile,
 } from "node:fs/promises";
 import path from "node:path";
@@ -52,7 +55,17 @@ function createContext(permissions: SkillPermissions): SkillContext {
     fetch: createScopedFetch(permissions),
     readFile: async (filePath) => fsReadFile(assertPathAllowed(permissions, filePath), "utf-8"),
     writeFile: async (filePath, content) => {
-      await fsWriteFile(assertPathAllowed(permissions, filePath), content, "utf-8");
+      const resolved = assertPathAllowed(permissions, filePath);
+      await fsMkdir(path.dirname(resolved), { recursive: true });
+      await fsWriteFile(resolved, content, "utf-8");
+    },
+    deleteFile: async (filePath) => {
+      const resolved = assertPathAllowed(permissions, filePath);
+      const stats = await fsStat(resolved);
+      if (stats.isDirectory()) {
+        throw new Error(`Refusing to delete directory "${resolved}"; file deletion only.`);
+      }
+      await fsUnlink(resolved);
     },
     readDir: async (dirPath) => {
       const entries = await fsReadDir(assertPathAllowed(permissions, dirPath), {

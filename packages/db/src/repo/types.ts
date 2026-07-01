@@ -10,12 +10,30 @@ export type ApprovalStatus = "pending" | "approved" | "rejected";
 export type ApprovalKind = "skill" | "mcp";
 export type AuditActor = "chat" | "automation" | "approval" | "delegate";
 export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
+export type ChatToolMode = "default" | "automatic" | "auto";
+
+export interface ChatToolPolicy {
+  mode: ChatToolMode;
+  approveFileWrites: boolean;
+  approveFileDeletes: boolean;
+  approveCustomCode: boolean;
+  approveMcpTools: boolean;
+}
+
+export const DEFAULT_CHAT_TOOL_POLICY: ChatToolPolicy = {
+  mode: "default",
+  approveFileWrites: true,
+  approveFileDeletes: true,
+  approveCustomCode: true,
+  approveMcpTools: true,
+};
 
 export type SkillKind =
   | "http_fetch"
   | "file_read"
   | "file_write"
   | "file_list"
+  | "file_delete"
   | "kb_search"
   | "custom_code";
 
@@ -48,6 +66,8 @@ export interface ChatRecord {
   pinnedAt: Date | null;
   shareId: string | null;
   sharedAt: Date | null;
+  toolMode: ChatToolMode;
+  toolPolicy: ChatToolPolicy;
   createdAt: Date;
 }
 
@@ -236,6 +256,8 @@ export interface DbRepository {
     modelId: string;
     agentId?: string | null;
     projectId?: string | null;
+    toolMode?: ChatToolMode;
+    toolPolicy?: ChatToolPolicy;
   }): Promise<ChatRecord>;
   listChatsByWorkspace(workspaceId: string): Promise<ChatRecord[]>;
   listArchivedChatsByWorkspace(workspaceId: string): Promise<ChatRecord[]>;
@@ -259,6 +281,11 @@ export interface DbRepository {
    * agent (which could be reused by other chats), the caller forks a new
    * one-off agent and calls this to bind the chat to it going forward. */
   updateChatAgent(chatId: string, agentId: string | null): Promise<ChatRecord>;
+  updateChatToolPolicy(input: {
+    chatId: string;
+    toolMode: ChatToolMode;
+    toolPolicy: ChatToolPolicy;
+  }): Promise<ChatRecord>;
 
   createProject(input: { workspaceId: string; name: string }): Promise<ProjectRecord>;
   listProjectsByWorkspace(workspaceId: string): Promise<ProjectRecord[]>;

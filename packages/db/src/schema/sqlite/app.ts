@@ -14,6 +14,15 @@ export type ApprovalStatus = "pending" | "approved" | "rejected";
 export type ApprovalKind = "skill" | "mcp";
 export type AuditActor = "chat" | "automation" | "approval" | "delegate";
 export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
+export type ChatToolMode = "default" | "automatic" | "auto";
+
+export type ChatToolPolicy = {
+  mode: ChatToolMode;
+  approveFileWrites: boolean;
+  approveFileDeletes: boolean;
+  approveCustomCode: boolean;
+  approveMcpTools: boolean;
+};
 
 /** See ../pg/app.ts and packages/skills-sdk — DB-backed skills built from a
  * declarative `kind` + JSON `config` instead of hand-written TypeScript, so
@@ -23,6 +32,7 @@ export type SkillKind =
   | "file_read"
   | "file_write"
   | "file_list"
+  | "file_delete"
   | "kb_search"
   | "custom_code";
 
@@ -168,6 +178,17 @@ export const chat = sqliteTable("chat", {
   pinnedAt: integer("pinned_at", { mode: "timestamp" }),
   shareId: text("share_id").unique(),
   sharedAt: integer("shared_at", { mode: "timestamp" }),
+  toolMode: text("tool_mode").notNull().default("default").$type<ChatToolMode>(),
+  toolPolicy: text("tool_policy", { mode: "json" })
+    .notNull()
+    .default({
+      mode: "default",
+      approveFileWrites: true,
+      approveFileDeletes: true,
+      approveCustomCode: true,
+      approveMcpTools: true,
+    })
+    .$type<ChatToolPolicy>(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

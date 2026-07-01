@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, isNotNull, isNull, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { DEFAULT_CHAT_TOOL_POLICY } from "./types";
 import * as schema from "../schema/sqlite";
 import type { DbRepository } from "./types";
 
@@ -35,6 +36,14 @@ export function createSqliteRepository(filePath: string): DbRepository {
     if (!hasColumn("shared_at")) {
       sqlite.exec("ALTER TABLE chat ADD COLUMN shared_at integer;");
     }
+    if (!hasColumn("tool_mode")) {
+      sqlite.exec("ALTER TABLE chat ADD COLUMN tool_mode text NOT NULL DEFAULT 'default';");
+    }
+    if (!hasColumn("tool_policy")) {
+      sqlite.exec(
+        "ALTER TABLE chat ADD COLUMN tool_policy text NOT NULL DEFAULT '{\"mode\":\"default\",\"approveFileWrites\":true,\"approveFileDeletes\":true,\"approveCustomCode\":true,\"approveMcpTools\":true}';",
+      );
+    }
   }
 
   // Same idea for the project table itself on databases that predate it.
@@ -61,6 +70,8 @@ export function createSqliteRepository(filePath: string): DbRepository {
       pinnedAt: row.pinnedAt,
       shareId: row.shareId,
       sharedAt: row.sharedAt,
+      toolMode: row.toolMode,
+      toolPolicy: row.toolPolicy ?? DEFAULT_CHAT_TOOL_POLICY,
       createdAt: row.createdAt,
     };
   }
@@ -247,7 +258,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
       db.delete(schema.modelInstallation).where(eq(schema.modelInstallation.id, id)).run();
     },
 
-    async createChat({ workspaceId, title, modelId, agentId, projectId }) {
+    async createChat({ workspaceId, title, modelId, agentId, projectId, toolMode, toolPolicy }) {
       const row = db
         .insert(schema.chat)
         .values({
@@ -257,6 +268,8 @@ export function createSqliteRepository(filePath: string): DbRepository {
           modelId,
           agentId: agentId ?? null,
           projectId: projectId ?? null,
+          toolMode: toolMode ?? DEFAULT_CHAT_TOOL_POLICY.mode,
+          toolPolicy: toolPolicy ?? DEFAULT_CHAT_TOOL_POLICY,
           createdAt: new Date(),
         })
         .returning()
@@ -412,6 +425,17 @@ export function createSqliteRepository(filePath: string): DbRepository {
       const row = db
         .update(schema.chat)
         .set({ agentId })
+        .where(eq(schema.chat.id, chatId))
+        .returning()
+        .get();
+      if (!row) throw new Error(`Chat not found: ${chatId}`);
+      return mapChat(row);
+    },
+
+    async updateChatToolPolicy({ chatId, toolMode, toolPolicy }) {
+      const row = db
+        .update(schema.chat)
+        .set({ toolMode, toolPolicy })
         .where(eq(schema.chat.id, chatId))
         .returning()
         .get();

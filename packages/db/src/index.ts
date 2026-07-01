@@ -1,5 +1,6 @@
 export { createAuthDb } from "./auth-db";
 export { getDb } from "./client";
+export { DEFAULT_CHAT_TOOL_POLICY } from "./repo/types";
 export type {
   AgentAutonomyLevel,
   AgentRecord,
@@ -12,6 +13,8 @@ export type {
   AutomationRecord,
   AutomationTriggerType,
   ChatRecord,
+  ChatToolMode,
+  ChatToolPolicy,
   DbRepository,
   InstallationMode,
   InstallationRecord,

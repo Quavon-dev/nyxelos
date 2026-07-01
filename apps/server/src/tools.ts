@@ -1,5 +1,5 @@
-import type { AgentRecord } from "@nyxel/db";
-import { getDb } from "@nyxel/db";
+import type { AgentRecord, ChatToolPolicy, SkillKind } from "@nyxel/db";
+import { DEFAULT_CHAT_TOOL_POLICY, getDb } from "@nyxel/db";
 import { createSkillContext } from "@nyxel/skills-sdk";
 import { dynamicTool, jsonSchema, type ToolSet, tool } from "ai";
 import { logAudit } from "./audit";
@@ -10,6 +10,8 @@ import { resolveSkillDefinition } from "./skills-resolve";
 export interface AgentRunContext {
   /** Set when this run is a live chat turn. */
   chatId?: string;
+  /** Per-chat tool execution policy, loaded from the chat row. */
+  chatToolPolicy?: ChatToolPolicy;
   /** Set when this run is an unattended scheduled run. See ADR-0010. */
   automationId?: string;
   /**
@@ -37,6 +39,52 @@ function pendingApprovalResult(approvalId: string, toolLabel: string) {
     approvalId,
     message: `"${toolLabel}" requires human approval before it runs and has been queued (approval id: ${approvalId}). Do not assume it has completed — tell the user it's awaiting approval in the workspace's Approvals page.`,
   };
+}
+
+function classifyBuiltinSkillKind(skillId: string): SkillKind | null {
+  switch (skillId) {
+    case "workspace_file_read":
+      return "file_read";
+    case "workspace_file_list":
+      return "file_list";
+    case "workspace_file_write":
+    case "write_note":
+      return "file_write";
+    case "workspace_file_delete":
+      return "file_delete";
+    default:
+      return null;
+  }
+}
+
+function normalizeChatToolPolicy(policy: ChatToolPolicy | undefined): ChatToolPolicy {
+  return policy ?? DEFAULT_CHAT_TOOL_POLICY;
+}
+
+export function shouldDeferToolForApproval(
+  target:
+    | { kind: "mcp" }
+    | { kind: "skill"; sensitive: boolean; skillKind: SkillKind | null },
+  policy: ChatToolPolicy | undefined,
+): boolean {
+  const effectivePolicy = normalizeChatToolPolicy(policy);
+  if (target.kind === "mcp") {
+    return effectivePolicy.mode === "default" ? true : effectivePolicy.approveMcpTools;
+  }
+
+  if (!target.sensitive) return false;
+  if (effectivePolicy.mode === "default") return true;
+
+  switch (target.skillKind) {
+    case "file_write":
+      return effectivePolicy.approveFileWrites;
+    case "file_delete":
+      return effectivePolicy.approveFileDeletes;
+    case "custom_code":
+      return effectivePolicy.approveCustomCode;
+    default:
+      return true;
+  }
 }
 
 /**
@@ -68,7 +116,14 @@ export async function buildToolsForAgent(
       description: skill.description,
       inputSchema: skill.inputSchema,
       execute: async (input) => {
-        if (skill.sensitive) {
+        const skillRecord = await db.getSkill(skill.id);
+        const skillKind = skillRecord?.kind ?? classifyBuiltinSkillKind(skill.id);
+        if (
+          shouldDeferToolForApproval(
+            { kind: "skill", sensitive: skill.sensitive, skillKind },
+            ctx.chatToolPolicy,
+          )
+        ) {
           const approval = await db.createApprovalRequest({
             workspaceId: agent.workspaceId,
             agentId: agent.id,
@@ -159,31 +214,65 @@ export async function buildToolsForAgent(
         description:
           mcpTool.description ?? `Tool "${mcpTool.name}" from MCP server "${server.name}".`,
         inputSchema: jsonSchema(mcpTool.inputSchema as Parameters<typeof jsonSchema>[0]),
-        // Every MCP tool is treated as sensitive — unlike first-party skills,
-        // there's no declared permission profile to trust. See ADR-0009.
         execute: async (input) => {
-          const approval = await db.createApprovalRequest({
-            workspaceId: agent.workspaceId,
-            agentId: agent.id,
-            chatId: ctx.chatId,
-            automationId: ctx.automationId,
-            kind: "mcp",
-            mcpServerId: server.id,
-            mcpToolName: mcpTool.name,
-            toolLabel: toolKey,
-            input: input as Record<string, unknown>,
-          });
-          await logAudit({
-            workspaceId: agent.workspaceId,
-            agentId: agent.id,
-            chatId: ctx.chatId,
-            automationId: ctx.automationId,
-            actor,
-            toolLabel: toolKey,
-            input,
-            status: "pending_approval",
-          });
-          return pendingApprovalResult(approval.id, toolKey);
+          if (shouldDeferToolForApproval({ kind: "mcp" }, ctx.chatToolPolicy)) {
+            const approval = await db.createApprovalRequest({
+              workspaceId: agent.workspaceId,
+              agentId: agent.id,
+              chatId: ctx.chatId,
+              automationId: ctx.automationId,
+              kind: "mcp",
+              mcpServerId: server.id,
+              mcpToolName: mcpTool.name,
+              toolLabel: toolKey,
+              input: input as Record<string, unknown>,
+            });
+            await logAudit({
+              workspaceId: agent.workspaceId,
+              agentId: agent.id,
+              chatId: ctx.chatId,
+              automationId: ctx.automationId,
+              actor,
+              toolLabel: toolKey,
+              input,
+              status: "pending_approval",
+            });
+            return pendingApprovalResult(approval.id, toolKey);
+          }
+
+          try {
+            const output = await mcpManager.callTool(
+              server.id,
+              mcpTool.name,
+              input as Record<string, unknown>,
+            );
+            await logAudit({
+              workspaceId: agent.workspaceId,
+              agentId: agent.id,
+              chatId: ctx.chatId,
+              automationId: ctx.automationId,
+              actor,
+              toolLabel: toolKey,
+              input,
+              output,
+              status: "success",
+            });
+            return output;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            await logAudit({
+              workspaceId: agent.workspaceId,
+              agentId: agent.id,
+              chatId: ctx.chatId,
+              automationId: ctx.automationId,
+              actor,
+              toolLabel: toolKey,
+              input,
+              output: { error: message },
+              status: "error",
+            });
+            throw err;
+          }
         },
       });
     }

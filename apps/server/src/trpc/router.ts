@@ -1,4 +1,4 @@
-import { getDb } from "@nyxel/db";
+import { DEFAULT_CHAT_TOOL_POLICY, getDb } from "@nyxel/db";
 import { McpAuthorizationRequiredError, McpInvalidConfigurationError } from "@nyxel/mcp-client";
 import { listAvailableModels, probeOpenAiCompatibleEndpoint } from "@nyxel/model-providers";
 import { z } from "zod";
@@ -27,16 +27,37 @@ const mcpTransportSchema = z.enum(["stdio", "http"]);
 const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);
 const installationModeSchema = z.enum(["pc", "server"]);
 const modelProviderKindSchema = z.enum(["anthropic", "openai", "openai_compatible"]);
+const chatToolModeSchema = z.enum(["default", "automatic", "auto"]);
+const chatToolPolicySchema = z.object({
+  mode: chatToolModeSchema,
+  approveFileWrites: z.boolean(),
+  approveFileDeletes: z.boolean(),
+  approveCustomCode: z.boolean(),
+  approveMcpTools: z.boolean(),
+});
 const skillKindSchema = z.enum([
   "http_fetch",
   "file_read",
   "file_write",
   "file_list",
+  "file_delete",
   "kb_search",
   "custom_code",
 ]);
 const automationTriggerTypeSchema = z.enum(["cron", "file_watch"]);
 const AUTOMATABLE_LEVELS = new Set(["autonomous", "super_agent"]);
+
+function resolveChatToolPolicy(input: {
+  toolMode?: z.infer<typeof chatToolModeSchema>;
+  toolPolicy?: z.infer<typeof chatToolPolicySchema>;
+}) {
+  const mode = input.toolMode ?? input.toolPolicy?.mode ?? DEFAULT_CHAT_TOOL_POLICY.mode;
+  return {
+    ...DEFAULT_CHAT_TOOL_POLICY,
+    ...input.toolPolicy,
+    mode,
+  };
+}
 
 function normalizeMcpHttpEndpoint(input: string): string {
   const trimmed = input.trim();
@@ -298,7 +319,10 @@ export const appRouter = router({
         // "unmarked skill is treated as if it could do something
         // irreversible" default from packages/skills-sdk. Callers can still
         // override explicitly via `sensitive`.
-        const defaultSensitive = input.kind === "file_write" || input.kind === "custom_code";
+        const defaultSensitive =
+          input.kind === "file_write" ||
+          input.kind === "file_delete" ||
+          input.kind === "custom_code";
         return getDb().createSkill({
           ...input,
           sensitive: input.sensitive ?? defaultSensitive,
@@ -350,6 +374,8 @@ export const appRouter = router({
           modelId: z.string().optional(),
           agentId: z.string().optional(),
           projectId: z.string().nullable().optional(),
+          toolMode: chatToolModeSchema.optional(),
+          toolPolicy: chatToolPolicySchema.optional(),
         }),
       )
       .mutation(async ({ input }) => {
@@ -366,7 +392,14 @@ export const appRouter = router({
           const autoAgent = await ensureAutoAssistantForWorkspaceModel(input.workspaceId, modelId);
           agentId = autoAgent.id;
         }
-        return db.createChat({ ...input, modelId, agentId });
+        const toolPolicy = resolveChatToolPolicy(input);
+        return db.createChat({
+          ...input,
+          modelId,
+          agentId,
+          toolMode: toolPolicy.mode,
+          toolPolicy,
+        });
       }),
     rename: publicProcedure
       .input(z.object({ chatId: z.string(), title: z.string().min(1).max(120) }))
@@ -409,6 +442,21 @@ export const appRouter = router({
     setAgent: publicProcedure
       .input(z.object({ chatId: z.string(), agentId: z.string().nullable() }))
       .mutation(({ input }) => getDb().updateChatAgent(input.chatId, input.agentId)),
+    setToolPolicy: publicProcedure
+      .input(
+        z.object({
+          chatId: z.string(),
+          toolMode: chatToolModeSchema,
+          toolPolicy: chatToolPolicySchema,
+        }),
+      )
+      .mutation(({ input }) =>
+        getDb().updateChatToolPolicy({
+          chatId: input.chatId,
+          toolMode: input.toolMode,
+          toolPolicy: resolveChatToolPolicy(input),
+        }),
+      ),
   }),
 
   projects: router({

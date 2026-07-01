@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, isNotNull, isNull, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { DEFAULT_CHAT_TOOL_POLICY } from "./types";
 import * as schema from "../schema/pg";
 import type { DbRepository } from "./types";
 
@@ -21,6 +22,8 @@ export function createPgRepository(connectionString: string): DbRepository {
       pinnedAt: row.pinnedAt,
       shareId: row.shareId,
       sharedAt: row.sharedAt,
+      toolMode: row.toolMode,
+      toolPolicy: row.toolPolicy ?? DEFAULT_CHAT_TOOL_POLICY,
       createdAt: row.createdAt,
     };
   }
@@ -190,7 +193,7 @@ export function createPgRepository(connectionString: string): DbRepository {
       await db.delete(schema.modelInstallation).where(eq(schema.modelInstallation.id, id));
     },
 
-    async createChat({ workspaceId, title, modelId, agentId, projectId }) {
+    async createChat({ workspaceId, title, modelId, agentId, projectId, toolMode, toolPolicy }) {
       const [row] = await db
         .insert(schema.chat)
         .values({
@@ -200,6 +203,8 @@ export function createPgRepository(connectionString: string): DbRepository {
           modelId,
           agentId: agentId ?? null,
           projectId: projectId ?? null,
+          toolMode: toolMode ?? DEFAULT_CHAT_TOOL_POLICY.mode,
+          toolPolicy: toolPolicy ?? DEFAULT_CHAT_TOOL_POLICY,
         })
         .returning();
       if (!row) throw new Error("Failed to create chat");
@@ -343,6 +348,16 @@ export function createPgRepository(connectionString: string): DbRepository {
       const [row] = await db
         .update(schema.chat)
         .set({ agentId })
+        .where(eq(schema.chat.id, chatId))
+        .returning();
+      if (!row) throw new Error(`Chat not found: ${chatId}`);
+      return mapChat(row);
+    },
+
+    async updateChatToolPolicy({ chatId, toolMode, toolPolicy }) {
+      const [row] = await db
+        .update(schema.chat)
+        .set({ toolMode, toolPolicy })
         .where(eq(schema.chat.id, chatId))
         .returning();
       if (!row) throw new Error(`Chat not found: ${chatId}`);
