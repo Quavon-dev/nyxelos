@@ -193,7 +193,7 @@ export type KnowledgeBaseGraph = {
   edges: { source: string; target: string }[];
 };
 
-export type ModelProviderKind = "openai_compatible";
+export type ModelProviderKind = "anthropic" | "openai" | "openai_compatible";
 
 export type ModelInstallationSummary = {
   id: string;
@@ -213,6 +213,21 @@ export type ProbedModelProvider = {
   providerLabel: string;
   baseUrl: string;
   modelIds: string[];
+};
+
+export type ProviderImportSource = {
+  id: string;
+  label: string;
+  details: string;
+  kind: "api_key" | "desktop_auth" | "local_runtime";
+  status: "importable" | "detected" | "auto";
+  importableProvider?: {
+    label: string;
+    providerKind: ModelProviderKind;
+    baseUrl: string;
+    apiKey: string | null;
+    modelIds: string[];
+  };
 };
 
 type NyxelTrpcClient = {
@@ -260,6 +275,12 @@ type NyxelTrpcClient = {
     };
     deleteInstallation: {
       mutate(input: { id: string }): Promise<void>;
+    };
+    scanImportSources: {
+      query(): Promise<ProviderImportSource[]>;
+    };
+    importSource: {
+      mutate(input: { workspaceId: string; sourceId: string }): Promise<ModelInstallationSummary>;
     };
   };
   skills: {

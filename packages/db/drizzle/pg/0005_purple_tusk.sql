@@ -1,4 +1,4 @@
-CREATE TYPE "public"."model_provider_kind" AS ENUM('openai_compatible');--> statement-breakpoint
+CREATE TYPE "public"."model_provider_kind" AS ENUM('anthropic', 'openai', 'openai_compatible');--> statement-breakpoint
 CREATE TABLE "model_installation" (
 	"id" text PRIMARY KEY NOT NULL,
 	"workspace_id" text NOT NULL,

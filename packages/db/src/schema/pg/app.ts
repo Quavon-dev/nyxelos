@@ -15,7 +15,11 @@ export const agentAutonomyLevel = pgEnum("agent_autonomy_level", [
 
 export const mcpTransport = pgEnum("mcp_transport", ["stdio", "http"]);
 export const installationMode = pgEnum("installation_mode", ["pc", "server"]);
-export const modelProviderKind = pgEnum("model_provider_kind", ["openai_compatible"]);
+export const modelProviderKind = pgEnum("model_provider_kind", [
+  "anthropic",
+  "openai",
+  "openai_compatible",
+]);
 
 /** See ADR-0009: pending approvals are resolved out-of-band, not by pausing
  * the model's tool-calling loop mid-stream. */

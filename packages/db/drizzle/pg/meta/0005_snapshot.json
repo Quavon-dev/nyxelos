@@ -1409,6 +1409,8 @@
       "name": "model_provider_kind",
       "schema": "public",
       "values": [
+        "anthropic",
+        "openai",
         "openai_compatible"
       ]
     }

@@ -6,7 +6,7 @@ export type MessageRole = "user" | "assistant" | "system" | "tool";
 /** See ../pg/app.ts — Phase 2 implements "autonomous"/"super_agent" behavior. */
 export type AgentAutonomyLevel = "chat" | "assisted" | "autonomous" | "super_agent";
 export type InstallationMode = "pc" | "server";
-export type ModelProviderKind = "openai_compatible";
+export type ModelProviderKind = "anthropic" | "openai" | "openai_compatible";
 
 export type McpTransport = "stdio" | "http";
 

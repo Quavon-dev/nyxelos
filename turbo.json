@@ -1,6 +1,15 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
+  "globalPassThroughEnv": [
+    "ANTHROPIC_API_KEY",
+    "DATABASE_URL",
+    "LM_API_TOKEN",
+    "LMSTUDIO_API_KEY",
+    "LMSTUDIO_API_TOKEN",
+    "LMSTUDIO_BASE_URL",
+    "OPENAI_API_KEY"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

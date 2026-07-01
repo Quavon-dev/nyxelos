@@ -11,6 +11,7 @@ import {
 } from "../knowledge-base";
 import { ensureMcpServerConnected, mcpManager } from "../mcp-runtime";
 import { getInstalledProvidersForWorkspace } from "../models";
+import { importProviderSourceToWorkspace, listProviderImportSources } from "../provider-imports";
 import { computeNextRunAt, runAutomation } from "../scheduler";
 import { skillRegistry } from "../skills-registry";
 import { publicProcedure, router } from "./trpc";
@@ -19,7 +20,7 @@ const autonomyLevelSchema = z.enum(["chat", "assisted", "autonomous", "super_age
 const mcpTransportSchema = z.enum(["stdio", "http"]);
 const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);
 const installationModeSchema = z.enum(["pc", "server"]);
-const modelProviderKindSchema = z.enum(["openai_compatible"]);
+const modelProviderKindSchema = z.enum(["anthropic", "openai", "openai_compatible"]);
 const AUTOMATABLE_LEVELS = new Set(["autonomous", "super_agent"]);
 
 export const appRouter = router({
@@ -155,6 +156,10 @@ export const appRouter = router({
     deleteInstallation: publicProcedure
       .input(z.object({ id: z.string() }))
       .mutation(({ input }) => getDb().deleteModelInstallation(input.id)),
+    scanImportSources: publicProcedure.query(() => listProviderImportSources()),
+    importSource: publicProcedure
+      .input(z.object({ workspaceId: z.string(), sourceId: z.string() }))
+      .mutation(({ input }) => importProviderSourceToWorkspace(input)),
   }),
 
   skills: router({

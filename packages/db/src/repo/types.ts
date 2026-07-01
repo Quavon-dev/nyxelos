@@ -2,7 +2,7 @@ export type MessageRole = "user" | "assistant" | "system" | "tool";
 
 export type AgentAutonomyLevel = "chat" | "assisted" | "autonomous" | "super_agent";
 export type InstallationMode = "pc" | "server";
-export type ModelProviderKind = "openai_compatible";
+export type ModelProviderKind = "anthropic" | "openai" | "openai_compatible";
 
 export type McpTransport = "stdio" | "http";
 
