@@ -1,7 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Network, Sparkles } from "lucide-react";
+import { Bot, Loader2, Network, Sparkles, Square, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { CardListSkeleton, PageHeaderSkeleton, StatCardsSkeleton } from "@/components/loading";
@@ -28,7 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { type AgentSummary, type AutonomyLevel, trpcClient } from "@/lib/trpc";
+import { type AgentRunStatus, type AgentSummary, type AutonomyLevel, trpcClient } from "@/lib/trpc";
 
 const AUTONOMY_LEVELS: AutonomyLevel[] = ["chat", "assisted", "autonomous", "super_agent"];
 
@@ -40,11 +41,44 @@ const AUTONOMY_BADGE: Record<AutonomyLevel, string> = {
     "border-0 bg-violet-500/15 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300",
 };
 
+const ACTIVE_RUN_STATUSES = new Set<AgentRunStatus>(["pending", "running", "waiting_approval"]);
+
+const ONE_OFF_CHAT_AGENT_NAME = "Chat — custom tools";
+
 function AutonomyBadge({ level }: { level: AutonomyLevel }) {
   return (
     <Badge variant="outline" className={AUTONOMY_BADGE[level]}>
       {level.replace("_", " ")}
     </Badge>
+  );
+}
+
+/** Header + "select all" toggle shared by the skills/tools/MCP checklists in
+ * the create/edit form — lets a user attach everything in one click instead
+ * of ticking each box, per the "mehr auf einmal auswählen" ask. */
+function SelectAllRow({
+  label,
+  allIds,
+  selectedIds,
+  onChange,
+}: {
+  label: string;
+  allIds: string[];
+  selectedIds: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.includes(id));
+  return (
+    <div className="flex items-center justify-between">
+      <Label>{label}</Label>
+      <button
+        type="button"
+        className="text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+        onClick={() => onChange(allSelected ? [] : allIds)}
+      >
+        {allSelected ? "Clear all" : "Select all"}
+      </button>
+    </div>
   );
 }
 
@@ -72,6 +106,13 @@ export default function AgentsPage() {
   const mcpServersQuery = useQuery({
     queryKey: ["mcpServers", workspaceId],
     queryFn: () => trpcClient.mcpServers.list.query({ workspaceId }),
+  });
+  // Polled separately (short interval) so the "running" badge in the table
+  // stays live without refetching every agent's full config on a timer too.
+  const activeRunsQuery = useQuery({
+    queryKey: ["agentRuns", "active", workspaceId],
+    queryFn: () => trpcClient.agentRuns.listActive.query({ workspaceId }),
+    refetchInterval: 5_000,
   });
 
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
@@ -158,6 +199,34 @@ export default function AgentsPage() {
     },
   });
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const deleteAgent = useMutation({
+    mutationFn: (id: string) => trpcClient.agents.delete.mutate({ id }),
+    onMutate: (id) => setDeletingId(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["agents", workspaceId] });
+      if (editingAgentId === id) resetForm();
+    },
+    onSettled: () => setDeletingId(null),
+  });
+
+  const [stoppingRunId, setStoppingRunId] = useState<string | null>(null);
+  const stopAgent = useMutation({
+    mutationFn: (runId: string) => trpcClient.agentRuns.cancel.mutate({ runId }),
+    onMutate: (runId) => setStoppingRunId(runId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agentRuns", "active", workspaceId] });
+    },
+    onSettled: () => setStoppingRunId(null),
+  });
+
+  const cleanupUnusedChatAgents = useMutation({
+    mutationFn: () => trpcClient.agents.cleanupUnusedChatAgents.mutate({ workspaceId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agents", workspaceId] });
+    },
+  });
+
   const isEditing = Boolean(editingAgentId);
   const saveAgent = isEditing ? updateAgent : createAgent;
 
@@ -169,6 +238,10 @@ export default function AgentsPage() {
   const schedulableCount = agents.filter(
     (a) => a.autonomyLevel === "autonomous" || a.autonomyLevel === "super_agent",
   ).length;
+  const activeRunByAgentId = new Map(
+    (activeRunsQuery.data ?? []).map((run) => [run.agentId, run]),
+  );
+  const oneOffChatAgentCount = agents.filter((a) => a.name === ONE_OFF_CHAT_AGENT_NAME).length;
 
   if (agentsQuery.isLoading) {
     return (
@@ -202,10 +275,36 @@ export default function AgentsPage() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Existing agents</CardTitle>
+        <CardHeader className="flex flex-row items-start justify-between gap-4">
+          <div>
+            <CardTitle>Existing agents</CardTitle>
+            {oneOffChatAgentCount > 0 && (
+              <CardDescription>
+                {oneOffChatAgentCount} one-off "{ONE_OFF_CHAT_AGENT_NAME}" agent
+                {oneOffChatAgentCount === 1 ? "" : "s"} from chat toolbar tweaks.
+              </CardDescription>
+            )}
+          </div>
+          {oneOffChatAgentCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => cleanupUnusedChatAgents.mutate()}
+              disabled={cleanupUnusedChatAgents.isPending}
+            >
+              {cleanupUnusedChatAgents.isPending
+                ? "Cleaning up…"
+                : `Clean up unused chat agents (${oneOffChatAgentCount})`}
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
+          {cleanupUnusedChatAgents.isSuccess && (
+            <p className="mb-3 text-sm text-muted-foreground">
+              Deleted {cleanupUnusedChatAgents.data} unused agent
+              {cleanupUnusedChatAgents.data === 1 ? "" : "s"}.
+            </p>
+          )}
           {agents.length === 0 ? (
             <p className="text-sm text-muted-foreground">No agents yet.</p>
           ) : (
@@ -217,40 +316,96 @@ export default function AgentsPage() {
                     <TableHead>Role</TableHead>
                     <TableHead>Model</TableHead>
                     <TableHead>Autonomy</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead>Skills</TableHead>
                     <TableHead>Tools</TableHead>
                     <TableHead>Delegates</TableHead>
-                    <TableHead className="w-[80px]" />
+                    <TableHead className="w-[180px]" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {agents.map((agent) => (
-                    <TableRow key={agent.id}>
-                      <TableCell className="font-medium">{agent.name}</TableCell>
-                      <TableCell className="text-muted-foreground">{agent.role ?? "—"}</TableCell>
-                      <TableCell className="text-muted-foreground">{agent.modelId}</TableCell>
-                      <TableCell>
-                        <AutonomyBadge level={agent.autonomyLevel} />
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {agent.skillIds.length > 0 ? agent.skillIds.length : "—"}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {agent.toolIds.length > 0 ? agent.toolIds.length : "—"}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {agent.delegateAgentIds.length > 0 ? agent.delegateAgentIds.length : "—"}
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm" onClick={() => startEditing(agent)}>
-                          Edit
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {agents.map((agent) => {
+                    const activeRun = activeRunByAgentId.get(agent.id);
+                    return (
+                      <TableRow key={agent.id}>
+                        <TableCell className="font-medium">
+                          <Link
+                            href={`/workspace/${workspaceId}/agents/${agent.id}`}
+                            className="hover:underline"
+                          >
+                            {agent.name}
+                          </Link>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{agent.role ?? "—"}</TableCell>
+                        <TableCell className="text-muted-foreground">{agent.modelId}</TableCell>
+                        <TableCell>
+                          <AutonomyBadge level={agent.autonomyLevel} />
+                        </TableCell>
+                        <TableCell>
+                          {activeRun ? (
+                            <Badge
+                              variant="outline"
+                              className="border-0 bg-violet-500/15 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"
+                            >
+                              <Loader2 className="mr-1 size-3 animate-spin" />
+                              running
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="border-0 bg-muted text-muted-foreground">
+                              idle
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {agent.skillIds.length > 0 ? agent.skillIds.length : "—"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {agent.toolIds.length > 0 ? agent.toolIds.length : "—"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {agent.delegateAgentIds.length > 0 ? agent.delegateAgentIds.length : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-1">
+                            {activeRun && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => stopAgent.mutate(activeRun.id)}
+                                disabled={stoppingRunId === activeRun.id}
+                                title="Stop this run"
+                              >
+                                <Square className="size-3.5" />
+                              </Button>
+                            )}
+                            <Button variant="ghost" size="sm" onClick={() => startEditing(agent)}>
+                              Edit
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => {
+                                if (confirm(`Delete agent "${agent.name}"? This can't be undone.`)) {
+                                  deleteAgent.mutate(agent.id);
+                                }
+                              }}
+                              disabled={deletingId === agent.id}
+                              title="Delete agent"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
+          )}
+          {deleteAgent.isError && (
+            <p className="mt-3 text-sm text-destructive">{(deleteAgent.error as Error).message}</p>
           )}
         </CardContent>
       </Card>
@@ -361,7 +516,12 @@ export default function AgentsPage() {
 
           {!autoAttachWorkspaceTools && skillsQuery.data && skillsQuery.data.length > 0 && (
             <div className="space-y-2">
-              <Label>Skills</Label>
+              <SelectAllRow
+                label="Skills"
+                allIds={skillsQuery.data.map((s) => s.id)}
+                selectedIds={skillIds}
+                onChange={setSkillIds}
+              />
               <p className="text-xs text-muted-foreground">
                 Real runtime skills — built-in, read-only.
               </p>
@@ -391,7 +551,12 @@ export default function AgentsPage() {
 
           {!autoAttachWorkspaceTools && toolsQuery.data && toolsQuery.data.length > 0 && (
             <div className="space-y-2">
-              <Label>Tools</Label>
+              <SelectAllRow
+                label="Tools"
+                allIds={toolsQuery.data.map((t) => t.id)}
+                selectedIds={toolIds}
+                onChange={setToolIds}
+              />
               <p className="text-xs text-muted-foreground">
                 Workspace-configured tools — manage these from the Tools page.
               </p>
@@ -421,7 +586,12 @@ export default function AgentsPage() {
 
           {!autoAttachWorkspaceTools && mcpServersQuery.data && mcpServersQuery.data.length > 0 && (
             <div className="space-y-2">
-              <Label>MCP servers</Label>
+              <SelectAllRow
+                label="MCP servers"
+                allIds={mcpServersQuery.data.map((s) => s.id)}
+                selectedIds={mcpServerIds}
+                onChange={setMcpServerIds}
+              />
               <div className="space-y-2 rounded-lg border p-3">
                 {mcpServersQuery.data.map((server) => (
                   <div key={server.id} className="flex items-center gap-2">
