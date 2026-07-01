@@ -8,6 +8,7 @@ import type {
 	ChatToolSelection,
 } from "@/components/chat/chat-composer-toolbar";
 import { ChatInput } from "@/components/chat/chat-input";
+import { ChatTopBar } from "@/components/chat/chat-top-bar";
 import { MessageList } from "@/components/chat/message-list";
 import { parseAssistantContent } from "@/lib/chat-prompts";
 import {
@@ -158,6 +159,11 @@ export default function ChatPage() {
 			trpcClient.mcpServers.list.query({ workspaceId: workspaceId ?? "" }),
 		enabled: Boolean(workspaceId),
 	});
+	const modelsQuery = useQuery({
+		queryKey: ["models", "list", workspaceId],
+		queryFn: () => trpcClient.models.list.query({ workspaceId }),
+		enabled: Boolean(workspaceId),
+	});
 
 	const { sendMessage, streamingMessage, isStreaming, error } =
 		useChatStream(chatId);
@@ -206,19 +212,25 @@ export default function ChatPage() {
 		setChatToolPolicy(chat.toolPolicy);
 	}, [chat]);
 
-	// Mid-conversation tool changes can't safely mutate the chat's existing
-	// agent (it may be a shared "Auto assistant" reused elsewhere), so instead
-	// this forks a fresh one-off agent reflecting the new selection and
+	// Mid-conversation tool/model changes can't safely mutate the chat's
+	// existing agent (it may be a shared "Auto assistant" reused elsewhere), so
+	// instead this forks a fresh one-off agent reflecting the new selection and
 	// re-points the chat at it via chats.setAgent. The next sendMessage call
 	// resolves the agent from the chat row server-side, so this takes effect
 	// immediately without touching useChatStream.
 	const forkAgent = useMutation({
-		mutationFn: async (next: ChatToolSelection) => {
+		mutationFn: async ({
+			toolSelection: next,
+			modelId,
+		}: {
+			toolSelection: ChatToolSelection;
+			modelId: string;
+		}) => {
 			if (!workspaceId || !chat) throw new Error("Chat isn't loaded yet.");
 			const agent = await trpcClient.agents.create.mutate({
 				workspaceId,
 				name: "Chat — custom tools",
-				modelId: chat.modelId,
+				modelId,
 				autonomyLevel: "assisted",
 				skillIds: next.skillsEnabled
 					? (skillsQuery.data ?? []).map((s) => s.id)
@@ -236,6 +248,45 @@ export default function ChatPage() {
 				(old: typeof chatsQuery.data) =>
 					old?.map((c) => (c.id === chatId ? { ...c, agentId: agent.id } : c)),
 			);
+		},
+	});
+
+	const duplicateChat = useMutation({
+		mutationFn: () => trpcClient.chats.duplicate.mutate({ chatId }),
+		onSuccess: (duplicated) => {
+			queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] });
+			router.push(`/chat/${duplicated.id}`);
+		},
+	});
+
+	const pinChat = useMutation({
+		mutationFn: (pinned: boolean) =>
+			trpcClient.chats.setPinned.mutate({ chatId, pinned }),
+		onSuccess: (updated) => {
+			queryClient.setQueryData(
+				["chats", "list", workspaceId],
+				(old: typeof chatsQuery.data) =>
+					old?.map((c) => (c.id === chatId ? updated : c)),
+			);
+		},
+	});
+
+	const shareChat = useMutation({
+		mutationFn: () => trpcClient.chats.share.mutate({ chatId }),
+		onSuccess: (shared) => {
+			queryClient.setQueryData(
+				["chats", "list", workspaceId],
+				(old: typeof chatsQuery.data) =>
+					old?.map((c) => (c.id === chatId ? shared : c)),
+			);
+			if (shared.shareId && typeof window !== "undefined") {
+				navigator.clipboard
+					?.writeText(`${window.location.origin}/share/${shared.shareId}`)
+					.catch(() => {
+						// Clipboard access can be denied by the browser — the chat is
+						// still shared and reachable from the sidebar's share dialog.
+					});
+			}
 		},
 	});
 
@@ -257,20 +308,38 @@ export default function ChatPage() {
 		},
 	});
 
-	function handleToolSelectionChange(next: ChatToolSelection | null) {
-		setToolSelection(next);
-		// Resetting to "default" still pins a concrete agent (rather than
-		// reverting to the shared auto-assistant) so the fork is a snapshot of
-		// today's workspace defaults — it just won't pick up new skills/servers
-		// added to the workspace later in this same conversation.
-		const toFork: ChatToolSelection = next ?? {
+	const currentModelId = agentQuery.data?.modelId ?? chat?.modelId;
+
+	// Shared with handleModelChange below — resetting tool selection to
+	// "default" still pins a concrete agent (rather than reverting to the
+	// shared auto-assistant) so the fork is a snapshot of today's workspace
+	// defaults — it just won't pick up new skills/servers added to the
+	// workspace later in this same conversation.
+	function defaultToolSelection(): ChatToolSelection {
+		return {
 			skillsEnabled: true,
 			mcpServerIds: (mcpServersQuery.data ?? [])
 				.filter((s) => s.enabled)
 				.map((s) => s.id),
 			mcpToolFilter: null,
 		};
-		forkAgent.mutate(toFork);
+	}
+
+	function handleToolSelectionChange(next: ChatToolSelection | null) {
+		setToolSelection(next);
+		if (!currentModelId) return;
+		forkAgent.mutate({
+			toolSelection: next ?? defaultToolSelection(),
+			modelId: currentModelId,
+		});
+	}
+
+	function handleModelChange(nextModelId: string) {
+		if (nextModelId === currentModelId) return;
+		forkAgent.mutate({
+			toolSelection: toolSelection ?? defaultToolSelection(),
+			modelId: nextModelId,
+		});
 	}
 
 	function handleChatToolPolicyChange(next: ChatToolPolicy) {
@@ -297,6 +366,16 @@ export default function ChatPage() {
 
 	return (
 		<div className="mx-auto flex h-full max-w-3xl flex-col p-4">
+			<ChatTopBar
+				models={modelsQuery.data ?? []}
+				modelId={currentModelId}
+				onModelChange={handleModelChange}
+				onNewChat={() => router.push("/chat")}
+				onDuplicate={() => duplicateChat.mutate()}
+				onShare={() => shareChat.mutate()}
+				onTogglePin={() => chat && pinChat.mutate(!chat.pinnedAt)}
+				pinned={Boolean(chat?.pinnedAt)}
+			/>
 			<MessageList
 				messages={messagesQuery.data ?? []}
 				streamingMessage={streamingMessage}

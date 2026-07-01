@@ -57,7 +57,7 @@ export function MessageList({
   ].sort((a, b) => a.at - b.at);
 
   return (
-    <div className="flex-1 space-y-3 overflow-y-auto py-4">
+    <div className="flex-1 space-y-6 overflow-y-auto py-4">
       {timeline.map((item) => {
         if (item.kind === "message") {
           return (

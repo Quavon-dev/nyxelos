@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowUp, Code2, FileText, Globe, Palette, Search } from "lucide-react";
+import { ArrowUp, Code2, FileText, Palette, Search } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -9,14 +9,8 @@ import {
 	ChatComposerToolbar,
 	type ChatToolSelection,
 } from "@/components/chat/chat-composer-toolbar";
+import { ChatTopBar } from "@/components/chat/chat-top-bar";
 import { WorkingDirectoryPicker } from "@/components/chat/working-directory-picker";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { serializeChatMessageContent } from "@/lib/chat-message";
 import {
@@ -177,118 +171,106 @@ export default function ChatLandingPage() {
 	const name = ownerQuery.data?.name?.split(" ")[0];
 
 	return (
-		<div className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center gap-8 p-6">
-			<div className="flex flex-col items-center gap-5 text-center">
-				<GreetingOrb />
-				<h1 className="text-3xl font-semibold tracking-tight">
-					{getGreeting()}
-					{name ? `, ${name}` : ""}
-				</h1>
-				<p className="-mt-4 text-3xl font-semibold tracking-tight">
-					How can I{" "}
-					<span className="bg-gradient-to-r from-primary to-[var(--chart-2)] bg-clip-text text-transparent">
-						help you today?
-					</span>
-				</p>
+		<div className="flex h-full flex-col">
+			<div className="px-4 pt-3">
+				<ChatTopBar
+					models={modelsQuery.data ?? []}
+					modelId={modelId}
+					onModelChange={setModelId}
+				/>
 			</div>
 
-			<form className="w-full space-y-3" onSubmit={handleSubmit}>
-				<div className="space-y-2 rounded-2xl border bg-card p-3 shadow-sm">
-					<Textarea
-						value={message}
-						onChange={(e) => setMessage(e.target.value)}
-						onKeyDown={(e) => {
-							if (e.key === "Enter" && !e.shiftKey) {
-								e.preventDefault();
-								handleSubmit(e);
-							}
-						}}
-						placeholder="Ask me anything…"
-						rows={2}
-						className="resize-none border-0 p-1 text-base shadow-none focus-visible:ring-0"
-					/>
-					<div className="flex items-center gap-2">
-						{/* Small, icon-led trigger with a capped width — this sits in the
-						 * same row as the composer's own icon-sized pills, so a
-						 * full-height "Model" label + long model name would dwarf
-						 * everything next to it. line-clamp-1 (already wired into
-						 * SelectTrigger's *:data-[slot=select-value] styles) truncates
-						 * long labels once max-w-28 caps the box. */}
-						<Select value={modelId} onValueChange={setModelId}>
-							<SelectTrigger
-								size="sm"
-								className="h-8 max-w-28 shrink-0 gap-1 rounded-full border-none bg-muted px-2.5 text-xs"
-							>
-								<Globe className="size-3.5 shrink-0 text-muted-foreground" />
-								<SelectValue placeholder="Model" />
-							</SelectTrigger>
-							<SelectContent>
-								{modelsQuery.data?.map((m) => (
-									<SelectItem key={m.id} value={m.id}>
-										{m.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-						<WorkingDirectoryPicker
-							value={workingDirectory}
-							onChange={setWorkingDirectory}
-						/>
-						{/* Same compact toolbar used in an existing chat thread: Skills
-						 * and Artifacts only show up as pills once the user has pinned
-						 * them via the "..." menu, so this row stays uncluttered until
-						 * something is actually turned on, instead of always showing
-						 * every tool as a badge. */}
-						<div className="min-w-0 flex-1">
-							<ChatComposerToolbar
-								mode="compact"
-								workspaceId={workspaceId}
-								modelId={modelId}
-								toolSelection={toolSelection}
-								onToolSelectionChange={setToolSelection}
-								chatToolPolicy={chatToolPolicy}
-								onChatToolPolicyChange={setChatToolPolicy}
-								attachedFile={attachedFile}
-								onAttachedFileChange={setAttachedFile}
-								onVoiceResult={(text) =>
-									setMessage((prev) => (prev ? `${prev} ${text}` : text))
-								}
-							/>
-						</div>
-						<button
-							type="submit"
-							disabled={
-								(!message.trim() && !attachedFile) ||
-								!modelId ||
-								createChat.isPending
-							}
-							className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
-						>
-							<ArrowUp className="size-4" />
-						</button>
-					</div>
-				</div>
-
-				<div className="flex flex-wrap justify-center gap-2">
-					{QUICK_ACTIONS.map((action) => (
-						<button
-							key={action.label}
-							type="button"
-							onClick={() => setMessage(action.prompt)}
-							className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-						>
-							<action.icon className="size-3.5" />
-							{action.label}
-						</button>
-					))}
-				</div>
-
-				{createChat.isError && (
-					<p className="text-center text-sm text-destructive">
-						{(createChat.error as Error).message}
+			<div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center gap-8 p-6">
+				<div className="flex flex-col items-center gap-5 text-center">
+					<GreetingOrb />
+					<h1 className="text-3xl font-semibold tracking-tight">
+						{getGreeting()}
+						{name ? `, ${name}` : ""}
+					</h1>
+					<p className="-mt-4 text-3xl font-semibold tracking-tight">
+						How can I{" "}
+						<span className="bg-gradient-to-r from-primary to-[var(--chart-2)] bg-clip-text text-transparent">
+							help you today?
+						</span>
 					</p>
-				)}
-			</form>
+				</div>
+
+				<form className="w-full space-y-3" onSubmit={handleSubmit}>
+					<div className="space-y-2 rounded-2xl border bg-card p-3 shadow-sm">
+						<Textarea
+							value={message}
+							onChange={(e) => setMessage(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter" && !e.shiftKey) {
+									e.preventDefault();
+									handleSubmit(e);
+								}
+							}}
+							placeholder="Ask me anything…"
+							rows={2}
+							className="resize-none border-0 p-1 text-base shadow-none focus-visible:ring-0"
+						/>
+						<div className="flex items-center gap-2">
+							<WorkingDirectoryPicker
+								value={workingDirectory}
+								onChange={setWorkingDirectory}
+							/>
+							{/* Same compact toolbar used in an existing chat thread: Skills
+							 * and Artifacts only show up as pills once the user has pinned
+							 * them via the "..." menu, so this row stays uncluttered until
+							 * something is actually turned on, instead of always showing
+							 * every tool as a badge. */}
+							<div className="min-w-0 flex-1">
+								<ChatComposerToolbar
+									mode="compact"
+									workspaceId={workspaceId}
+									modelId={modelId}
+									toolSelection={toolSelection}
+									onToolSelectionChange={setToolSelection}
+									chatToolPolicy={chatToolPolicy}
+									onChatToolPolicyChange={setChatToolPolicy}
+									attachedFile={attachedFile}
+									onAttachedFileChange={setAttachedFile}
+									onVoiceResult={(text) =>
+										setMessage((prev) => (prev ? `${prev} ${text}` : text))
+									}
+								/>
+							</div>
+							<button
+								type="submit"
+								disabled={
+									(!message.trim() && !attachedFile) ||
+									!modelId ||
+									createChat.isPending
+								}
+								className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
+							>
+								<ArrowUp className="size-4" />
+							</button>
+						</div>
+					</div>
+
+					<div className="flex flex-wrap justify-center gap-2">
+						{QUICK_ACTIONS.map((action) => (
+							<button
+								key={action.label}
+								type="button"
+								onClick={() => setMessage(action.prompt)}
+								className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+							>
+								<action.icon className="size-3.5" />
+								{action.label}
+							</button>
+						))}
+					</div>
+
+					{createChat.isError && (
+						<p className="text-center text-sm text-destructive">
+							{(createChat.error as Error).message}
+						</p>
+					)}
+				</form>
+			</div>
 		</div>
 	);
 }

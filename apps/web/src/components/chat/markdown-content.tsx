@@ -1,6 +1,51 @@
+"use client";
+
+import { Check, Copy } from "lucide-react";
+import { useState } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+/** Fenced code block with a language label + copy button in the header,
+ * matching the "```lang ... Copy code```" treatment of a real code editor
+ * rather than a plain <pre>. */
+function CodeBlock({
+	className,
+	children,
+}: {
+	className?: string;
+	children: React.ReactNode;
+}) {
+	const [copied, setCopied] = useState(false);
+	const language = /language-(\w+)/.exec(className ?? "")?.[1] ?? "text";
+	const code = String(children).replace(/\n$/, "");
+
+	function copy() {
+		navigator.clipboard?.writeText(code).then(() => {
+			setCopied(true);
+			setTimeout(() => setCopied(false), 1500);
+		});
+	}
+
+	return (
+		<div className="mb-3 overflow-hidden rounded-xl border border-border/60 last:mb-0">
+			<div className="flex items-center justify-between bg-foreground/[0.06] px-3.5 py-1.5 text-xs text-muted-foreground">
+				<span className="font-mono lowercase">{language}</span>
+				<button
+					type="button"
+					onClick={copy}
+					className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-colors hover:bg-foreground/10 hover:text-foreground"
+				>
+					{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+					{copied ? "Copied" : "Copy code"}
+				</button>
+			</div>
+			<pre className="overflow-x-auto bg-foreground/[0.03] px-4 py-3 text-sm leading-relaxed">
+				<code className={className}>{children}</code>
+			</pre>
+		</div>
+	);
+}
 
 const components: Components = {
 	// Headings
@@ -45,9 +90,11 @@ const components: Components = {
 	),
 	li: ({ children }) => <li className="leading-relaxed">{children}</li>,
 
-	// Inline code
+	// Inline code vs. fenced code block — react-markdown only tells them apart
+	// via the `inline` flag, so the block case delegates to CodeBlock and pre
+	// (below) just unwraps it rather than double-wrapping in another <pre>.
 	// biome-ignore lint/suspicious/noExplicitAny: react-markdown node typing
-	code: ({ inline, children, ...props }: any) => {
+	code: ({ inline, className, children, ...props }: any) => {
 		if (inline) {
 			return (
 				<code
@@ -58,19 +105,11 @@ const components: Components = {
 				</code>
 			);
 		}
-		return (
-			<code className="block font-mono text-[0.85em]" {...props}>
-				{children}
-			</code>
-		);
+		return <CodeBlock className={className}>{children}</CodeBlock>;
 	},
 
-	// Code block
-	pre: ({ children }) => (
-		<pre className="mb-3 overflow-x-auto rounded-xl bg-foreground/8 px-4 py-3 text-sm leading-relaxed last:mb-0">
-			{children}
-		</pre>
-	),
+	// Code block wrapper — the actual <pre> lives inside CodeBlock.
+	pre: ({ children }) => <>{children}</>,
 
 	// Blockquote
 	blockquote: ({ children }) => (
