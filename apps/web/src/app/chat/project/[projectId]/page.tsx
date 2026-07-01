@@ -1,12 +1,14 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Folder, Pencil, Plus, Trash2 } from "lucide-react";
+import { CalendarDays, Folder, MessagesSquare, Pencil, Plus, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { ChatListItem } from "@/components/chat/chat-list-item";
-import { CenteredLoader } from "@/components/loading";
+import { PageHeaderSkeleton, StatCardsSkeleton } from "@/components/loading";
+import { PageHeader, StatCard } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -148,7 +150,12 @@ export default function ProjectPage() {
   }
 
   if (projectQuery.isLoading) {
-    return <CenteredLoader label="Loading project…" />;
+    return (
+      <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
+        <PageHeaderSkeleton actions={2} />
+        <StatCardsSkeleton count={2} />
+      </div>
+    );
   }
 
   if (!projectQuery.isLoading && !project) {
@@ -163,68 +170,99 @@ export default function ProjectPage() {
   }
 
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col gap-6 overflow-y-auto p-6">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <Folder className="size-5 shrink-0 text-muted-foreground" />
-          <h1 className="truncate text-xl font-semibold">{project?.name ?? "Project"}</h1>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setName(project?.name ?? "");
-              setRenameOpen(true);
-            }}
-          >
-            <Pencil className="size-4" />
-            Rename
-          </Button>
-          <Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)}>
-            <Trash2 className="size-4" />
-            Delete
-          </Button>
-        </div>
-      </div>
-
-      <button
-        type="button"
-        onClick={() => router.push(`/chat?projectId=${projectId}`)}
-        disabled={!models.data?.length}
-        className="flex items-center justify-center gap-2 self-start rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-40"
-      >
-        <Plus className="size-4" />
-        New chat in this project
-      </button>
-
-      <div className="space-y-1">
-        {chats.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No chats in this project yet.</p>
-        ) : (
-          chats.map((chat) => (
-            <ChatListItem
-              key={chat.id}
-              chat={chat}
-              isActive={false}
-              projects={projects}
-              actions={{
-                onRename: (c) => {
-                  setRenameChatTarget(c);
-                  setRenameChatTitle(c.title);
-                },
-                onDuplicate: (c) => duplicateChat.mutate(c.id),
-                onShare: (c) => shareChat.mutate(c.id),
-                onTogglePin: (c) => pinChat.mutate({ chatId: c.id, pinned: !c.pinnedAt }),
-                onArchive: (c) => archiveChat.mutate(c.id),
-                onDelete: (c) => setDeleteChatTarget(c),
-                onMoveToProject: (c, target) =>
-                  moveChatToProject.mutate({ chatId: c.id, projectId: target }),
+    <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2">
+            <Folder className="size-5 text-muted-foreground" />
+            {project?.name ?? "Project"}
+          </span>
+        }
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setName(project?.name ?? "");
+                setRenameOpen(true);
               }}
-            />
-          ))
-        )}
+            >
+              <Pencil className="size-4" />
+              Rename
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setDeleteOpen(true)}>
+              <Trash2 className="size-4" />
+              Delete
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => router.push(`/chat?projectId=${projectId}`)}
+              disabled={!models.data?.length}
+            >
+              <Plus className="size-4" />
+              New chat
+            </Button>
+          </>
+        }
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <StatCard
+          label="Chats"
+          value={chats.length}
+          icon={<MessagesSquare className="size-4" />}
+        />
+        <StatCard
+          label="Created"
+          value={
+            project?.createdAt
+              ? new Date(project.createdAt).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })
+              : "—"
+          }
+          icon={<CalendarDays className="size-4" />}
+        />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Chats</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {chats.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No chats in this project yet.</p>
+          ) : (
+            <div className="rounded-lg border">
+              {chats.map((chat, i) => (
+                <div key={chat.id} className={i > 0 ? "border-t" : undefined}>
+                  <ChatListItem
+                    chat={chat}
+                    isActive={false}
+                    projects={projects}
+                    actions={{
+                      onRename: (c) => {
+                        setRenameChatTarget(c);
+                        setRenameChatTitle(c.title);
+                      },
+                      onDuplicate: (c) => duplicateChat.mutate(c.id),
+                      onShare: (c) => shareChat.mutate(c.id),
+                      onTogglePin: (c) => pinChat.mutate({ chatId: c.id, pinned: !c.pinnedAt }),
+                      onArchive: (c) => archiveChat.mutate(c.id),
+                      onDelete: (c) => setDeleteChatTarget(c),
+                      onMoveToProject: (c, target) =>
+                        moveChatToProject.mutate({ chatId: c.id, projectId: target }),
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
         <DialogContent>

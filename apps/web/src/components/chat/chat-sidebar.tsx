@@ -70,6 +70,16 @@ export function ChatSidebar() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [projectsOpen, setProjectsOpen] = useState(true);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  function toggleGroup(label: string) {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  }
 
   const [renameTarget, setRenameTarget] = useState<ChatSummary | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
@@ -378,31 +388,57 @@ export function ChatSidebar() {
 
             {pinnedChats.length > 0 && (
               <div className="space-y-1">
-                <p className="px-1 text-xs text-muted-foreground">Pinned</p>
-                {pinnedChats.map((chat) => (
-                  <ChatListItem
-                    key={chat.id}
-                    chat={chat}
-                    isActive={pathname === `/chat/${chat.id}`}
-                    projects={projects}
-                    actions={chatActions}
+                <button
+                  type="button"
+                  onClick={() => toggleGroup("Pinned")}
+                  className="flex items-center gap-1 px-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "size-3 transition-transform",
+                      collapsedGroups.has("Pinned") && "-rotate-90",
+                    )}
                   />
-                ))}
+                  Pinned
+                </button>
+                {!collapsedGroups.has("Pinned") &&
+                  pinnedChats.map((chat) => (
+                    <ChatListItem
+                      key={chat.id}
+                      chat={chat}
+                      isActive={pathname === `/chat/${chat.id}`}
+                      projects={projects}
+                      actions={chatActions}
+                    />
+                  ))}
               </div>
             )}
 
             {groups.map((group) => (
               <div key={group.label} className="space-y-1">
-                <p className="px-1 text-xs text-muted-foreground">{group.label}</p>
-                {group.chats.map((chat) => (
-                  <ChatListItem
-                    key={chat.id}
-                    chat={chat}
-                    isActive={pathname === `/chat/${chat.id}`}
-                    projects={projects}
-                    actions={chatActions}
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.label)}
+                  className="flex items-center gap-1 px-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "size-3 transition-transform",
+                      collapsedGroups.has(group.label) && "-rotate-90",
+                    )}
                   />
-                ))}
+                  {group.label}
+                </button>
+                {!collapsedGroups.has(group.label) &&
+                  group.chats.map((chat) => (
+                    <ChatListItem
+                      key={chat.id}
+                      chat={chat}
+                      isActive={pathname === `/chat/${chat.id}`}
+                      projects={projects}
+                      actions={chatActions}
+                    />
+                  ))}
               </div>
             ))}
           </div>
