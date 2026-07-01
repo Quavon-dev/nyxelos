@@ -77,12 +77,16 @@ export function useChatStream(chatId: string) {
           full += decoder.decode(value, { stream: true });
           setStreamingMessage({ role: "assistant", content: full });
         }
+
+        if (!full.trim()) {
+          throw new Error("Model returned no visible text.");
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong while streaming.");
       } finally {
         setIsStreaming(false);
-        setStreamingMessage(null);
         await queryClient.invalidateQueries({ queryKey: ["messages", chatId] });
+        setStreamingMessage(null);
       }
     },
     [chatId, queryClient],

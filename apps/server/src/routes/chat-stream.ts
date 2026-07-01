@@ -17,6 +17,13 @@ const CHAT_FOLLOW_UP_GUIDANCE = [
   "Keep the question short and specific so the user can answer it directly in the next message.",
 ].join(" ");
 
+const STREAM_HEADERS = {
+  "Content-Type": "text/plain; charset=utf-8",
+  "Cache-Control": "no-cache, no-transform",
+  Connection: "keep-alive",
+  "X-Accel-Buffering": "no",
+};
+
 /**
  * POST /api/chat/stream — persists the user message, resolves the system
  * prompt and tool set for this chat (workspace custom instructions, plus —
@@ -80,17 +87,6 @@ export function registerChatStreamRoute(app: Hono) {
           role: m.role === "tool" ? "assistant" : m.role,
           content: m.content,
         })),
-        // Tied to the AI SDK's own stream lifecycle rather than a detached
-        // `.then()` on `result.text` — same completion signal, but errors
-        // here are visible right where the stream itself reports them.
-        onFinish: async ({ text }) => {
-          if (!text) return; // e.g. a tool-only turn that produced no final text
-          try {
-            await db.addMessage({ chatId, role: "assistant", content: text });
-          } catch (err) {
-            console.error(`Failed to persist assistant message for chat ${chatId}:`, err);
-          }
-        },
         onError: ({ error }) => {
           console.error(`Model stream failed mid-response for chat ${chatId}:`, error);
         },
@@ -100,6 +96,33 @@ export function registerChatStreamRoute(app: Hono) {
       return c.json({ error: messageText }, 502);
     }
 
-    return result.toTextStreamResponse();
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        let fullText = "";
+        try {
+          for await (const chunk of result.textStream) {
+            fullText += chunk;
+            controller.enqueue(encoder.encode(chunk));
+          }
+          if (fullText.trim()) {
+            try {
+              await db.addMessage({ chatId, role: "assistant", content: fullText });
+            } catch (err) {
+              console.error(`Failed to persist assistant message for chat ${chatId}:`, err);
+            }
+          }
+          controller.close();
+        } catch (err) {
+          const messageText =
+            err instanceof Error ? err.message : "Model stream failed mid-response.";
+          console.error(`Model stream failed mid-response for chat ${chatId}:`, err);
+          controller.enqueue(encoder.encode(`\n\n[stream error] ${messageText}`));
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(stream, { headers: STREAM_HEADERS });
   });
 }
