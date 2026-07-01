@@ -2,6 +2,7 @@ import type { AgentRecord } from "@nyxel/db";
 import { getDb } from "@nyxel/db";
 import { type Tool, tool } from "ai";
 import { z } from "zod";
+import { startTaskExecutionIfIdle } from "./agent-runtime";
 import { getWorkspaceDefaultToolIds } from "./auto-agent";
 import { computeNextRunAt } from "./scheduler";
 
@@ -135,7 +136,8 @@ export async function buildWorkspaceManagementTools(
 				input: z.record(z.string(), z.unknown()).optional(),
 			}),
 			execute: async (input) =>
-				db.createTask({
+				{
+				const task = await db.createTask({
 					workspaceId,
 					parentTaskId: input.parentTaskId ?? null,
 					sourceChatId: ctx.chatId ?? null,
@@ -146,7 +148,31 @@ export async function buildWorkspaceManagementTools(
 					priority: input.priority ?? "normal",
 					status: input.assignedAgentId ? "ready" : "pending",
 					input: input.input ?? {},
-				}),
+				});
+				await db.createTaskEvent({
+					taskId: task.id,
+					workspaceId,
+					kind: "created",
+					message: `Task created: ${task.title}`,
+					payload: { title: task.title, priority: task.priority },
+				});
+				if (task.assignedAgentId) {
+					await db.createTaskEvent({
+						taskId: task.id,
+						workspaceId,
+						agentId: task.assignedAgentId,
+						kind: "assigned",
+						message: `Task assigned to agent ${task.assignedAgentId}`,
+						payload: { assignedAgentId: task.assignedAgentId },
+					});
+					void startTaskExecutionIfIdle({
+						taskId: task.id,
+						trigger: "chat",
+						chatId: ctx.chatId ?? null,
+					});
+				}
+				return task;
+				},
 		}),
 
 		workspace_task_assign: tool({
@@ -156,8 +182,25 @@ export async function buildWorkspaceManagementTools(
 				taskId: z.string(),
 				assignedAgentId: z.string(),
 			}),
-			execute: async ({ taskId, assignedAgentId }) =>
-				db.updateTask(taskId, { assignedAgentId, status: "ready" }),
+			execute: async ({ taskId, assignedAgentId }) => {
+				const task = await db.updateTask(taskId, {
+					assignedAgentId,
+					status: "ready",
+				});
+				await db.createTaskEvent({
+					taskId: task.id,
+					workspaceId,
+					agentId: assignedAgentId,
+					kind: "assigned",
+					message: `Task assigned to agent ${assignedAgentId}`,
+					payload: { assignedAgentId },
+				});
+				void startTaskExecutionIfIdle({
+					taskId: task.id,
+					trigger: "chat",
+				});
+				return task;
+			},
 		}),
 
 		workspace_task_list: tool({
@@ -203,12 +246,21 @@ export async function buildWorkspaceManagementTools(
 				taskId: z.string(),
 				resultSummary: z.string().min(1),
 			}),
-			execute: async ({ taskId, resultSummary }) =>
-				db.updateTask(taskId, {
+			execute: async ({ taskId, resultSummary }) => {
+				const task = await db.updateTask(taskId, {
 					status: "completed",
 					resultSummary,
 					completedAt: new Date(),
-				}),
+				});
+				await db.createTaskEvent({
+					taskId: task.id,
+					workspaceId,
+					kind: "completed",
+					message: "Task marked complete.",
+					payload: { resultSummary },
+				});
+				return task;
+			},
 		}),
 
 		workspace_automation_create: tool({

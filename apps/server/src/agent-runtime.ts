@@ -260,3 +260,29 @@ export async function executeManagedTask(input: {
 
 	return { task: finalTask, run, output };
 }
+
+export async function startTaskExecutionIfIdle(input: {
+	taskId: string;
+	trigger: "task" | "automation" | "delegate" | "chat";
+	chatId?: string | null;
+	automationId?: string | null;
+}): Promise<{ task: TaskRecord; run: AgentRunRecord; output: string } | null> {
+	const db = getDb();
+	const task = await db.getTask(input.taskId);
+	if (!task || !task.assignedAgentId) return null;
+	if (task.status === "completed" || task.status === "cancelled") return null;
+	if (task.startedAt || task.status === "running" || task.status === "planning") {
+		return null;
+	}
+
+	const agent = await db.getAgent(task.assignedAgentId);
+	if (!agent) return null;
+
+	return executeManagedTask({
+		taskId: task.id,
+		agent,
+		trigger: input.trigger,
+		chatId: input.chatId ?? task.sourceChatId ?? null,
+		automationId: input.automationId ?? null,
+	});
+}

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Bot, CheckCircle2, Clock, ListTree, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -86,6 +86,10 @@ export default function TaskDetailPage() {
     mutationFn: () => trpcClient.tasks.cancel.mutate({ taskId }),
     onSuccess: invalidate,
   });
+  const startTask = useMutation({
+    mutationFn: () => trpcClient.tasks.start.mutate({ taskId }),
+    onSuccess: invalidate,
+  });
 
   const [actingApprovalId, setActingApprovalId] = useState<string | null>(null);
   const invalidateApprovals = () => {
@@ -110,6 +114,18 @@ export default function TaskDetailPage() {
   const events = taskQuery.data?.events ?? [];
   const runs = taskQuery.data?.runs ?? [];
   const linkedApprovals = (approvalsQuery.data ?? []).filter((a) => a.taskId === taskId);
+  const autoStartRef = useRef(false);
+
+  useEffect(() => {
+    if (!task) return;
+    if (task.status === "completed" || task.status === "cancelled") return;
+    if (runs.length > 0) return;
+    if (task.status !== "pending" && task.status !== "ready") return;
+    if (autoStartRef.current) return;
+    if (startTask.isPending) return;
+    autoStartRef.current = true;
+    void startTask.mutateAsync();
+  }, [task, runs.length, startTask]);
 
   if (taskQuery.isLoading) {
     return <div className="mx-auto w-full max-w-4xl p-8 text-sm text-muted-foreground">Loading task…</div>;
@@ -159,6 +175,16 @@ export default function TaskDetailPage() {
           </div>
           {canResolve && (
             <div className="flex shrink-0 gap-2">
+              {task.status !== "completed" && task.status !== "cancelled" && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => startTask.mutate()}
+                  disabled={startTask.isPending}
+                >
+                  {startTask.isPending ? "Starting…" : "Start session"}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"

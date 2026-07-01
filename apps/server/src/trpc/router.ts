@@ -36,6 +36,7 @@ import {
 	listProviderImportSources,
 } from "../provider-imports";
 import { computeNextRunAt, runAutomation } from "../scheduler";
+import { startTaskExecutionIfIdle } from "../agent-runtime";
 import { listSkillCatalogForWorkspace } from "../skills-resolve";
 import { publicProcedure, router } from "./trpc";
 
@@ -673,8 +674,8 @@ export const appRouter = router({
 					input: z.record(z.string(), z.unknown()).optional(),
 				}),
 			)
-			.mutation(({ input }) =>
-				getDb().createTask({
+			.mutation(async ({ input }) => {
+				const task = await getDb().createTask({
 					...input,
 					parentTaskId: input.parentTaskId ?? null,
 					sourceChatId: input.sourceChatId ?? null,
@@ -683,8 +684,31 @@ export const appRouter = router({
 					priority: input.priority ?? "normal",
 					status: input.assignedAgentId ? "ready" : "pending",
 					input: input.input ?? {},
-				}),
-			),
+				});
+				await getDb().createTaskEvent({
+					taskId: task.id,
+					workspaceId: task.workspaceId,
+					kind: "created",
+					message: `Task created: ${task.title}`,
+					payload: { title: task.title, priority: task.priority },
+				});
+				if (task.assignedAgentId) {
+					await getDb().createTaskEvent({
+						taskId: task.id,
+						workspaceId: task.workspaceId,
+						agentId: task.assignedAgentId,
+						kind: "assigned",
+						message: `Task assigned to agent ${task.assignedAgentId}`,
+						payload: { assignedAgentId: task.assignedAgentId },
+					});
+					void startTaskExecutionIfIdle({
+						taskId: task.id,
+						trigger: input.sourceChatId ? "chat" : "task",
+						chatId: input.sourceChatId ?? null,
+					});
+				}
+				return task;
+			}),
 		assign: publicProcedure
 			.input(
 				z.object({
@@ -692,12 +716,29 @@ export const appRouter = router({
 					assignedAgentId: z.string().nullable(),
 				}),
 			)
-			.mutation(({ input }) =>
-				getDb().updateTask(input.taskId, {
+			.mutation(async ({ input }) => {
+				const task = await getDb().updateTask(input.taskId, {
 					assignedAgentId: input.assignedAgentId,
 					status: input.assignedAgentId ? "ready" : "pending",
-				}),
-			),
+				});
+				await getDb().createTaskEvent({
+					taskId: task.id,
+					workspaceId: task.workspaceId,
+					agentId: input.assignedAgentId,
+					kind: "assigned",
+					message: input.assignedAgentId
+						? `Task assigned to agent ${input.assignedAgentId}`
+						: "Task unassigned.",
+					payload: { assignedAgentId: input.assignedAgentId },
+				});
+				if (input.assignedAgentId) {
+					void startTaskExecutionIfIdle({
+						taskId: task.id,
+						trigger: "task",
+					});
+				}
+				return task;
+			}),
 		complete: publicProcedure
 			.input(
 				z.object({
@@ -705,21 +746,48 @@ export const appRouter = router({
 					resultSummary: z.string().min(1),
 				}),
 			)
-			.mutation(({ input }) =>
-				getDb().updateTask(input.taskId, {
+			.mutation(async ({ input }) => {
+				const task = await getDb().updateTask(input.taskId, {
 					status: "completed",
 					resultSummary: input.resultSummary,
 					completedAt: new Date(),
-				}),
-			),
+				});
+				await getDb().createTaskEvent({
+					taskId: task.id,
+					workspaceId: task.workspaceId,
+					kind: "completed",
+					message: "Task marked complete.",
+					payload: { resultSummary: input.resultSummary },
+				});
+				return task;
+			}),
 		cancel: publicProcedure
 			.input(z.object({ taskId: z.string() }))
-			.mutation(({ input }) =>
-				getDb().updateTask(input.taskId, {
+			.mutation(async ({ input }) => {
+				const task = await getDb().updateTask(input.taskId, {
 					status: "cancelled",
 					completedAt: new Date(),
-				}),
-			),
+				});
+				await getDb().createTaskEvent({
+					taskId: task.id,
+					workspaceId: task.workspaceId,
+					kind: "failed",
+					message: "Task cancelled.",
+				});
+				return task;
+			}),
+		start: publicProcedure
+			.input(z.object({ taskId: z.string() }))
+			.mutation(async ({ input }) => {
+				const started = await startTaskExecutionIfIdle({
+					taskId: input.taskId,
+					trigger: "task",
+				});
+				if (started) return started.task;
+				const task = await getDb().getTask(input.taskId);
+				if (!task) throw new Error(`Unknown task: ${input.taskId}`);
+				return task;
+			}),
 		events: publicProcedure
 			.input(z.object({ taskId: z.string() }))
 			.query(({ input }) => getDb().listTaskEvents(input.taskId)),
