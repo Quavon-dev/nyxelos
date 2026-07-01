@@ -22,6 +22,7 @@ export function ChatInput({
   onSend,
   disabled,
   workspaceId,
+  modelId,
   toolSelection,
   onToolSelectionChange,
   chatToolPolicy,
@@ -35,6 +36,7 @@ export function ChatInput({
   onSend: (message: string) => void;
   disabled?: boolean;
   workspaceId: string | undefined;
+  modelId?: string;
   toolSelection: ChatToolSelection | null;
   onToolSelectionChange: (next: ChatToolSelection | null) => void;
   chatToolPolicy: ChatToolPolicy;
@@ -140,6 +142,7 @@ export function ChatInput({
             <ChatComposerToolbar
               mode="compact"
               workspaceId={workspaceId}
+              modelId={modelId}
               toolSelection={toolSelection}
               onToolSelectionChange={onToolSelectionChange}
               chatToolPolicy={chatToolPolicy}

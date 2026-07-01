@@ -34,6 +34,7 @@ function defaultSystemPrompt(input: {
 
 export async function buildWorkspaceManagementTools(
 	agent: AgentRecord,
+	ctx: { chatId?: string } = {},
 ): Promise<Record<string, Tool>> {
 	const db = getDb();
 	const workspaceId = agent.workspaceId;
@@ -137,6 +138,7 @@ export async function buildWorkspaceManagementTools(
 				db.createTask({
 					workspaceId,
 					parentTaskId: input.parentTaskId ?? null,
+					sourceChatId: ctx.chatId ?? null,
 					createdByAgentId: agent.id,
 					assignedAgentId: input.assignedAgentId ?? null,
 					title: input.title,

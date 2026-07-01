@@ -434,7 +434,10 @@ export async function buildToolsForAgent(
 	}
 
 	if (agent.autonomyLevel === "super_agent" || isAutoAssistant(agent)) {
-		Object.assign(tools, await buildWorkspaceManagementTools(agent));
+		Object.assign(
+			tools,
+			await buildWorkspaceManagementTools(agent, { chatId: ctx.chatId }),
+		);
 	}
 
 	return tools;

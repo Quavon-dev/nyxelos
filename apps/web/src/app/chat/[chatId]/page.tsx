@@ -97,6 +97,32 @@ export default function ChatPage() {
 		(a) => a.chatId === chatId,
 	);
 
+	// Durable tasks created from this chat via the workspace_task_create
+	// management tool — task.sourceChatId is set server-side (see
+	// management-tools.ts), so this is a real link rather than text-parsing.
+	const tasksQuery = useQuery({
+		queryKey: ["tasks", workspaceId, "all"],
+		queryFn: () => trpcClient.tasks.list.query({ workspaceId: workspaceId ?? "" }),
+		enabled: Boolean(workspaceId),
+		refetchInterval: 8_000,
+	});
+	const agentsForTasksQuery = useQuery({
+		queryKey: ["agents", workspaceId],
+		queryFn: () => trpcClient.agents.list.query({ workspaceId: workspaceId ?? "" }),
+		enabled: Boolean(workspaceId),
+	});
+	const chatTasks = (tasksQuery.data ?? [])
+		.filter((t) => t.sourceChatId === chatId)
+		.map((t) => ({
+			id: t.id,
+			title: t.title,
+			status: t.status,
+			priority: t.priority,
+			assignedAgentName:
+				agentsForTasksQuery.data?.find((a) => a.id === t.assignedAgentId)?.name ?? null,
+			createdAt: t.createdAt,
+		}));
+
 	const [actingApprovalId, setActingApprovalId] = useState<string | null>(null);
 	const invalidateApprovals = () => {
 		queryClient.invalidateQueries({ queryKey: ["approvals", workspaceId] });
@@ -275,6 +301,8 @@ export default function ChatPage() {
 				messages={messagesQuery.data ?? []}
 				streamingMessage={streamingMessage}
 				approvals={chatApprovals}
+				tasks={chatTasks}
+				workspaceId={workspaceId}
 				actingApprovalId={actingApprovalId}
 				onApproveApproval={(id) => approveApproval.mutate(id)}
 				onRejectApproval={(id) => rejectApproval.mutate(id)}
@@ -290,6 +318,7 @@ export default function ChatPage() {
 				onSend={sendMessageAndCheckApprovals}
 				disabled={isStreaming}
 				workspaceId={workspaceId}
+				modelId={agentQuery.data?.modelId ?? chat?.modelId}
 				toolSelection={toolSelection}
 				onToolSelectionChange={handleToolSelectionChange}
 				chatToolPolicy={chatToolPolicy}

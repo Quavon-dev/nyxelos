@@ -174,6 +174,7 @@ function getInvalidConfigMessage(result: McpToolListResult | undefined) {
 
 export function ChatComposerToolbar({
 	workspaceId,
+	modelId,
 	mode,
 	toolSelection,
 	onToolSelectionChange,
@@ -185,6 +186,10 @@ export function ChatComposerToolbar({
 	messages = [],
 }: {
 	workspaceId: string | undefined;
+	/** The model this chat/agent will actually send to — used to look up
+	 * attachment capabilities so the composer can show whether an image/PDF
+	 * will be sent natively or via server-side extraction fallback. */
+	modelId?: string;
 	mode: "full" | "compact";
 	toolSelection: ChatToolSelection | null;
 	onToolSelectionChange: (next: ChatToolSelection | null) => void;
@@ -195,6 +200,29 @@ export function ChatComposerToolbar({
 	onVoiceResult: (text: string) => void;
 	messages?: MessageLike[];
 }) {
+	const attachmentCapabilitiesQuery = useQuery({
+		queryKey: ["models", "capabilities", workspaceId, modelId],
+		queryFn: () =>
+			trpcClient.models.capabilities.query({ workspaceId: workspaceId as string, modelId: modelId as string }),
+		enabled:
+			Boolean(workspaceId) &&
+			Boolean(modelId) &&
+			(attachedFile?.kind === "image" || attachedFile?.kind === "pdf"),
+	});
+	const attachmentCapabilityCopy = (() => {
+		if (!attachedFile || attachedFile.kind === "text") return null;
+		const caps = attachmentCapabilitiesQuery.data;
+		if (!caps) return null;
+		if (attachedFile.kind === "image") {
+			return caps.nativeImageInput
+				? "Processed natively by the selected model"
+				: "Native vision unavailable; sent as metadata fallback";
+		}
+		return caps.nativeDocumentInput
+			? "Processed natively by the selected model"
+			: "Converted to extracted text before sending";
+	})();
+
 	const [modeOpen, setModeOpen] = useState(false);
 	const [mcpOpen, setMcpOpen] = useState(false);
 	const [artifactsOpen, setArtifactsOpen] = useState(false);
@@ -512,6 +540,14 @@ export function ChatComposerToolbar({
 								{attachedFile.name}
 								<X className="size-3 opacity-70" />
 							</button>
+						)}
+						{attachmentCapabilityCopy && (
+							<span
+								className="shrink-0 rounded-full border border-transparent bg-muted px-2.5 py-1 text-[11px] text-muted-foreground"
+								title={attachmentCapabilityCopy}
+							>
+								{attachmentCapabilityCopy}
+							</span>
 						)}
 
 						{skillsPinned && (

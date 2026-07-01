@@ -27,7 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { type AutonomyLevel, trpcClient } from "@/lib/trpc";
+import { type AgentSummary, type AutonomyLevel, trpcClient } from "@/lib/trpc";
 
 const AUTONOMY_LEVELS: AutonomyLevel[] = ["chat", "assisted", "autonomous", "super_agent"];
 
@@ -69,7 +69,10 @@ export default function AgentsPage() {
     queryFn: () => trpcClient.mcpServers.list.query({ workspaceId }),
   });
 
+  const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
   const [name, setName] = useState("");
+  const [role, setRole] = useState("");
+  const [goalTemplate, setGoalTemplate] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [modelId, setModelId] = useState("");
   const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>("assisted");
@@ -78,11 +81,39 @@ export default function AgentsPage() {
   const [mcpServerIds, setMcpServerIds] = useState<string[]>([]);
   const [delegateAgentIds, setDelegateAgentIds] = useState<string[]>([]);
 
+  function resetForm() {
+    setEditingAgentId(null);
+    setName("");
+    setRole("");
+    setGoalTemplate("");
+    setSystemPrompt("");
+    setAutoAttachWorkspaceTools(true);
+    setSkillIds([]);
+    setMcpServerIds([]);
+    setDelegateAgentIds([]);
+  }
+
+  function startEditing(agent: AgentSummary) {
+    setEditingAgentId(agent.id);
+    setName(agent.name);
+    setRole(agent.role ?? "");
+    setGoalTemplate(agent.goalTemplate ?? "");
+    setSystemPrompt(agent.systemPrompt ?? "");
+    setModelId(agent.modelId);
+    setAutonomyLevel(agent.autonomyLevel);
+    setAutoAttachWorkspaceTools(false);
+    setSkillIds(agent.skillIds);
+    setMcpServerIds(agent.mcpServerIds);
+    setDelegateAgentIds(agent.delegateAgentIds);
+  }
+
   const createAgent = useMutation({
     mutationFn: () =>
       trpcClient.agents.create.mutate({
         workspaceId,
         name,
+        role: role || undefined,
+        goalTemplate: goalTemplate || undefined,
         systemPrompt: systemPrompt || undefined,
         modelId,
         autonomyLevel,
@@ -93,14 +124,32 @@ export default function AgentsPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agents", workspaceId] });
-      setName("");
-      setSystemPrompt("");
-      setAutoAttachWorkspaceTools(true);
-      setSkillIds([]);
-      setMcpServerIds([]);
-      setDelegateAgentIds([]);
+      resetForm();
     },
   });
+
+  const updateAgent = useMutation({
+    mutationFn: () =>
+      trpcClient.agents.update.mutate({
+        id: editingAgentId as string,
+        name,
+        role: role || null,
+        goalTemplate: goalTemplate || null,
+        systemPrompt: systemPrompt || null,
+        modelId,
+        autonomyLevel,
+        skillIds,
+        mcpServerIds,
+        delegateAgentIds: autonomyLevel === "super_agent" ? delegateAgentIds : [],
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agents", workspaceId] });
+      resetForm();
+    },
+  });
+
+  const isEditing = Boolean(editingAgentId);
+  const saveAgent = isEditing ? updateAgent : createAgent;
 
   function toggle(list: string[], id: string, set: (next: string[]) => void) {
     set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
@@ -145,16 +194,19 @@ export default function AgentsPage() {
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Name</TableHead>
+                    <TableHead>Role</TableHead>
                     <TableHead>Model</TableHead>
                     <TableHead>Autonomy</TableHead>
                     <TableHead>Skills</TableHead>
                     <TableHead>Delegates</TableHead>
+                    <TableHead className="w-[80px]" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {agents.map((agent) => (
                     <TableRow key={agent.id}>
                       <TableCell className="font-medium">{agent.name}</TableCell>
+                      <TableCell className="text-muted-foreground">{agent.role ?? "—"}</TableCell>
                       <TableCell className="text-muted-foreground">{agent.modelId}</TableCell>
                       <TableCell>
                         <AutonomyBadge level={agent.autonomyLevel} />
@@ -164,6 +216,11 @@ export default function AgentsPage() {
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {agent.delegateAgentIds.length > 0 ? agent.delegateAgentIds.length : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="sm" onClick={() => startEditing(agent)}>
+                          Edit
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -176,16 +233,38 @@ export default function AgentsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Create agent</CardTitle>
+          <CardTitle>{isEditing ? "Edit agent" : "Create agent"}</CardTitle>
           <CardDescription>
-            Pick a model and autonomy level. By default the agent inherits all current workspace
-            skills and MCP servers automatically.
+            {isEditing
+              ? "Update this agent's role, goal, model, autonomy, or delegate policy."
+              : "Pick a model and autonomy level. By default the agent inherits all current workspace skills and MCP servers automatically."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-2">
             <Label htmlFor="agent-name">Name</Label>
             <Input id="agent-name" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="agent-role">Role</Label>
+              <Input
+                id="agent-role"
+                placeholder="e.g. security, marketing, coding, orchestrator"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="agent-goal-template">Goal template</Label>
+              <Input
+                id="agent-goal-template"
+                placeholder="Optional default goal pattern"
+                value={goalTemplate}
+                onChange={(e) => setGoalTemplate(e.target.value)}
+              />
+            </div>
           </div>
 
           <div className="grid gap-2">
@@ -236,23 +315,25 @@ export default function AgentsPage() {
             </div>
           </div>
 
-          <div className="flex items-start gap-3 rounded-lg border p-3">
-            <Checkbox
-              id="auto-attach-tools"
-              checked={autoAttachWorkspaceTools}
-              onCheckedChange={(checked) => setAutoAttachWorkspaceTools(Boolean(checked))}
-              className="mt-0.5"
-            />
-            <Label htmlFor="auto-attach-tools" className="flex-1 font-normal">
-              <span className="font-medium text-foreground">
-                Auto-attach all workspace skills and MCP servers
-              </span>
-              <span className="block text-xs text-muted-foreground">
-                Keeps the agent tool-ready regardless of model. Sensitive actions still go through
-                the normal approval queue.
-              </span>
-            </Label>
-          </div>
+          {!isEditing && (
+            <div className="flex items-start gap-3 rounded-lg border p-3">
+              <Checkbox
+                id="auto-attach-tools"
+                checked={autoAttachWorkspaceTools}
+                onCheckedChange={(checked) => setAutoAttachWorkspaceTools(Boolean(checked))}
+                className="mt-0.5"
+              />
+              <Label htmlFor="auto-attach-tools" className="flex-1 font-normal">
+                <span className="font-medium text-foreground">
+                  Auto-attach all workspace skills and MCP servers
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Keeps the agent tool-ready regardless of model. Sensitive actions still go
+                  through the normal approval queue.
+                </span>
+              </Label>
+            </div>
+          )}
 
           {!autoAttachWorkspaceTools && skillsQuery.data && skillsQuery.data.length > 0 && (
             <div className="space-y-2">
@@ -305,21 +386,25 @@ export default function AgentsPage() {
           {autonomyLevel === "super_agent" && (
             <div className="space-y-2">
               <Label>Delegate to (super-agent only)</Label>
-              {agents.length > 0 ? (
+              {agents.filter((a) => a.id !== editingAgentId).length > 0 ? (
                 <div className="space-y-2 rounded-lg border p-3">
-                  {agents.map((a) => (
-                    <div key={a.id} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`delegate-${a.id}`}
-                        checked={delegateAgentIds.includes(a.id)}
-                        onCheckedChange={() => toggle(delegateAgentIds, a.id, setDelegateAgentIds)}
-                      />
-                      <Label htmlFor={`delegate-${a.id}`} className="font-normal">
-                        {a.name}{" "}
-                        <span className="text-xs text-muted-foreground">({a.autonomyLevel})</span>
-                      </Label>
-                    </div>
-                  ))}
+                  {agents
+                    .filter((a) => a.id !== editingAgentId)
+                    .map((a) => (
+                      <div key={a.id} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`delegate-${a.id}`}
+                          checked={delegateAgentIds.includes(a.id)}
+                          onCheckedChange={() => toggle(delegateAgentIds, a.id, setDelegateAgentIds)}
+                        />
+                        <Label htmlFor={`delegate-${a.id}`} className="font-normal">
+                          {a.name}{" "}
+                          <span className="text-xs text-muted-foreground">
+                            ({a.autonomyLevel})
+                          </span>
+                        </Label>
+                      </div>
+                    ))}
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
@@ -331,13 +416,18 @@ export default function AgentsPage() {
 
           <div className="flex items-center gap-3 border-t pt-4">
             <Button
-              onClick={() => createAgent.mutate()}
-              disabled={createAgent.isPending || !name || !modelId}
+              onClick={() => saveAgent.mutate()}
+              disabled={saveAgent.isPending || !name || !modelId}
             >
-              {createAgent.isPending ? "Creating…" : "Create agent"}
+              {saveAgent.isPending ? "Saving…" : isEditing ? "Save changes" : "Create agent"}
             </Button>
-            {createAgent.isError && (
-              <p className="text-sm text-destructive">{(createAgent.error as Error).message}</p>
+            {isEditing && (
+              <Button variant="ghost" onClick={resetForm}>
+                Cancel
+              </Button>
+            )}
+            {saveAgent.isError && (
+              <p className="text-sm text-destructive">{(saveAgent.error as Error).message}</p>
             )}
           </div>
         </CardContent>

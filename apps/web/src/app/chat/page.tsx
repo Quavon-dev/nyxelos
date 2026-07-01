@@ -243,6 +243,7 @@ export default function ChatLandingPage() {
 							<ChatComposerToolbar
 								mode="compact"
 								workspaceId={workspaceId}
+								modelId={modelId}
 								toolSelection={toolSelection}
 								onToolSelectionChange={setToolSelection}
 								chatToolPolicy={chatToolPolicy}

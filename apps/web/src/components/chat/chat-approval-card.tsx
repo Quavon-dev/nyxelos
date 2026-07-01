@@ -1,6 +1,7 @@
 "use client";
 
-import { CheckCircle2, Clock, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, ExternalLink, XCircle } from "lucide-react";
+import Link from "next/link";
 import type { ApprovalStatus } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +13,7 @@ export interface ChatApprovalItem {
   input: Record<string, unknown>;
   status: ApprovalStatus;
   errorMessage?: string | null;
+  taskId?: string | null;
 }
 
 const STATUS_STYLES: Record<ApprovalStatus, string> = {
@@ -40,11 +42,14 @@ const STATUS_ICON: Record<ApprovalStatus, typeof Clock> = {
  */
 export function ChatApprovalCard({
   approval,
+  workspaceId,
   isActing,
   onApprove,
   onReject,
 }: {
   approval: ChatApprovalItem;
+  /** Needed to link "View task" back to the task detail page — omit to hide the link. */
+  workspaceId?: string;
   isActing?: boolean;
   onApprove: () => void;
   onReject: () => void;
@@ -60,6 +65,14 @@ export function ChatApprovalCard({
               Tool call
             </span>
             <code className="text-xs text-foreground">{approval.toolLabel}</code>
+            {approval.taskId && workspaceId && (
+              <Link
+                href={`/workspace/${workspaceId}/tasks/${approval.taskId}`}
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
+              >
+                View task <ExternalLink className="size-3" />
+              </Link>
+            )}
           </div>
           <span
             className={cn(

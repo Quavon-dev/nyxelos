@@ -8,6 +8,7 @@ import {
 	McpInvalidConfigurationError,
 } from "@nyxel/mcp-client";
 import {
+	getModelCapabilities,
 	listAvailableModels,
 	probeOpenAiCompatibleEndpoint,
 } from "@nyxel/model-providers";
@@ -271,6 +272,17 @@ export const appRouter = router({
 			.query(({ input }) =>
 				getDb().listModelInstallationsByWorkspace(input.workspaceId),
 			),
+		// Lets the composer show whether an attachment will be sent natively
+		// (image/PDF passed through to the model) or via server-side text
+		// extraction fallback — see attachment-processing.ts.
+		capabilities: publicProcedure
+			.input(z.object({ workspaceId: z.string(), modelId: z.string() }))
+			.query(async ({ input }) => {
+				const providers = await getInstalledProvidersForWorkspace(
+					input.workspaceId,
+				);
+				return getModelCapabilities(input.modelId, providers);
+			}),
 		probe: publicProcedure
 			.input(
 				z.object({
@@ -602,6 +614,23 @@ export const appRouter = router({
 					mcpToolFilter: input.mcpToolFilter ?? null,
 				});
 			}),
+		update: publicProcedure
+			.input(
+				z.object({
+					id: z.string(),
+					name: z.string().min(1).optional(),
+					role: z.string().nullable().optional(),
+					goalTemplate: z.string().nullable().optional(),
+					systemPrompt: z.string().nullable().optional(),
+					modelId: z.string().optional(),
+					autonomyLevel: autonomyLevelSchema.optional(),
+					skillIds: z.array(z.string()).optional(),
+					mcpServerIds: z.array(z.string()).optional(),
+					mcpToolFilter: z.array(z.string()).nullable().optional(),
+					delegateAgentIds: z.array(z.string()).optional(),
+				}),
+			)
+			.mutation(({ input: { id, ...input } }) => getDb().updateAgent(id, input)),
 	}),
 
 	tasks: router({

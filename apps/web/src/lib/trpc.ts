@@ -101,6 +101,8 @@ export type AgentSummary = {
 	workspaceId: string;
 	name: string;
 	systemPrompt: string | null;
+	role: string | null;
+	goalTemplate: string | null;
 	modelId: string;
 	autonomyLevel: AutonomyLevel;
 	skillIds: string[];
@@ -110,6 +112,105 @@ export type AgentSummary = {
 	mcpToolFilter: string[] | null;
 	delegateAgentIds: string[];
 	createdAt: Date;
+};
+
+export type TaskStatus =
+	| "pending"
+	| "planning"
+	| "ready"
+	| "running"
+	| "blocked"
+	| "waiting_approval"
+	| "completed"
+	| "failed"
+	| "cancelled";
+export type TaskPriority = "low" | "normal" | "high" | "urgent";
+export type TaskEventKind =
+	| "created"
+	| "planned"
+	| "status_changed"
+	| "assigned"
+	| "delegated"
+	| "tool_called"
+	| "approval_waiting"
+	| "approval_resolved"
+	| "run_started"
+	| "run_finished"
+	| "comment"
+	| "completed"
+	| "failed";
+export type AgentRunTrigger = "chat" | "task" | "automation" | "delegate";
+export type AgentRunStatus =
+	| "pending"
+	| "running"
+	| "waiting_approval"
+	| "completed"
+	| "failed"
+	| "cancelled";
+
+export type TaskSummary = {
+	id: string;
+	workspaceId: string;
+	parentTaskId: string | null;
+	sourceChatId: string | null;
+	createdByAgentId: string | null;
+	assignedAgentId: string | null;
+	title: string;
+	instruction: string;
+	status: TaskStatus;
+	priority: TaskPriority;
+	requiresApproval: boolean;
+	input: Record<string, unknown>;
+	plan: Record<string, unknown> | null;
+	handoff: Record<string, unknown> | null;
+	resultSummary: string | null;
+	errorMessage: string | null;
+	createdAt: Date;
+	startedAt: Date | null;
+	completedAt: Date | null;
+	updatedAt: Date;
+};
+
+export type TaskEventSummary = {
+	id: string;
+	taskId: string;
+	workspaceId: string;
+	agentRunId: string | null;
+	agentId: string | null;
+	kind: TaskEventKind;
+	message: string;
+	payload: Record<string, unknown> | null;
+	createdAt: Date;
+};
+
+export type AgentRunSummary = {
+	id: string;
+	workspaceId: string;
+	taskId: string | null;
+	agentId: string;
+	chatId: string | null;
+	automationId: string | null;
+	trigger: AgentRunTrigger;
+	stepCount: number;
+	status: AgentRunStatus;
+	finalOutput: string | null;
+	errorMessage: string | null;
+	createdAt: Date;
+	startedAt: Date | null;
+	completedAt: Date | null;
+	updatedAt: Date;
+};
+
+export type TaskDetail = {
+	task: TaskSummary | null;
+	children: TaskSummary[];
+	events: TaskEventSummary[];
+	runs: AgentRunSummary[];
+};
+
+export type ModelCapabilities = {
+	nativeImageInput: boolean;
+	nativeDocumentInput: boolean;
 };
 
 export type UserSummary = {
@@ -166,6 +267,8 @@ export type ApprovalSummary = {
 	agentId: string;
 	chatId: string | null;
 	automationId: string | null;
+	taskId: string | null;
+	agentRunId: string | null;
 	kind: ApprovalKind;
 	skillId: string | null;
 	mcpServerId: string | null;
@@ -341,6 +444,12 @@ type NyxelTrpcClient = {
 			query(input: {
 				workspaceId: string;
 			}): Promise<ModelInstallationSummary[]>;
+		};
+		capabilities: {
+			query(input: {
+				workspaceId: string;
+				modelId: string;
+			}): Promise<ModelCapabilities>;
 		};
 		probe: {
 			query(input: {
@@ -525,6 +634,8 @@ type NyxelTrpcClient = {
 			mutate(input: {
 				workspaceId: string;
 				name: string;
+				role?: string;
+				goalTemplate?: string;
 				systemPrompt?: string;
 				modelId: string;
 				autonomyLevel?: AutonomyLevel;
@@ -534,6 +645,69 @@ type NyxelTrpcClient = {
 				autoAttachWorkspaceTools?: boolean;
 				delegateAgentIds?: string[];
 			}): Promise<AgentSummary>;
+		};
+		update: {
+			mutate(input: {
+				id: string;
+				name?: string;
+				role?: string | null;
+				goalTemplate?: string | null;
+				systemPrompt?: string | null;
+				modelId?: string;
+				autonomyLevel?: AutonomyLevel;
+				skillIds?: string[];
+				mcpServerIds?: string[];
+				mcpToolFilter?: string[] | null;
+				delegateAgentIds?: string[];
+			}): Promise<AgentSummary>;
+		};
+	};
+	tasks: {
+		list: {
+			query(input: {
+				workspaceId: string;
+				status?: TaskStatus;
+				assignedAgentId?: string | null;
+			}): Promise<TaskSummary[]>;
+		};
+		get: {
+			query(input: { taskId: string }): Promise<TaskDetail>;
+		};
+		create: {
+			mutate(input: {
+				workspaceId: string;
+				parentTaskId?: string | null;
+				sourceChatId?: string | null;
+				createdByAgentId?: string | null;
+				assignedAgentId?: string | null;
+				title: string;
+				instruction: string;
+				priority?: TaskPriority;
+				input?: Record<string, unknown>;
+			}): Promise<TaskSummary>;
+		};
+		assign: {
+			mutate(input: {
+				taskId: string;
+				assignedAgentId: string | null;
+			}): Promise<TaskSummary>;
+		};
+		complete: {
+			mutate(input: {
+				taskId: string;
+				resultSummary: string;
+			}): Promise<TaskSummary>;
+		};
+		cancel: {
+			mutate(input: { taskId: string }): Promise<TaskSummary>;
+		};
+		events: {
+			query(input: { taskId: string }): Promise<TaskEventSummary[]>;
+		};
+	};
+	agentRuns: {
+		listByTask: {
+			query(input: { taskId: string }): Promise<AgentRunSummary[]>;
 		};
 	};
 	mcpServers: {
@@ -587,7 +761,12 @@ type NyxelTrpcClient = {
 			mutate(input: { id: string }): Promise<void>;
 		};
 		runNow: {
-			mutate(input: { id: string }): Promise<AutomationSummary>;
+			mutate(input: { id: string }): Promise<{
+				automation: AutomationSummary | null;
+				taskId: string;
+				runId: string;
+				output: string;
+			}>;
 		};
 	};
 	approvals: {
