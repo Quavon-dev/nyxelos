@@ -15,6 +15,7 @@ const bodySchema = z.object({
 const CHAT_FOLLOW_UP_GUIDANCE = [
   "When the request is underspecified or you need a missing detail to respond correctly, ask one concise follow-up question instead of guessing.",
   "Keep the question short and specific so the user can answer it directly in the next message.",
+  "If the user needs to choose more than one option, respond with a single fenced code block tagged `nyxel-multiselect` that contains strict JSON in this shape: {\"kind\":\"multi_select\",\"question\":\"...\",\"options\":[{\"id\":\"stable-id\",\"label\":\"Display label\"}]}. Keep any surrounding prose minimal.",
 ].join(" ");
 
 const STREAM_HEADERS = {
@@ -96,18 +97,32 @@ export function registerChatStreamRoute(app: Hono) {
       return c.json({ error: messageText }, 502);
     }
 
+    const finalizedTextPromise = Promise.resolve(result.text).catch(() => "");
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
-        let fullText = "";
+        let streamedText = "";
         try {
           for await (const chunk of result.textStream) {
-            fullText += chunk;
+            streamedText += chunk;
             controller.enqueue(encoder.encode(chunk));
           }
-          if (fullText.trim()) {
+
+          const finalizedText = await finalizedTextPromise;
+          const assistantText = finalizedText.trim() ? finalizedText : streamedText;
+
+          if (assistantText && assistantText !== streamedText) {
+            const missingSuffix = assistantText.startsWith(streamedText)
+              ? assistantText.slice(streamedText.length)
+              : assistantText;
+            if (missingSuffix) {
+              controller.enqueue(encoder.encode(missingSuffix));
+            }
+          }
+
+          if (assistantText.trim()) {
             try {
-              await db.addMessage({ chatId, role: "assistant", content: fullText });
+              await db.addMessage({ chatId, role: "assistant", content: assistantText });
             } catch (err) {
               console.error(`Failed to persist assistant message for chat ${chatId}:`, err);
             }

@@ -144,15 +144,30 @@ export const skill = sqliteTable("skill", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+/** Mirrors ../pg/app.ts — see there for the "why" behind projectId being
+ * nullable on chat instead of projects owning a list of chats. */
+export const project = sqliteTable("project", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 export const chat = sqliteTable("chat", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
     .references(() => workspace.id, { onDelete: "cascade" }),
   agentId: text("agent_id").references(() => agent.id, { onDelete: "set null" }),
+  projectId: text("project_id").references(() => project.id, { onDelete: "set null" }),
   title: text("title").notNull().default("New chat"),
   modelId: text("model_id").notNull(),
   archivedAt: integer("archived_at", { mode: "timestamp" }),
+  pinnedAt: integer("pinned_at", { mode: "timestamp" }),
+  shareId: text("share_id").unique(),
+  sharedAt: integer("shared_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

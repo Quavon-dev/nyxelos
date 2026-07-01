@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AttachedFile, ChatToolSelection } from "@/components/chat/chat-composer-toolbar";
 import { ChatInput } from "@/components/chat/chat-input";
 import { MessageList } from "@/components/chat/message-list";
+import { parseAssistantContent } from "@/lib/chat-prompts";
 import { trpcClient } from "@/lib/trpc";
 import { useChatStream } from "@/lib/use-chat-stream";
 import { useInstallation } from "@/lib/use-installation";
@@ -21,12 +22,30 @@ function getPendingAssistantQuestion(messages: Array<{ role: string; content: st
   const content = messages[lastAssistantIndex]?.content.trim();
   if (!content) return null;
 
+  const parsed = parseAssistantContent(content);
+  if (parsed.prompt) return null;
+
   return /[?؟]\s*$/.test(content) ||
     content.includes("?") ||
     content.includes("Could you") ||
     content.includes("Bitte")
     ? content
     : null;
+}
+
+function getPendingAssistantPrompt(messages: Array<{ role: string; content: string }>) {
+  const lastAssistantIndex = [...messages]
+    .map((message, index) => ({ message, index }))
+    .reverse()
+    .find(({ message }) => message.role === "assistant")?.index;
+
+  if (lastAssistantIndex === undefined) return null;
+
+  const content = messages[lastAssistantIndex]?.content.trim();
+  if (!content) return null;
+
+  const parsed = parseAssistantContent(content);
+  return parsed.prompt;
 }
 
 export default function ChatPage() {
@@ -52,6 +71,7 @@ export default function ChatPage() {
   });
   const chat = chatsQuery.data?.find((c) => c.id === chatId);
   const pendingQuestion = getPendingAssistantQuestion(messagesQuery.data ?? []);
+  const pendingPrompt = getPendingAssistantPrompt(messagesQuery.data ?? []);
 
   const agentQuery = useQuery({
     queryKey: ["agents", "get", chat?.agentId],
@@ -166,6 +186,7 @@ export default function ChatPage() {
         onAttachedFileChange={setAttachedFile}
         messages={messagesQuery.data ?? []}
         assistantQuestion={pendingQuestion}
+        assistantPrompt={pendingPrompt}
       />
     </div>
   );

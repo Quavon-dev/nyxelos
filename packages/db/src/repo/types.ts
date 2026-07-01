@@ -41,9 +41,20 @@ export interface ChatRecord {
   id: string;
   workspaceId: string;
   agentId: string | null;
+  projectId: string | null;
   title: string;
   modelId: string;
   archivedAt: Date | null;
+  pinnedAt: Date | null;
+  shareId: string | null;
+  sharedAt: Date | null;
+  createdAt: Date;
+}
+
+export interface ProjectRecord {
+  id: string;
+  workspaceId: string;
+  name: string;
   createdAt: Date;
 }
 
@@ -224,18 +235,41 @@ export interface DbRepository {
     title: string;
     modelId: string;
     agentId?: string | null;
+    projectId?: string | null;
   }): Promise<ChatRecord>;
   listChatsByWorkspace(workspaceId: string): Promise<ChatRecord[]>;
   listArchivedChatsByWorkspace(workspaceId: string): Promise<ChatRecord[]>;
+  listChatsByProject(projectId: string): Promise<ChatRecord[]>;
   getChat(chatId: string): Promise<ChatRecord | null>;
+  getChatByShareId(shareId: string): Promise<ChatRecord | null>;
   renameChat(chatId: string, title: string): Promise<ChatRecord>;
   setChatArchived(chatId: string, archived: boolean): Promise<ChatRecord>;
+  setChatPinned(chatId: string, pinned: boolean): Promise<ChatRecord>;
+  setChatProject(chatId: string, projectId: string | null): Promise<ChatRecord>;
+  /** Turning sharing on assigns a share token the first time (idempotent
+   * afterwards); turning it off clears the token so the old link 404s. */
+  setChatShared(chatId: string, shared: boolean): Promise<ChatRecord>;
+  /** Clones a chat (and its messages) into a new chat in the same
+   * workspace/project — the "Duplizieren" sidebar action. The duplicate is
+   * never pinned/shared/archived even if the source was. */
+  duplicateChat(chatId: string): Promise<ChatRecord>;
   deleteChat(chatId: string): Promise<void>;
   /** Re-points a chat at a different agent — used when a chat's skill/MCP
    * selection is edited mid-conversation: rather than mutating a shared
    * agent (which could be reused by other chats), the caller forks a new
    * one-off agent and calls this to bind the chat to it going forward. */
   updateChatAgent(chatId: string, agentId: string | null): Promise<ChatRecord>;
+
+  createProject(input: { workspaceId: string; name: string }): Promise<ProjectRecord>;
+  listProjectsByWorkspace(workspaceId: string): Promise<ProjectRecord[]>;
+  getProject(projectId: string): Promise<ProjectRecord | null>;
+  renameProject(projectId: string, name: string): Promise<ProjectRecord>;
+  /** Deletes the project itself; member chats are kept and simply fall back
+   * to projectId null (see the "set null" FK in packages/db/src/schema). */
+  deleteProject(projectId: string): Promise<void>;
+  /** Clones a project and every chat (with messages) filed under it — the
+   * "Duplizieren" action on a project row. */
+  duplicateProject(projectId: string): Promise<ProjectRecord>;
 
   addMessage(input: { chatId: string; role: MessageRole; content: string }): Promise<MessageRecord>;
   listMessages(chatId: string): Promise<MessageRecord[]>;

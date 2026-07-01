@@ -1,7 +1,11 @@
 import { cn } from "@/lib/utils";
+import { parseAssistantContent } from "@/lib/chat-prompts";
+import { MultiSelectPromptCard } from "./multi-select-prompt";
 
 export function MessageBubble({ sender, content }: { sender: string; content: string }) {
   const isUser = sender === "user";
+  const parsed = !isUser ? parseAssistantContent(content) : null;
+  const body = parsed?.body || content;
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
       <div
@@ -10,7 +14,14 @@ export function MessageBubble({ sender, content }: { sender: string; content: st
           isUser ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
         )}
       >
-        {content}
+        {parsed?.prompt ? (
+          <div className="space-y-2">
+            {body && <div>{body}</div>}
+            <MultiSelectPromptCard prompt={parsed.prompt} mode="preview" />
+          </div>
+        ) : (
+          content
+        )}
       </div>
     </div>
   );

@@ -78,6 +78,11 @@ export function useChatStream(chatId: string) {
           setStreamingMessage({ role: "assistant", content: full });
         }
 
+        full += decoder.decode();
+        if (full) {
+          setStreamingMessage({ role: "assistant", content: full });
+        }
+
         if (!full.trim()) {
           throw new Error("Model returned no visible text.");
         }

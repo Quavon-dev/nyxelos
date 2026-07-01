@@ -166,15 +166,36 @@ export const skill = pgTable("skill", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+/** A user-defined folder for organizing chats within a workspace — the
+ * "Projekte" section in the chat sidebar. Chats point at a project via
+ * chat.projectId (nullable, "set null" on delete) rather than projects
+ * owning a chat list, so removing a project never deletes its chats. */
+export const project = pgTable("project", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const chat = pgTable("chat", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
     .references(() => workspace.id, { onDelete: "cascade" }),
   agentId: text("agent_id").references(() => agent.id, { onDelete: "set null" }),
+  projectId: text("project_id").references(() => project.id, { onDelete: "set null" }),
   title: text("title").notNull().default("New chat"),
   modelId: text("model_id").notNull(),
   archivedAt: timestamp("archived_at"),
+  // Non-null once the chat has been pinned to the top of the sidebar list.
+  pinnedAt: timestamp("pinned_at"),
+  // Non-null public share token — a chat with a shareId is viewable
+  // read-only at /share/{shareId} without auth. See apps/server's
+  // chats.share/unshare and chats.getShared.
+  shareId: text("share_id").unique(),
+  sharedAt: timestamp("shared_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

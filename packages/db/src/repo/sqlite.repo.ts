@@ -10,20 +10,64 @@ export function createSqliteRepository(filePath: string): DbRepository {
   sqlite.exec("PRAGMA journal_mode = WAL;");
   sqlite.exec("PRAGMA foreign_keys = ON;");
 
-  // Older local databases created before chat archiving existed may still be
-  // missing the archived_at column. Add it in place so chat creation and
-  // list/restore flows keep working without forcing a manual reset.
+  // Older local databases created before chat archiving/projects existed may
+  // still be missing these columns. Add them in place so existing installs
+  // keep working without forcing a manual reset.
   const chatTable = sqlite
     .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
     .get("chat") as { name: string } | null;
   if (chatTable) {
     const chatColumns = sqlite.query("PRAGMA table_info(chat)").all() as { name: string }[];
-    if (!chatColumns.some((column) => column.name === "archived_at")) {
+    const hasColumn = (name: string) => chatColumns.some((column) => column.name === name);
+    if (!hasColumn("archived_at")) {
       sqlite.exec("ALTER TABLE chat ADD COLUMN archived_at integer;");
+    }
+    if (!hasColumn("project_id")) {
+      sqlite.exec("ALTER TABLE chat ADD COLUMN project_id text REFERENCES project(id);");
+    }
+    if (!hasColumn("pinned_at")) {
+      sqlite.exec("ALTER TABLE chat ADD COLUMN pinned_at integer;");
+    }
+    if (!hasColumn("share_id")) {
+      sqlite.exec("ALTER TABLE chat ADD COLUMN share_id text;");
+      sqlite.exec("CREATE UNIQUE INDEX IF NOT EXISTS chat_share_id_unique ON chat (share_id);");
+    }
+    if (!hasColumn("shared_at")) {
+      sqlite.exec("ALTER TABLE chat ADD COLUMN shared_at integer;");
     }
   }
 
+  // Same idea for the project table itself on databases that predate it.
+  sqlite.exec(
+    "CREATE TABLE IF NOT EXISTS project (" +
+      "id text PRIMARY KEY NOT NULL, " +
+      "workspace_id text NOT NULL REFERENCES workspace(id) ON DELETE CASCADE, " +
+      "name text NOT NULL, " +
+      "created_at integer NOT NULL" +
+      ");",
+  );
+
   const db = drizzle(sqlite, { schema });
+
+  function mapChat(row: typeof schema.chat.$inferSelect) {
+    return {
+      id: row.id,
+      workspaceId: row.workspaceId,
+      agentId: row.agentId,
+      projectId: row.projectId,
+      title: row.title,
+      modelId: row.modelId,
+      archivedAt: row.archivedAt,
+      pinnedAt: row.pinnedAt,
+      shareId: row.shareId,
+      sharedAt: row.sharedAt,
+      createdAt: row.createdAt,
+    };
+  }
+
+  function mapProject(row: typeof schema.project.$inferSelect) {
+    return { id: row.id, workspaceId: row.workspaceId, name: row.name, createdAt: row.createdAt };
+  }
 
   return {
     driver: "sqlite",
@@ -203,7 +247,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
       db.delete(schema.modelInstallation).where(eq(schema.modelInstallation.id, id)).run();
     },
 
-    async createChat({ workspaceId, title, modelId, agentId }) {
+    async createChat({ workspaceId, title, modelId, agentId, projectId }) {
       const row = db
         .insert(schema.chat)
         .values({
@@ -212,19 +256,12 @@ export function createSqliteRepository(filePath: string): DbRepository {
           title,
           modelId,
           agentId: agentId ?? null,
+          projectId: projectId ?? null,
           createdAt: new Date(),
         })
         .returning()
         .get();
-      return {
-        id: row.id,
-        workspaceId: row.workspaceId,
-        agentId: row.agentId,
-        title: row.title,
-        modelId: row.modelId,
-        archivedAt: row.archivedAt,
-        createdAt: row.createdAt,
-      };
+      return mapChat(row);
     },
 
     async listChatsByWorkspace(workspaceId) {
@@ -233,15 +270,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
         .from(schema.chat)
         .where(and(eq(schema.chat.workspaceId, workspaceId), isNull(schema.chat.archivedAt)))
         .all();
-      return rows.map((r) => ({
-        id: r.id,
-        workspaceId: r.workspaceId,
-        agentId: r.agentId,
-        title: r.title,
-        modelId: r.modelId,
-        archivedAt: r.archivedAt,
-        createdAt: r.createdAt,
-      }));
+      return rows.map(mapChat);
     },
 
     async listArchivedChatsByWorkspace(workspaceId) {
@@ -250,29 +279,26 @@ export function createSqliteRepository(filePath: string): DbRepository {
         .from(schema.chat)
         .where(and(eq(schema.chat.workspaceId, workspaceId), isNotNull(schema.chat.archivedAt)))
         .all();
-      return rows.map((r) => ({
-        id: r.id,
-        workspaceId: r.workspaceId,
-        agentId: r.agentId,
-        title: r.title,
-        modelId: r.modelId,
-        archivedAt: r.archivedAt,
-        createdAt: r.createdAt,
-      }));
+      return rows.map(mapChat);
+    },
+
+    async listChatsByProject(projectId) {
+      const rows = db
+        .select()
+        .from(schema.chat)
+        .where(and(eq(schema.chat.projectId, projectId), isNull(schema.chat.archivedAt)))
+        .all();
+      return rows.map(mapChat);
     },
 
     async getChat(chatId) {
       const row = db.select().from(schema.chat).where(eq(schema.chat.id, chatId)).get();
-      if (!row) return null;
-      return {
-        id: row.id,
-        workspaceId: row.workspaceId,
-        agentId: row.agentId,
-        title: row.title,
-        modelId: row.modelId,
-        archivedAt: row.archivedAt,
-        createdAt: row.createdAt,
-      };
+      return row ? mapChat(row) : null;
+    },
+
+    async getChatByShareId(shareId) {
+      const row = db.select().from(schema.chat).where(eq(schema.chat.shareId, shareId)).get();
+      return row ? mapChat(row) : null;
     },
 
     async renameChat(chatId, title) {
@@ -283,15 +309,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
         .returning()
         .get();
       if (!row) throw new Error(`Chat not found: ${chatId}`);
-      return {
-        id: row.id,
-        workspaceId: row.workspaceId,
-        agentId: row.agentId,
-        title: row.title,
-        modelId: row.modelId,
-        archivedAt: row.archivedAt,
-        createdAt: row.createdAt,
-      };
+      return mapChat(row);
     },
 
     async setChatArchived(chatId, archived) {
@@ -302,15 +320,85 @@ export function createSqliteRepository(filePath: string): DbRepository {
         .returning()
         .get();
       if (!row) throw new Error(`Chat not found: ${chatId}`);
-      return {
-        id: row.id,
-        workspaceId: row.workspaceId,
-        agentId: row.agentId,
-        title: row.title,
-        modelId: row.modelId,
-        archivedAt: row.archivedAt,
-        createdAt: row.createdAt,
-      };
+      return mapChat(row);
+    },
+
+    async setChatPinned(chatId, pinned) {
+      const row = db
+        .update(schema.chat)
+        .set({ pinnedAt: pinned ? new Date() : null })
+        .where(eq(schema.chat.id, chatId))
+        .returning()
+        .get();
+      if (!row) throw new Error(`Chat not found: ${chatId}`);
+      return mapChat(row);
+    },
+
+    async setChatProject(chatId, projectId) {
+      const row = db
+        .update(schema.chat)
+        .set({ projectId })
+        .where(eq(schema.chat.id, chatId))
+        .returning()
+        .get();
+      if (!row) throw new Error(`Chat not found: ${chatId}`);
+      return mapChat(row);
+    },
+
+    async setChatShared(chatId, shared) {
+      const existing = db.select().from(schema.chat).where(eq(schema.chat.id, chatId)).get();
+      if (!existing) throw new Error(`Chat not found: ${chatId}`);
+      const row = db
+        .update(schema.chat)
+        .set(
+          shared
+            ? { shareId: existing.shareId ?? randomUUID(), sharedAt: existing.sharedAt ?? new Date() }
+            : { shareId: null, sharedAt: null },
+        )
+        .where(eq(schema.chat.id, chatId))
+        .returning()
+        .get();
+      if (!row) throw new Error(`Chat not found: ${chatId}`);
+      return mapChat(row);
+    },
+
+    async duplicateChat(chatId) {
+      const source = db.select().from(schema.chat).where(eq(schema.chat.id, chatId)).get();
+      if (!source) throw new Error(`Chat not found: ${chatId}`);
+
+      const now = new Date();
+      const copy = db
+        .insert(schema.chat)
+        .values({
+          id: randomUUID(),
+          workspaceId: source.workspaceId,
+          agentId: source.agentId,
+          projectId: source.projectId,
+          title: `${source.title} (copy)`,
+          modelId: source.modelId,
+          createdAt: now,
+        })
+        .returning()
+        .get();
+
+      const messages = db
+        .select()
+        .from(schema.message)
+        .where(eq(schema.message.chatId, chatId))
+        .all();
+      for (const message of messages) {
+        db.insert(schema.message)
+          .values({
+            id: randomUUID(),
+            chatId: copy.id,
+            role: message.role,
+            content: message.content,
+            createdAt: message.createdAt,
+          })
+          .run();
+      }
+
+      return mapChat(copy);
     },
 
     async deleteChat(chatId) {
@@ -325,15 +413,101 @@ export function createSqliteRepository(filePath: string): DbRepository {
         .returning()
         .get();
       if (!row) throw new Error(`Chat not found: ${chatId}`);
-      return {
-        id: row.id,
-        workspaceId: row.workspaceId,
-        agentId: row.agentId,
-        title: row.title,
-        modelId: row.modelId,
-        archivedAt: row.archivedAt,
-        createdAt: row.createdAt,
-      };
+      return mapChat(row);
+    },
+
+    async createProject({ workspaceId, name }) {
+      const row = db
+        .insert(schema.project)
+        .values({ id: randomUUID(), workspaceId, name, createdAt: new Date() })
+        .returning()
+        .get();
+      return mapProject(row);
+    },
+
+    async listProjectsByWorkspace(workspaceId) {
+      const rows = db
+        .select()
+        .from(schema.project)
+        .where(eq(schema.project.workspaceId, workspaceId))
+        .orderBy(desc(schema.project.createdAt))
+        .all();
+      return rows.map(mapProject);
+    },
+
+    async getProject(projectId) {
+      const row = db.select().from(schema.project).where(eq(schema.project.id, projectId)).get();
+      return row ? mapProject(row) : null;
+    },
+
+    async renameProject(projectId, name) {
+      const row = db
+        .update(schema.project)
+        .set({ name })
+        .where(eq(schema.project.id, projectId))
+        .returning()
+        .get();
+      if (!row) throw new Error(`Project not found: ${projectId}`);
+      return mapProject(row);
+    },
+
+    async deleteProject(projectId) {
+      db.delete(schema.project).where(eq(schema.project.id, projectId)).run();
+    },
+
+    async duplicateProject(projectId) {
+      const source = db.select().from(schema.project).where(eq(schema.project.id, projectId)).get();
+      if (!source) throw new Error(`Project not found: ${projectId}`);
+
+      const copy = db
+        .insert(schema.project)
+        .values({
+          id: randomUUID(),
+          workspaceId: source.workspaceId,
+          name: `${source.name} (copy)`,
+          createdAt: new Date(),
+        })
+        .returning()
+        .get();
+
+      const chats = db
+        .select()
+        .from(schema.chat)
+        .where(and(eq(schema.chat.projectId, projectId), isNull(schema.chat.archivedAt)))
+        .all();
+      for (const sourceChat of chats) {
+        const chatCopy = db
+          .insert(schema.chat)
+          .values({
+            id: randomUUID(),
+            workspaceId: sourceChat.workspaceId,
+            agentId: sourceChat.agentId,
+            projectId: copy.id,
+            title: sourceChat.title,
+            modelId: sourceChat.modelId,
+            createdAt: new Date(),
+          })
+          .returning()
+          .get();
+        const messages = db
+          .select()
+          .from(schema.message)
+          .where(eq(schema.message.chatId, sourceChat.id))
+          .all();
+        for (const message of messages) {
+          db.insert(schema.message)
+            .values({
+              id: randomUUID(),
+              chatId: chatCopy.id,
+              role: message.role,
+              content: message.content,
+              createdAt: message.createdAt,
+            })
+            .run();
+        }
+      }
+
+      return mapProject(copy);
     },
 
     async addMessage({ chatId, role, content }) {

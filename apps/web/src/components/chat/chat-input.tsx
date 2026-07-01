@@ -1,13 +1,15 @@
 "use client";
 
 import { ArrowUp } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   type AttachedFile,
   ChatComposerToolbar,
   type ChatToolSelection,
 } from "@/components/chat/chat-composer-toolbar";
+import type { MultiSelectPrompt } from "@/lib/chat-prompts";
 import { Textarea } from "@/components/ui/textarea";
+import { MultiSelectPromptCard } from "./multi-select-prompt";
 
 interface MessageLike {
   role: string;
@@ -24,6 +26,7 @@ export function ChatInput({
   onAttachedFileChange,
   messages,
   assistantQuestion,
+  assistantPrompt,
 }: {
   onSend: (message: string) => void;
   disabled?: boolean;
@@ -34,30 +37,71 @@ export function ChatInput({
   onAttachedFileChange: (file: AttachedFile | null) => void;
   messages: MessageLike[];
   assistantQuestion: string | null;
+  assistantPrompt: MultiSelectPrompt | null;
 }) {
   const [value, setValue] = useState("");
+  const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    setSelectedOptionIds([]);
+  }, [assistantPrompt?.question]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!value.trim() || disabled) return;
+    if (disabled) return;
+
+    const selectedLabels = assistantPrompt
+      ? assistantPrompt.options
+          .filter((option) => selectedOptionIds.includes(option.id))
+          .map((option) => option.label)
+      : [];
+
+    if (!value.trim() && selectedLabels.length === 0) return;
 
     // Same client-side "file search" behavior as the landing page: fold the
     // attached file's text straight into the outgoing message.
+    const answerText =
+      assistantPrompt && selectedLabels.length > 0
+        ? [
+            `Selected answers: ${selectedLabels.join("; ")}`,
+            value.trim() ? `Note: ${value.trim()}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n")
+        : value.trim();
+
     const outgoing = attachedFile
-      ? `${value.trim()}\n\n---\nAttached file: ${attachedFile.name}\n\`\`\`\n${attachedFile.content}\n\`\`\``
-      : value.trim();
+      ? `${answerText}\n\n---\nAttached file: ${attachedFile.name}\n\`\`\`\n${attachedFile.content}\n\`\`\``
+      : answerText;
 
     onSend(outgoing);
     setValue("");
+    setSelectedOptionIds([]);
     onAttachedFileChange(null);
   }
 
-  const placeholder = assistantQuestion ? "Answer the question…" : "Message Nyxel…";
+  const placeholder = assistantPrompt ? "Add an optional note…" : "Message Nyxel…";
+
+  function toggleOption(optionId: string) {
+    setSelectedOptionIds((current) =>
+      current.includes(optionId) ? current.filter((id) => id !== optionId) : [...current, optionId],
+    );
+  }
 
   return (
     <form onSubmit={handleSubmit} className="pt-4">
       <div className="space-y-1 rounded-2xl border bg-card p-2 shadow-sm">
-        {assistantQuestion && (
+        {assistantPrompt && (
+          <MultiSelectPromptCard
+            prompt={assistantPrompt}
+            mode="interactive"
+            selectedIds={selectedOptionIds}
+            onToggle={toggleOption}
+            onClear={() => setSelectedOptionIds([])}
+            note="Die Auswahl wird zusammen mit einer optionalen Notiz als Antwort gespeichert."
+          />
+        )}
+        {!assistantPrompt && assistantQuestion && (
           <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
             Nyxel asked: <span className="text-foreground">{assistantQuestion}</span>
           </div>
@@ -73,7 +117,7 @@ export function ChatInput({
           }}
           placeholder={placeholder}
           disabled={disabled}
-          rows={1}
+          rows={assistantPrompt ? 2 : 1}
           className="max-h-40 min-h-9 resize-none border-0 p-1.5 shadow-none focus-visible:ring-0"
         />
         <div className="flex items-center gap-2 px-0.5">
@@ -91,7 +135,11 @@ export function ChatInput({
           </div>
           <button
             type="submit"
-            disabled={disabled || !value.trim()}
+            disabled={
+              disabled ||
+              (!value.trim() &&
+                (!assistantPrompt || selectedOptionIds.length === 0))
+            }
             className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
           >
             <ArrowUp className="size-4" />
