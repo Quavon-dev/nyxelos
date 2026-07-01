@@ -427,13 +427,13 @@ export default function ToolsPage() {
                   {CATEGORY_LABEL[category]}
                 </p>
                 <div className="rounded-lg border">
-                  <Table>
+                  <Table className="table-fixed">
                     <TableHeader>
                       <TableRow className="hover:bg-transparent">
-                        <TableHead>Name</TableHead>
-                        <TableHead>Kind</TableHead>
+                        <TableHead className="w-[180px]">Name</TableHead>
+                        <TableHead className="w-[160px]">Kind</TableHead>
                         <TableHead>Description</TableHead>
-                        <TableHead>Permissions</TableHead>
+                        <TableHead className="w-[180px]">Permissions</TableHead>
                         <TableHead className="w-[180px]">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
