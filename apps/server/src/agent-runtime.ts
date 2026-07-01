@@ -3,6 +3,7 @@ import { getDb } from "@nyxel/db";
 import { streamChat } from "@nyxel/model-providers";
 import { getKnowledgeBaseContextForPrompt } from "./knowledge-base";
 import { getInstalledProvidersForWorkspace } from "./models";
+import { notifyWorkspaceOwner } from "./push";
 import { buildToolsForAgent, type AgentRunContext } from "./tools";
 import { composeSystemPrompt } from "./workspace-prompt";
 
@@ -466,6 +467,24 @@ async function runManagedTask(
 				? "Run paused pending approval."
 				: "Run completed.",
 	});
+
+	// pausedOnApproval already notified when the approval was created
+	// (tools.ts) — only question-pauses and real completions need one here.
+	if (pausedOnQuestion) {
+		await notifyWorkspaceOwner(task.workspaceId, {
+			title: "Agent has a question",
+			body: `${input.agent.name} needs input on "${task.title}"`,
+			url: `/workspace/${task.workspaceId}/tasks/${task.id}`,
+			tag: `task-${task.id}`,
+		});
+	} else if (taskStatus === "completed") {
+		await notifyWorkspaceOwner(task.workspaceId, {
+			title: "Task completed",
+			body: task.title,
+			url: `/workspace/${task.workspaceId}/tasks/${task.id}`,
+			tag: `task-${task.id}`,
+		});
+	}
 
 	return { task: finalTask, run, output };
 }

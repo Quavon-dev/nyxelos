@@ -38,6 +38,7 @@ import {
 	mcpManager,
 } from "../mcp-runtime";
 import { getInstalledProvidersForWorkspace } from "../models";
+import { getVapidPublicKey } from "../push";
 import {
 	importProviderSourceToWorkspace,
 	listProviderImportSources,
@@ -223,6 +224,7 @@ const mcpServerCreateSchema = z
 		command: z.string().optional(),
 		args: z.array(z.string()).optional(),
 		url: z.string().optional(),
+		env: z.record(z.string(), z.string()).optional(),
 	})
 	.superRefine((input, ctx) => {
 		if (input.transport === "stdio" && !input.command?.trim()) {
@@ -465,7 +467,22 @@ export const appRouter = router({
 						`${input.providerKind} binary not found on this server host — install it and make sure it's on PATH.`,
 					);
 				}
-				return getDb().createModelInstallation({
+
+				const db = getDb();
+				// A workspace should only ever have one installation per CLI kind —
+				// re-checking a new model preset (e.g. after we add a newly
+				// released model to the default list) merges it into the existing
+				// installation instead of creating a second, confusing duplicate
+				// "Claude CLI"/"Codex CLI" row.
+				const existing = (await db.listModelInstallationsByWorkspace(input.workspaceId)).find(
+					(installation) => installation.providerKind === input.providerKind,
+				);
+				if (existing) {
+					const modelIds = Array.from(new Set([...existing.modelIds, ...input.modelIds]));
+					return db.updateModelInstallation({ id: existing.id, modelIds });
+				}
+
+				return db.createModelInstallation({
 					workspaceId: input.workspaceId,
 					label: input.label,
 					providerKind: input.providerKind,
@@ -1392,6 +1409,31 @@ export const appRouter = router({
 			.mutation(({ input }) =>
 				runDocsAgentForWorkspace(input.workspaceId, "manual"),
 			),
+	}),
+
+	notifications: router({
+		vapidPublicKey: publicProcedure.query(() => getVapidPublicKey()),
+		subscribe: publicProcedure
+			.input(
+				z.object({
+					userId: z.string(),
+					endpoint: z.string(),
+					keys: z.object({ p256dh: z.string(), auth: z.string() }),
+					userAgent: z.string().optional(),
+				}),
+			)
+			.mutation(({ input }) =>
+				getDb().createPushSubscription({
+					userId: input.userId,
+					endpoint: input.endpoint,
+					p256dh: input.keys.p256dh,
+					auth: input.keys.auth,
+					userAgent: input.userAgent,
+				}),
+			),
+		unsubscribe: publicProcedure
+			.input(z.object({ endpoint: z.string() }))
+			.mutation(({ input }) => getDb().deletePushSubscriptionByEndpoint(input.endpoint)),
 	}),
 });
 

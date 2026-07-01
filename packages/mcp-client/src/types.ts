@@ -15,6 +15,8 @@ export interface McpServerConfig {
   command?: string | null;
   args?: string[] | null;
   url?: string | null;
+  /** Extra env vars merged into the spawned process's environment. stdio only. */
+  env?: Record<string, string> | null;
   oauth?: McpOAuthConfig;
 }
 

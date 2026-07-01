@@ -105,6 +105,29 @@ export const agentRunTrigger = pgEnum("agent_run_trigger", [
 	"task",
 	"automation",
 	"delegate",
+	"extension",
+]);
+
+export const seoAnalysisRunStatus = pgEnum("seo_analysis_run_status", [
+	"running",
+	"completed",
+	"failed",
+]);
+export const seoFindingCategory = pgEnum("seo_finding_category", [
+	"seo",
+	"geo",
+	"aeo",
+]);
+export const seoFindingSeverity = pgEnum("seo_finding_severity", [
+	"info",
+	"warning",
+	"critical",
+]);
+export const seoBlogPostStatus = pgEnum("seo_blog_post_status", [
+	"suggested",
+	"generating",
+	"written",
+	"failed",
 ]);
 export const agentRunStatus = pgEnum("agent_run_status", [
 	"pending",
@@ -226,6 +249,10 @@ export const mcpServer = pgTable("mcp_server", {
 	command: text("command"),
 	args: jsonb("args").$type<string[]>(),
 	url: text("url"),
+	/** Extra env vars for stdio servers only, e.g. a path to an OAuth
+	 * credentials file a local command needs to read. Never sent to http
+	 * servers — those authenticate via OAuth, not process env. */
+	env: jsonb("env").$type<Record<string, string>>(),
 	enabled: boolean("enabled").notNull().default(true),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -576,4 +603,110 @@ export const pushSubscription = pgTable("push_subscription", {
 	auth: text("auth").notNull(),
 	userAgent: text("user_agent"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/** An installed marketplace extension, scoped to a workspace — mirrors
+ * mcpServer's "catalog entry + configured instance" split (see
+ * apps/server/src/extensions.ts for the catalog). `key` matches a catalog
+ * entry; `config` shape depends on the extension (e.g. the SEO analyzer
+ * stores nothing here — its own state lives in the seo_* tables keyed by
+ * workspaceId, not in this jsonb blob). */
+export const extension = pgTable("extension", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	key: text("key").notNull(),
+	enabled: boolean("enabled").notNull().default(true),
+	config: jsonb("config")
+		.notNull()
+		.default({})
+		.$type<Record<string, unknown>>(),
+	installedAt: timestamp("installed_at").notNull().defaultNow(),
+});
+
+/** Links a domain to a local repo checkout for the SEO/GEO/AEO analyzer
+ * extension. One workspace may run several linked projects (e.g. marketing
+ * site + docs site). `fixerAgentId` is provisioned lazily on first fix
+ * dispatch (see apps/server/src/seo-analyzer.ts) rather than at project
+ * creation, so linking a project never creates an agent nobody asked for. */
+export const seoProject = pgTable("seo_project", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	extensionId: text("extension_id")
+		.notNull()
+		.references(() => extension.id, { onDelete: "cascade" }),
+	domain: text("domain").notNull(),
+	repoPath: text("repo_path").notNull(),
+	// Detected blog directory + frontmatter convention, filled in by the blog
+	// heuristic on first "generate post" run. Null until then.
+	blogConfig: jsonb("blog_config").$type<{
+		dir: string;
+		frontmatterStyle: string;
+	} | null>(),
+	fixerAgentId: text("fixer_agent_id").references(() => agent.id, {
+		onDelete: "set null",
+	}),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const seoAnalysisRun = pgTable("seo_analysis_run", {
+	id: text("id").primaryKey(),
+	seoProjectId: text("seo_project_id")
+		.notNull()
+		.references(() => seoProject.id, { onDelete: "cascade" }),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	status: seoAnalysisRunStatus("status").notNull().default("running"),
+	// 0-100 composite score, null until the run completes.
+	score: integer("score"),
+	pagesScanned: integer("pages_scanned").notNull().default(0),
+	summary: text("summary"),
+	errorMessage: text("error_message"),
+	startedAt: timestamp("started_at").notNull().defaultNow(),
+	completedAt: timestamp("completed_at"),
+});
+
+export const seoFinding = pgTable("seo_finding", {
+	id: text("id").primaryKey(),
+	runId: text("run_id")
+		.notNull()
+		.references(() => seoAnalysisRun.id, { onDelete: "cascade" }),
+	// Denormalized so "all open findings for a project" doesn't need to join
+	// through every historical run.
+	seoProjectId: text("seo_project_id")
+		.notNull()
+		.references(() => seoProject.id, { onDelete: "cascade" }),
+	category: seoFindingCategory("category").notNull(),
+	severity: seoFindingSeverity("severity").notNull(),
+	title: text("title").notNull(),
+	description: text("description").notNull(),
+	recommendation: text("recommendation").notNull(),
+	// Page URL (crawl findings) or repo-relative file path (source-scan
+	// findings) the finding applies to. Null for site-wide findings.
+	location: text("location"),
+	resolved: boolean("resolved").notNull().default(false),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const seoBlogPost = pgTable("seo_blog_post", {
+	id: text("id").primaryKey(),
+	seoProjectId: text("seo_project_id")
+		.notNull()
+		.references(() => seoProject.id, { onDelete: "cascade" }),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	keyword: text("keyword").notNull(),
+	title: text("title"),
+	filePath: text("file_path"),
+	status: seoBlogPostStatus("status").notNull().default("suggested"),
+	taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
+	errorMessage: text("error_message"),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

@@ -19,6 +19,7 @@ import { logAudit } from "./audit";
 import { buildDelegateToAgentTool } from "./delegation";
 import { buildWorkspaceManagementTools } from "./management-tools";
 import { ensureMcpServerConnected, mcpManager } from "./mcp-runtime";
+import { notifyWorkspaceOwner } from "./push";
 import { resolveSkillDefinition } from "./skills-resolve";
 import { resolveToolDefinition } from "./tools-resolve";
 
@@ -217,6 +218,12 @@ export async function buildToolsForAgent(
 						input,
 						status: "pending_approval",
 					});
+					await notifyWorkspaceOwner(agent.workspaceId, {
+						title: "Approval needed",
+						body: `${agent.name} wants to run "${skill.id}"`,
+						url: `/workspace/${agent.workspaceId}/approvals`,
+						tag: `approval-${approval.id}`,
+					});
 					if (ctx.taskId) {
 						await db.createTaskEvent({
 							taskId: ctx.taskId,
@@ -327,6 +334,12 @@ export async function buildToolsForAgent(
 						toolLabel: workspaceTool.id,
 						input,
 						status: "pending_approval",
+					});
+					await notifyWorkspaceOwner(agent.workspaceId, {
+						title: "Approval needed",
+						body: `${agent.name} wants to run "${workspaceTool.id}"`,
+						url: `/workspace/${agent.workspaceId}/approvals`,
+						tag: `approval-${approval.id}`,
 					});
 					if (ctx.taskId) {
 						await db.createTaskEvent({
@@ -463,6 +476,12 @@ export async function buildToolsForAgent(
 							toolLabel: toolKey,
 							input,
 							status: "pending_approval",
+						});
+						await notifyWorkspaceOwner(agent.workspaceId, {
+							title: "Approval needed",
+							body: `${agent.name} wants to run "${toolKey}"`,
+							url: `/workspace/${agent.workspaceId}/approvals`,
+							tag: `approval-${approval.id}`,
 						});
 						if (ctx.taskId) {
 							await db.createTaskEvent({

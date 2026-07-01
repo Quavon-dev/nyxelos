@@ -5,6 +5,7 @@ import { getDb } from "@nyxel/db";
 import { CronExpressionParser } from "cron-parser";
 import { executeManagedTask } from "./agent-runtime";
 import { logAudit } from "./audit";
+import { notifyWorkspaceOwner } from "./push";
 
 const POLL_INTERVAL_MS = 30_000;
 const REPO_ROOT = path.resolve(new URL("../../..", import.meta.url).pathname);
@@ -70,6 +71,12 @@ export async function runAutomation(
       completedAt: new Date(),
     });
     status = "error";
+    await notifyWorkspaceOwner(automation.workspaceId, {
+      title: "Automation failed",
+      body: `"${automation.name}" failed: ${outputText.slice(0, 120)}`,
+      url: `/workspace/${automation.workspaceId}/automations`,
+      tag: `automation-${automation.id}`,
+    });
   }
 
   await logAudit({

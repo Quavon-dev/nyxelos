@@ -27,10 +27,24 @@ export interface ChatStreamResult {
  * read/write/exec access in the chat's working directory. */
 export type CliPermissionMode = "restricted" | "auto";
 
+/** Sentinel `nativeModelId` value (same as an empty string) meaning "omit
+ * `--model` and let the CLI use whatever it's configured for" — the only
+ * choice guaranteed to work regardless of the CLI's auth method. See
+ * `CODEX_CLI_DEFAULT_MODELS` in providers.ts for why specific model names
+ * can't be safely hardcoded as a default. */
+export const CLI_DEFAULT_MODEL_SENTINEL = "default";
+
+function modelFlagArgs(nativeModelId: string): string[] {
+	return nativeModelId && nativeModelId !== CLI_DEFAULT_MODEL_SENTINEL
+		? ["--model", nativeModelId]
+		: [];
+}
+
 export interface CliStreamOptions {
 	/** Resolved binary path/name, e.g. "claude" or "/usr/local/bin/codex". */
 	binary: string;
-	/** Empty string means "use the CLI's own configured default model". */
+	/** Empty string or CLI_DEFAULT_MODEL_SENTINEL means "use the CLI's own
+	 * configured default model". */
 	nativeModelId: string;
 	cwd: string;
 	systemPrompt?: string;
@@ -161,8 +175,28 @@ function mapClaudeEvent(event: Record<string, unknown>): ChatStreamPart[] {
 				});
 			}
 		}
+	} else if (event.type === "result" && event.is_error === true) {
+		// A turn-level failure (e.g. hit max turns, execution error) surfaces
+		// here instead of inside an assistant message block — without this
+		// branch it silently produced zero parts, so a mid-turn Claude failure
+		// rendered as an empty reply instead of an explanation.
+		const message = typeof event.result === "string" && event.result ? event.result : "Claude CLI run failed.";
+		parts.push({ type: "text-delta", text: `⚠ ${message}` });
 	}
 	return parts;
+}
+
+/** Codex's `error.message` is itself a JSON-encoded API error body (e.g.
+ * `{"type":"error","status":400,"error":{"message":"..."}}`) rather than a
+ * plain string — unwrap it to the human-readable message when possible. */
+function extractCodexErrorMessage(rawMessage: string): string {
+	try {
+		const parsed = JSON.parse(rawMessage);
+		const nested = parsed?.error?.message;
+		return typeof nested === "string" && nested ? nested : rawMessage;
+	} catch {
+		return rawMessage;
+	}
 }
 
 /** Maps one parsed Codex `exec --json` NDJSON event. Schema per Codex CLI's
@@ -190,7 +224,12 @@ function mapCodexEvent(event: Record<string, unknown>): ChatStreamPart[] {
 			});
 		}
 	} else if (event.type === "error" && typeof event.message === "string") {
-		parts.push({ type: "tool-error", toolCallId: "", toolName: "codex", error: event.message });
+		// A turn-level failure (bad model id, rate limit, etc.), not tied to any
+		// specific tool call. Emitting this as a "tool-error" with no matching
+		// prior "tool-call" id meant the client silently dropped it (steps only
+		// get created by a tool-call event, never by tool-result/tool-error) —
+		// the chat just showed an empty reply. Text-delta always renders.
+		parts.push({ type: "text-delta", text: `⚠ ${extractCodexErrorMessage(event.message)}` });
 	}
 	return parts;
 }
@@ -283,7 +322,7 @@ export function streamClaudeCli(opts: CliStreamOptions): ChatStreamResult {
 			"--output-format",
 			"stream-json",
 			"--verbose",
-			...(o.nativeModelId ? ["--model", o.nativeModelId] : []),
+			...modelFlagArgs(o.nativeModelId),
 			"--permission-mode",
 			o.permissionMode === "auto" ? "bypassPermissions" : "plan",
 		],
@@ -298,9 +337,15 @@ export function streamCodexCli(opts: CliStreamOptions): ChatStreamResult {
 		(o) => [
 			"exec",
 			"--json",
-			...(o.nativeModelId ? ["--model", o.nativeModelId] : []),
+			"--skip-git-repo-check",
+			...modelFlagArgs(o.nativeModelId),
+			// `codex exec --help` (v0.120.0) has no `--ask-for-approval` flag —
+			// only `-c approval_policy=<value>` and `--sandbox`. "auto" gets a
+			// sandboxed-but-unattended run; "restricted" stays read-only, which
+			// needs no approval policy override since it can't touch anything
+			// outside the sandbox.
 			...(o.permissionMode === "auto"
-				? ["--sandbox", "workspace-write", "--ask-for-approval", "never"]
+				? ["--sandbox", "workspace-write", "-c", "approval_policy=never"]
 				: ["--sandbox", "read-only"]),
 		],
 		mapCodexEvent,

@@ -1,7 +1,7 @@
 "use client";
 
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, NotebookPen, Plug, Search, Settings2, ShieldCheck } from "lucide-react";
+import { Bot, NotebookPen, Plug, Search, Settings2, ShieldCheck, Smartphone } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  getExistingPushSubscription,
+  pushSupported,
+  subscribeToPush,
+  unsubscribeFromPush,
+} from "@/lib/push-notifications";
+import { getDefaultServerUrl, getServerUrl, setServerUrl } from "@/lib/server-url";
 import {
   type AutonomyLevel,
   type ChatToolMode,
@@ -45,32 +52,43 @@ const SECTIONS = [
     id: "general",
     label: "General",
     icon: Settings2,
-    description: "Workspace name, icon, accent color, and defaults for new agents.",
+    color: "text-blue-500 bg-blue-500/10",
+    description: "Name, icon, and defaults for new agents.",
   },
   {
     id: "instructions",
     label: "Instructions",
     icon: NotebookPen,
-    description:
-      "Always prepended as a system-prompt block before every chat and task in this workspace.",
+    color: "text-violet-500 bg-violet-500/10",
+    description: "Prepended to every chat and task in this workspace.",
   },
   {
     id: "approvals",
     label: "Approvals",
     icon: ShieldCheck,
-    description: "Default mode and guardrails applied to every new chat in this workspace.",
+    color: "text-amber-500 bg-amber-500/10",
+    description: "Default mode and guardrails for new chats.",
   },
   {
     id: "providers",
     label: "Model providers",
     icon: Plug,
-    description: "Saved OpenAI-compatible endpoints merged into the model picker.",
+    color: "text-emerald-500 bg-emerald-500/10",
+    description: "Endpoints merged into the model picker.",
   },
   {
     id: "models",
     label: "Models",
     icon: Bot,
-    description: "Everything currently available to chats and agents in this workspace.",
+    color: "text-rose-500 bg-rose-500/10",
+    description: "Everything available to chats and agents.",
+  },
+  {
+    id: "connection",
+    label: "Connection",
+    icon: Smartphone,
+    color: "text-sky-500 bg-sky-500/10",
+    description: "Server URL and push notifications for this device.",
   },
 ] as const;
 
@@ -82,6 +100,7 @@ type SectionId = (typeof SECTIONS)[number]["id"];
 const NAV_GROUPS: { label: string; sections: SectionId[] }[] = [
   { label: "Workspace", sections: ["general", "instructions", "approvals"] },
   { label: "Models", sections: ["providers", "models"] },
+  { label: "Device", sections: ["connection"] },
 ];
 
 const AUTONOMY_LEVELS: { value: AutonomyLevel; label: string }[] = [
@@ -91,14 +110,11 @@ const AUTONOMY_LEVELS: { value: AutonomyLevel; label: string }[] = [
   { value: "super_agent", label: "Super-agent — can delegate to other agents" },
 ];
 
-const CLI_STATUS_BADGE: Record<
-  string,
-  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
-> = {
-  connected: { label: "Connected", variant: "default" },
-  needs_login: { label: "Needs login", variant: "secondary" },
-  not_installed: { label: "Not installed", variant: "outline" },
-  error: { label: "Error", variant: "destructive" },
+const CLI_STATUS_BADGE: Record<string, { label: string; className: string }> = {
+  connected: { label: "Connected", className: "bg-emerald-500/15 text-emerald-600" },
+  needs_login: { label: "Needs login", className: "bg-amber-500/15 text-amber-600" },
+  not_installed: { label: "Not installed", className: "bg-muted text-muted-foreground" },
+  error: { label: "Error", className: "bg-destructive/15 text-destructive" },
 };
 
 /** One "local CLI provider" card — spawns `claude`/`codex` directly on the
@@ -178,12 +194,11 @@ function CliProviderCard({
           <h4 className="text-sm font-medium">{title}</h4>
           <p className="text-xs text-muted-foreground">{description}</p>
         </div>
-        {badge && <Badge variant={badge.variant}>{badge.label}</Badge>}
+        {badge && <Badge className={badge.className}>{badge.label}</Badge>}
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Runs with its own built-in file/shell tools in this chat&apos;s working directory —
-        workspace skills and MCP tools aren&apos;t used when this model is selected.
+        Uses its own tools — workspace skills &amp; MCP aren&apos;t used.
       </p>
 
       {status && status !== "not_installed" && status !== "connected" && (
@@ -269,7 +284,7 @@ function CliProviderCard({
                     )
                   }
                 />
-                {preset}
+                {preset === "default" ? "Default (CLI's own configured model)" : preset}
               </label>
             ))}
           </div>
@@ -336,6 +351,20 @@ export function WorkspaceSettingsPanel({
   const [providerBaseUrl, setProviderBaseUrl] = useState("http://localhost:1234");
   const [providerApiKey, setProviderApiKey] = useState("");
   const [probeResult, setProbeResult] = useState<ProbedModelProvider | null>(null);
+
+  const installationQuery = useQuery({
+    queryKey: ["installation", "status"],
+    queryFn: () => trpcClient.installation.status.query(),
+  });
+  const [serverUrlInput, setServerUrlInput] = useState("");
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setServerUrlInput(getServerUrl());
+    getExistingPushSubscription().then((sub) => setPushSubscribed(Boolean(sub)));
+  }, []);
 
   useEffect(() => {
     if (!workspaceQuery.data) return;
@@ -515,9 +544,19 @@ export function WorkspaceSettingsPanel({
       </div>
 
       <div className="min-h-0 min-w-0 flex-1 space-y-6 overflow-y-auto">
-        <div className="space-y-1 border-b pb-4">
-          <h2 className="text-lg font-semibold">{activeSection.label}</h2>
-          <p className="text-sm text-muted-foreground">{activeSection.description}</p>
+        <div className="flex items-center gap-3 border-b pb-4">
+          <span
+            className={cn(
+              "flex size-9 shrink-0 items-center justify-center rounded-lg",
+              activeSection.color,
+            )}
+          >
+            <activeSection.icon className="size-4.5" />
+          </span>
+          <div className="space-y-0.5">
+            <h2 className="text-lg font-semibold">{activeSection.label}</h2>
+            <p className="text-sm text-muted-foreground">{activeSection.description}</p>
+          </div>
         </div>
 
         {section === "general" && (
@@ -787,13 +826,17 @@ export function WorkspaceSettingsPanel({
                 {installedProvidersQuery.data?.map((provider) => (
                   <div
                     key={provider.id}
-                    className="flex flex-col gap-3 rounded-lg border p-3 md:flex-row md:items-start md:justify-between"
+                    className="flex flex-col gap-3 rounded-lg border-l-2 border-l-emerald-500 border-y border-r p-3 md:flex-row md:items-start md:justify-between"
                   >
                     <div className="space-y-1 text-sm">
                       <div className="font-medium">{provider.label}</div>
                       <div className="text-muted-foreground">{provider.baseUrl}</div>
-                      <div className="text-muted-foreground">
-                        Models: {provider.modelIds.join(", ")}
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {provider.modelIds.map((id) => (
+                          <Badge key={id} className="bg-emerald-500/10 text-emerald-600">
+                            {id}
+                          </Badge>
+                        ))}
                       </div>
                     </div>
                     <Button
@@ -813,8 +856,7 @@ export function WorkspaceSettingsPanel({
               <div>
                 <h3 className="text-sm font-medium">Local CLI providers</h3>
                 <p className="text-sm text-muted-foreground">
-                  Spawn <code>claude</code>/<code>codex</code> directly on the server host — no
-                  API key stored, auth lives in the CLI&apos;s own login on this machine.
+                  Runs <code>claude</code>/<code>codex</code> on this host — no API key stored.
                 </p>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
@@ -822,16 +864,16 @@ export function WorkspaceSettingsPanel({
                   workspaceId={workspaceId}
                   kind="claude_cli"
                   title="Claude CLI"
-                  description="Sign in once with `claude login`, then use Claude models directly — no API key."
-                  presets={["claude-sonnet-5", "claude-opus-4-8"]}
+                  description="Sign in once, use Claude models directly."
+                  presets={["default", "claude-sonnet-5", "claude-opus-4-8", "claude-fable-5"]}
                   queryClient={queryClient}
                 />
                 <CliProviderCard
                   workspaceId={workspaceId}
                   kind="codex_cli"
                   title="Codex CLI"
-                  description="Sign in with your ChatGPT (OpenAI) account, or use an API key — no key stored either way unless you choose the API-key option."
-                  presets={["gpt-5-codex", "o4-mini"]}
+                  description="Sign in with ChatGPT, or use an API key."
+                  presets={["default"]}
                   allowApiKey
                   queryClient={queryClient}
                 />
@@ -842,8 +884,7 @@ export function WorkspaceSettingsPanel({
               <div>
                 <h3 className="text-sm font-medium">Install a provider</h3>
                 <p className="text-sm text-muted-foreground">
-                  Probe any OpenAI-compatible endpoint — LM Studio, vLLM, LocalAI, llama.cpp, Jan,
-                  or a remote gateway — then install its exposed models.
+                  Probe any OpenAI-compatible endpoint, then install its models.
                 </p>
               </div>
 
@@ -926,6 +967,81 @@ export function WorkspaceSettingsPanel({
             </ul>
           </div>
         )}
+
+        {section === "connection" && (
+          <div className="space-y-6">
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium">Server URL</h3>
+              <p className="text-sm text-muted-foreground">
+                Point this device at a different Nyxel server — a LAN IP at home, a Tailscale/
+                ngrok tunnel, or a custom domain. Only affects this browser; other devices keep
+                their own setting.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <Input
+                  placeholder={getDefaultServerUrl()}
+                  value={serverUrlInput}
+                  onChange={(e) => setServerUrlInput(e.target.value)}
+                  className="max-w-sm"
+                />
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setServerUrl(serverUrlInput);
+                    window.location.reload();
+                  }}
+                >
+                  Save &amp; reload
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-3 border-t pt-6">
+              <h3 className="text-sm font-medium">Push notifications</h3>
+              <p className="text-sm text-muted-foreground">
+                Get notified on this device — even with the app closed — when an agent needs
+                approval, finishes a task, or an automation fails.
+              </p>
+              {!pushSupported() ? (
+                <p className="text-sm text-muted-foreground">
+                  This browser doesn&apos;t support push notifications.
+                </p>
+              ) : (
+                <div className="flex flex-wrap items-center gap-3">
+                  <Badge className={pushSubscribed ? "bg-emerald-500/15 text-emerald-600" : ""}>
+                    {pushSubscribed ? "Enabled on this device" : "Not enabled"}
+                  </Badge>
+                  <Button
+                    size="sm"
+                    disabled={pushBusy || !installationQuery.data?.record?.ownerUserId}
+                    onClick={async () => {
+                      const userId = installationQuery.data?.record?.ownerUserId;
+                      if (!userId) return;
+                      setPushBusy(true);
+                      setPushError(null);
+                      try {
+                        if (pushSubscribed) {
+                          await unsubscribeFromPush();
+                          setPushSubscribed(false);
+                        } else {
+                          await subscribeToPush(userId);
+                          setPushSubscribed(true);
+                        }
+                      } catch (error) {
+                        setPushError((error as Error).message);
+                      } finally {
+                        setPushBusy(false);
+                      }
+                    }}
+                  >
+                    {pushBusy ? "Working…" : pushSubscribed ? "Disable" : "Enable notifications"}
+                  </Button>
+                  {pushError && <span className="text-sm text-destructive">{pushError}</span>}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -945,13 +1061,17 @@ function SectionButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors",
+        "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
         isActive
           ? "bg-muted font-medium text-foreground"
           : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
       )}
     >
-      <item.icon className="size-4 shrink-0" />
+      <span
+        className={cn("flex size-6 shrink-0 items-center justify-center rounded-md", item.color)}
+      >
+        <item.icon className="size-3.5" />
+      </span>
       {item.label}
     </button>
   );

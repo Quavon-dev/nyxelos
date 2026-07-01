@@ -51,7 +51,21 @@ export type TaskEventKind =
 	| "question_answered"
 	| "completed"
 	| "failed";
-export type AgentRunTrigger = "chat" | "task" | "automation" | "delegate";
+export type AgentRunTrigger =
+	| "chat"
+	| "task"
+	| "automation"
+	| "delegate"
+	| "extension";
+
+export type SeoAnalysisRunStatus = "running" | "completed" | "failed";
+export type SeoFindingCategory = "seo" | "geo" | "aeo";
+export type SeoFindingSeverity = "info" | "warning" | "critical";
+export type SeoBlogPostStatus =
+	| "suggested"
+	| "generating"
+	| "written"
+	| "failed";
 export type AgentRunStatus =
 	| "pending"
 	| "running"
@@ -221,6 +235,10 @@ export const mcpServer = sqliteTable("mcp_server", {
 	command: text("command"),
 	args: text("args", { mode: "json" }).$type<string[]>(),
 	url: text("url"),
+	/** Extra env vars for stdio servers only, e.g. a path to an OAuth
+	 * credentials file a local command needs to read. Never sent to http
+	 * servers — those authenticate via OAuth, not process env. */
+	env: text("env", { mode: "json" }).$type<Record<string, string>>(),
 	enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
@@ -523,4 +541,99 @@ export const pushSubscription = sqliteTable("push_subscription", {
 	auth: text("auth").notNull(),
 	userAgent: text("user_agent"),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+/** Mirrors ../pg/app.ts. */
+export const extension = sqliteTable("extension", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	key: text("key").notNull(),
+	enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+	config: text("config", { mode: "json" })
+		.notNull()
+		.default({})
+		.$type<Record<string, unknown>>(),
+	installedAt: integer("installed_at", { mode: "timestamp" }).notNull(),
+});
+
+export const seoProject = sqliteTable("seo_project", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	extensionId: text("extension_id")
+		.notNull()
+		.references(() => extension.id, { onDelete: "cascade" }),
+	domain: text("domain").notNull(),
+	repoPath: text("repo_path").notNull(),
+	blogConfig: text("blog_config", { mode: "json" }).$type<{
+		dir: string;
+		frontmatterStyle: string;
+	} | null>(),
+	fixerAgentId: text("fixer_agent_id").references(() => agent.id, {
+		onDelete: "set null",
+	}),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export const seoAnalysisRun = sqliteTable("seo_analysis_run", {
+	id: text("id").primaryKey(),
+	seoProjectId: text("seo_project_id")
+		.notNull()
+		.references(() => seoProject.id, { onDelete: "cascade" }),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	status: text("status")
+		.notNull()
+		.default("running")
+		.$type<SeoAnalysisRunStatus>(),
+	score: integer("score"),
+	pagesScanned: integer("pages_scanned").notNull().default(0),
+	summary: text("summary"),
+	errorMessage: text("error_message"),
+	startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
+	completedAt: integer("completed_at", { mode: "timestamp" }),
+});
+
+export const seoFinding = sqliteTable("seo_finding", {
+	id: text("id").primaryKey(),
+	runId: text("run_id")
+		.notNull()
+		.references(() => seoAnalysisRun.id, { onDelete: "cascade" }),
+	seoProjectId: text("seo_project_id")
+		.notNull()
+		.references(() => seoProject.id, { onDelete: "cascade" }),
+	category: text("category").notNull().$type<SeoFindingCategory>(),
+	severity: text("severity").notNull().$type<SeoFindingSeverity>(),
+	title: text("title").notNull(),
+	description: text("description").notNull(),
+	recommendation: text("recommendation").notNull(),
+	location: text("location"),
+	resolved: integer("resolved", { mode: "boolean" }).notNull().default(false),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const seoBlogPost = sqliteTable("seo_blog_post", {
+	id: text("id").primaryKey(),
+	seoProjectId: text("seo_project_id")
+		.notNull()
+		.references(() => seoProject.id, { onDelete: "cascade" }),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	keyword: text("keyword").notNull(),
+	title: text("title"),
+	filePath: text("file_path"),
+	status: text("status")
+		.notNull()
+		.default("suggested")
+		.$type<SeoBlogPostStatus>(),
+	taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
+	errorMessage: text("error_message"),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });

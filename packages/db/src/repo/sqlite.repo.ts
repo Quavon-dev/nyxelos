@@ -71,6 +71,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 	function toWorkspaceRecord(row: typeof schema.workspace.$inferSelect) {
 		return {
 			id: row.id,
+			userId: row.userId,
 			name: row.name,
 			customInstructions: row.customInstructions,
 			icon: row.icon,
@@ -304,9 +305,56 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			return row ?? null;
 		},
 
+		async updateModelInstallation({ id, ...updates }) {
+			const row = db
+				.update(schema.modelInstallation)
+				.set({ ...updates, updatedAt: new Date() })
+				.where(eq(schema.modelInstallation.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Model installation not found: ${id}`);
+			return row;
+		},
+
 		async deleteModelInstallation(id) {
 			db.delete(schema.modelInstallation)
 				.where(eq(schema.modelInstallation.id, id))
+				.run();
+		},
+
+		async createPushSubscription({ userId, endpoint, p256dh, auth, userAgent }) {
+			const row = db
+				.insert(schema.pushSubscription)
+				.values({
+					id: randomUUID(),
+					userId,
+					endpoint,
+					p256dh,
+					auth,
+					userAgent: userAgent ?? null,
+					createdAt: new Date(),
+				})
+				.onConflictDoUpdate({
+					target: schema.pushSubscription.endpoint,
+					set: { p256dh, auth, userAgent: userAgent ?? null },
+				})
+				.returning()
+				.get();
+			if (!row) throw new Error("Failed to create push subscription");
+			return row;
+		},
+
+		async listPushSubscriptionsByUser(userId) {
+			return db
+				.select()
+				.from(schema.pushSubscription)
+				.where(eq(schema.pushSubscription.userId, userId))
+				.all();
+		},
+
+		async deletePushSubscriptionByEndpoint(endpoint) {
+			db.delete(schema.pushSubscription)
+				.where(eq(schema.pushSubscription.endpoint, endpoint))
 				.run();
 		},
 
@@ -1181,6 +1229,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			command,
 			args,
 			url,
+			env,
 		}) {
 			const row = db
 				.insert(schema.mcpServer)
@@ -1192,6 +1241,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					command: command ?? null,
 					args: args ?? null,
 					url: url ?? null,
+					env: env ?? null,
 					createdAt: new Date(),
 				})
 				.returning()
@@ -1636,6 +1686,320 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.orderBy(desc(schema.auditLog.createdAt))
 				.limit(limit)
 				.all();
+		},
+
+		async installExtension({ workspaceId, key, config }) {
+			const row = db
+				.insert(schema.extension)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					key,
+					config: config ?? {},
+					installedAt: new Date(),
+				})
+				.returning()
+				.get();
+			return row;
+		},
+
+		async listExtensionsByWorkspace(workspaceId) {
+			return db
+				.select()
+				.from(schema.extension)
+				.where(eq(schema.extension.workspaceId, workspaceId))
+				.all();
+		},
+
+		async getExtension(id) {
+			const row = db
+				.select()
+				.from(schema.extension)
+				.where(eq(schema.extension.id, id))
+				.get();
+			return row ?? null;
+		},
+
+		async getExtensionByKey(workspaceId, key) {
+			const row = db
+				.select()
+				.from(schema.extension)
+				.where(
+					and(
+						eq(schema.extension.workspaceId, workspaceId),
+						eq(schema.extension.key, key),
+					),
+				)
+				.get();
+			return row ?? null;
+		},
+
+		async setExtensionEnabled(id, enabled) {
+			const row = db
+				.update(schema.extension)
+				.set({ enabled })
+				.where(eq(schema.extension.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Extension not found: ${id}`);
+			return row;
+		},
+
+		async updateExtensionConfig(id, config) {
+			const row = db
+				.update(schema.extension)
+				.set({ config })
+				.where(eq(schema.extension.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Extension not found: ${id}`);
+			return row;
+		},
+
+		async uninstallExtension(id) {
+			db.delete(schema.extension).where(eq(schema.extension.id, id)).run();
+		},
+
+		async createSeoProject({ workspaceId, extensionId, domain, repoPath }) {
+			const now = new Date();
+			const row = db
+				.insert(schema.seoProject)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					extensionId,
+					domain,
+					repoPath,
+					createdAt: now,
+					updatedAt: now,
+				})
+				.returning()
+				.get();
+			return row;
+		},
+
+		async listSeoProjectsByWorkspace(workspaceId) {
+			return db
+				.select()
+				.from(schema.seoProject)
+				.where(eq(schema.seoProject.workspaceId, workspaceId))
+				.all();
+		},
+
+		async getSeoProject(id) {
+			const row = db
+				.select()
+				.from(schema.seoProject)
+				.where(eq(schema.seoProject.id, id))
+				.get();
+			return row ?? null;
+		},
+
+		async updateSeoProject(id, patch) {
+			const row = db
+				.update(schema.seoProject)
+				.set({
+					...(patch.domain !== undefined ? { domain: patch.domain } : {}),
+					...(patch.repoPath !== undefined ? { repoPath: patch.repoPath } : {}),
+					...(patch.blogConfig !== undefined
+						? { blogConfig: patch.blogConfig }
+						: {}),
+					...(patch.fixerAgentId !== undefined
+						? { fixerAgentId: patch.fixerAgentId }
+						: {}),
+					updatedAt: new Date(),
+				})
+				.where(eq(schema.seoProject.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`SEO project not found: ${id}`);
+			return row;
+		},
+
+		async deleteSeoProject(id) {
+			db.delete(schema.seoProject).where(eq(schema.seoProject.id, id)).run();
+		},
+
+		async createSeoAnalysisRun({ seoProjectId, workspaceId }) {
+			const row = db
+				.insert(schema.seoAnalysisRun)
+				.values({
+					id: randomUUID(),
+					seoProjectId,
+					workspaceId,
+					startedAt: new Date(),
+				})
+				.returning()
+				.get();
+			return row;
+		},
+
+		async getSeoAnalysisRun(id) {
+			const row = db
+				.select()
+				.from(schema.seoAnalysisRun)
+				.where(eq(schema.seoAnalysisRun.id, id))
+				.get();
+			return row ?? null;
+		},
+
+		async listSeoAnalysisRunsByProject(seoProjectId) {
+			return db
+				.select()
+				.from(schema.seoAnalysisRun)
+				.where(eq(schema.seoAnalysisRun.seoProjectId, seoProjectId))
+				.orderBy(desc(schema.seoAnalysisRun.startedAt))
+				.all();
+		},
+
+		async updateSeoAnalysisRun(id, patch) {
+			const row = db
+				.update(schema.seoAnalysisRun)
+				.set({
+					...(patch.status !== undefined ? { status: patch.status } : {}),
+					...(patch.score !== undefined ? { score: patch.score } : {}),
+					...(patch.pagesScanned !== undefined
+						? { pagesScanned: patch.pagesScanned }
+						: {}),
+					...(patch.summary !== undefined ? { summary: patch.summary } : {}),
+					...(patch.errorMessage !== undefined
+						? { errorMessage: patch.errorMessage }
+						: {}),
+					...(patch.completedAt !== undefined
+						? { completedAt: patch.completedAt }
+						: {}),
+				})
+				.where(eq(schema.seoAnalysisRun.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`SEO analysis run not found: ${id}`);
+			return row;
+		},
+
+		async createSeoFinding({
+			runId,
+			seoProjectId,
+			category,
+			severity,
+			title,
+			description,
+			recommendation,
+			location,
+		}) {
+			const row = db
+				.insert(schema.seoFinding)
+				.values({
+					id: randomUUID(),
+					runId,
+					seoProjectId,
+					category,
+					severity,
+					title,
+					description,
+					recommendation,
+					location: location ?? null,
+					createdAt: new Date(),
+				})
+				.returning()
+				.get();
+			return row;
+		},
+
+		async listSeoFindingsByRun(runId) {
+			return db
+				.select()
+				.from(schema.seoFinding)
+				.where(eq(schema.seoFinding.runId, runId))
+				.all();
+		},
+
+		async listOpenSeoFindingsByProject(seoProjectId) {
+			return db
+				.select()
+				.from(schema.seoFinding)
+				.where(
+					and(
+						eq(schema.seoFinding.seoProjectId, seoProjectId),
+						eq(schema.seoFinding.resolved, false),
+					),
+				)
+				.orderBy(desc(schema.seoFinding.createdAt))
+				.all();
+		},
+
+		async getSeoFinding(id) {
+			const row = db
+				.select()
+				.from(schema.seoFinding)
+				.where(eq(schema.seoFinding.id, id))
+				.get();
+			return row ?? null;
+		},
+
+		async setSeoFindingResolved(id, resolved) {
+			const row = db
+				.update(schema.seoFinding)
+				.set({ resolved })
+				.where(eq(schema.seoFinding.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`SEO finding not found: ${id}`);
+			return row;
+		},
+
+		async createSeoBlogPost({ seoProjectId, workspaceId, keyword }) {
+			const now = new Date();
+			const row = db
+				.insert(schema.seoBlogPost)
+				.values({
+					id: randomUUID(),
+					seoProjectId,
+					workspaceId,
+					keyword,
+					createdAt: now,
+					updatedAt: now,
+				})
+				.returning()
+				.get();
+			return row;
+		},
+
+		async listSeoBlogPostsByProject(seoProjectId) {
+			return db
+				.select()
+				.from(schema.seoBlogPost)
+				.where(eq(schema.seoBlogPost.seoProjectId, seoProjectId))
+				.orderBy(desc(schema.seoBlogPost.createdAt))
+				.all();
+		},
+
+		async getSeoBlogPost(id) {
+			const row = db
+				.select()
+				.from(schema.seoBlogPost)
+				.where(eq(schema.seoBlogPost.id, id))
+				.get();
+			return row ?? null;
+		},
+
+		async updateSeoBlogPost(id, patch) {
+			const row = db
+				.update(schema.seoBlogPost)
+				.set({
+					...(patch.title !== undefined ? { title: patch.title } : {}),
+					...(patch.filePath !== undefined ? { filePath: patch.filePath } : {}),
+					...(patch.status !== undefined ? { status: patch.status } : {}),
+					...(patch.taskId !== undefined ? { taskId: patch.taskId } : {}),
+					...(patch.errorMessage !== undefined
+						? { errorMessage: patch.errorMessage }
+						: {}),
+					updatedAt: new Date(),
+				})
+				.where(eq(schema.seoBlogPost.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`SEO blog post not found: ${id}`);
+			return row;
 		},
 	};
 }

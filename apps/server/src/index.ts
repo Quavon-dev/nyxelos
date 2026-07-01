@@ -2,7 +2,7 @@ import { trpcServer } from "@hono/trpc-server";
 import { migrateDatabase } from "@nyxel/db/migrate";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { auth } from "./auth";
+import { allowedWebOrigins, auth } from "./auth";
 import { startKnowledgeBaseSyncLoop } from "./knowledge-base";
 import { registerChatStreamRoute } from "./routes/chat-stream";
 import { startScheduler } from "./scheduler";
@@ -20,7 +20,11 @@ const app = new Hono();
 app.use(
   "*",
   cors({
-    origin: process.env.WEB_ORIGIN ?? "http://localhost:3000",
+    // Reflects any origin in the allowlist instead of a single fixed one —
+    // lets the same web build be reached from a LAN IP, a Tailscale/ngrok
+    // tunnel, or a custom domain, all pointed at this one server (see
+    // WEB_ORIGIN in .env, comma-separated).
+    origin: (origin) => (allowedWebOrigins.includes(origin) ? origin : allowedWebOrigins[0]),
     credentials: true,
   }),
 );

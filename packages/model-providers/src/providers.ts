@@ -2,6 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
+import { CLI_DEFAULT_MODEL_SENTINEL } from "./cli";
 import { detectLocalModels, getLmStudioApiKey, normalizeOpenAiCompatibleBaseUrl } from "./detect";
 
 export interface CloudModelDefinition {
@@ -40,6 +41,12 @@ const CLOUD_MODELS: CloudModelDefinition[] = [
     label: "Claude Opus 4.8",
     provider: "anthropic",
     modelName: "claude-opus-4-8",
+  },
+  {
+    id: "anthropic/claude-fable-5",
+    label: "Claude Fable 5",
+    provider: "anthropic",
+    modelName: "claude-fable-5",
   },
 ];
 
@@ -112,7 +119,7 @@ export async function listAvailableModels(
       })),
     );
 
-  return [
+  const merged = [
     ...local.map((m) => ({
       id: m.id,
       label: `${m.label} (${m.providerLabel})`,
@@ -123,6 +130,18 @@ export async function listAvailableModels(
     ...custom,
     ...cloud,
   ];
+
+  // Auto-detected local models (env/port probing) and a manually installed
+  // openai_compatible provider pointed at that same local server end up as
+  // two entries with an identical label but different ids (`lmstudio/...`
+  // vs `custom:{installationId}/...`) — same underlying model, shown twice.
+  // First occurrence wins.
+  const seenLabels = new Set<string>();
+  return merged.filter((m) => {
+    if (seenLabels.has(m.label)) return false;
+    seenLabels.add(m.label);
+    return true;
+  });
 }
 
 /** Parses the `custom:{installationId}/{nativeModelId}` model id scheme
@@ -251,9 +270,21 @@ function inferOpenAiCompatibleApiKey(prefix: string): string | undefined {
 
 /** Best-effort presets shown as checkboxes in the CLI provider install form —
  * both CLIs accept any model string via `--model`, so these aren't
- * exhaustive, just sane starting points. */
-const CLAUDE_CLI_DEFAULT_MODELS = ["claude-sonnet-5", "claude-opus-4-8"];
-const CODEX_CLI_DEFAULT_MODELS = ["gpt-5-codex", "o4-mini"];
+ * exhaustive, just sane starting points. `CLI_DEFAULT_MODEL_SENTINEL` always
+ * comes first: cli.ts treats it as "omit --model entirely", which is the
+ * only choice guaranteed to work regardless of auth method. Codex in
+ * particular rejects specific model names depending on whether the CLI is
+ * logged in via API key or a ChatGPT account (e.g. "gpt-5-codex"/"o4-mini"
+ * 400 with "not supported when using Codex with a ChatGPT account"), so no
+ * specific codex model name is safe to hardcode as a default here — only
+ * offer the sentinel and let the free-text field cover API-key accounts. */
+const CLAUDE_CLI_DEFAULT_MODELS = [
+  CLI_DEFAULT_MODEL_SENTINEL,
+  "claude-sonnet-5",
+  "claude-opus-4-8",
+  "claude-fable-5",
+];
+const CODEX_CLI_DEFAULT_MODELS = [CLI_DEFAULT_MODEL_SENTINEL];
 
 export function getDefaultModelIdsForProviderKind(
   providerKind: InstalledModelProvider["providerKind"],

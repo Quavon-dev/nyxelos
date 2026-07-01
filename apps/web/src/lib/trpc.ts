@@ -1,7 +1,7 @@
 import { createTRPCClient, httpBatchLink } from "@trpc/client";
+import { getServerUrl } from "./server-url";
 
-const SERVER_URL =
-	process.env.NEXT_PUBLIC_SERVER_URL ?? "http://localhost:3001";
+const SERVER_URL = getServerUrl();
 
 export type ModelSummary = {
 	id: string;
@@ -988,6 +988,7 @@ type NyxelTrpcClient = {
 				command?: string;
 				args?: string[];
 				url?: string;
+				env?: Record<string, string>;
 			}): Promise<McpServerSummary>;
 		};
 		delete: {
@@ -1092,6 +1093,22 @@ type NyxelTrpcClient = {
 			mutate(input: {
 				workspaceId: string;
 			}): Promise<{ ok: boolean; skipped: boolean; notePath?: string }>;
+		};
+	};
+	notifications: {
+		vapidPublicKey: {
+			query(): Promise<string>;
+		};
+		subscribe: {
+			mutate(input: {
+				userId: string;
+				endpoint: string;
+				keys: { p256dh: string; auth: string };
+				userAgent?: string;
+			}): Promise<void>;
+		};
+		unsubscribe: {
+			mutate(input: { endpoint: string }): Promise<void>;
 		};
 	};
 };

@@ -21,6 +21,7 @@ function toMcpServerConfig(server: McpServerRecord) {
     command: server.command,
     args: server.args,
     url: server.url,
+    env: server.env,
     oauth:
       server.transport === "http"
         ? {

@@ -47,7 +47,21 @@ export type TaskEventKind =
 	| "question_answered"
 	| "completed"
 	| "failed";
-export type AgentRunTrigger = "chat" | "task" | "automation" | "delegate";
+export type AgentRunTrigger =
+	| "chat"
+	| "task"
+	| "automation"
+	| "delegate"
+	| "extension";
+
+export type SeoAnalysisRunStatus = "running" | "completed" | "failed";
+export type SeoFindingCategory = "seo" | "geo" | "aeo";
+export type SeoFindingSeverity = "info" | "warning" | "critical";
+export type SeoBlogPostStatus =
+	| "suggested"
+	| "generating"
+	| "written"
+	| "failed";
 export type AgentRunStatus =
 	| "pending"
 	| "running"
@@ -333,6 +347,8 @@ export interface McpServerRecord {
 	command: string | null;
 	args: string[] | null;
 	url: string | null;
+	/** Extra env vars passed to the spawned process for stdio servers. */
+	env: Record<string, string> | null;
 	enabled: boolean;
 	createdAt: Date;
 }
@@ -370,6 +386,68 @@ export interface PushSubscriptionRecord {
 	auth: string;
 	userAgent: string | null;
 	createdAt: Date;
+}
+
+export interface ExtensionRecord {
+	id: string;
+	workspaceId: string;
+	key: string;
+	enabled: boolean;
+	config: Record<string, unknown>;
+	installedAt: Date;
+}
+
+export interface SeoProjectRecord {
+	id: string;
+	workspaceId: string;
+	extensionId: string;
+	domain: string;
+	repoPath: string;
+	blogConfig: { dir: string; frontmatterStyle: string } | null;
+	fixerAgentId: string | null;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+export interface SeoAnalysisRunRecord {
+	id: string;
+	seoProjectId: string;
+	workspaceId: string;
+	status: SeoAnalysisRunStatus;
+	score: number | null;
+	pagesScanned: number;
+	summary: string | null;
+	errorMessage: string | null;
+	startedAt: Date;
+	completedAt: Date | null;
+}
+
+export interface SeoFindingRecord {
+	id: string;
+	runId: string;
+	seoProjectId: string;
+	category: SeoFindingCategory;
+	severity: SeoFindingSeverity;
+	title: string;
+	description: string;
+	recommendation: string;
+	location: string | null;
+	resolved: boolean;
+	createdAt: Date;
+}
+
+export interface SeoBlogPostRecord {
+	id: string;
+	seoProjectId: string;
+	workspaceId: string;
+	keyword: string;
+	title: string | null;
+	filePath: string | null;
+	status: SeoBlogPostStatus;
+	taskId: string | null;
+	errorMessage: string | null;
+	createdAt: Date;
+	updatedAt: Date;
 }
 
 /**
@@ -423,6 +501,12 @@ export interface DbRepository {
 		workspaceId: string,
 	): Promise<ModelInstallationRecord[]>;
 	getModelInstallation(id: string): Promise<ModelInstallationRecord | null>;
+	updateModelInstallation(input: {
+		id: string;
+		label?: string;
+		modelIds?: string[];
+		enabled?: boolean;
+	}): Promise<ModelInstallationRecord>;
 	deleteModelInstallation(id: string): Promise<void>;
 
 	createPushSubscription(input: {
@@ -652,6 +736,7 @@ export interface DbRepository {
 		command?: string | null;
 		args?: string[] | null;
 		url?: string | null;
+		env?: Record<string, string> | null;
 	}): Promise<McpServerRecord>;
 	listMcpServersByWorkspace(workspaceId: string): Promise<McpServerRecord[]>;
 	getMcpServer(id: string): Promise<McpServerRecord | null>;
@@ -787,4 +872,100 @@ export interface DbRepository {
 		workspaceId: string,
 		limit?: number,
 	): Promise<AuditLogRecord[]>;
+
+	installExtension(input: {
+		workspaceId: string;
+		key: string;
+		config?: Record<string, unknown>;
+	}): Promise<ExtensionRecord>;
+	listExtensionsByWorkspace(workspaceId: string): Promise<ExtensionRecord[]>;
+	getExtension(id: string): Promise<ExtensionRecord | null>;
+	getExtensionByKey(
+		workspaceId: string,
+		key: string,
+	): Promise<ExtensionRecord | null>;
+	setExtensionEnabled(id: string, enabled: boolean): Promise<ExtensionRecord>;
+	updateExtensionConfig(
+		id: string,
+		config: Record<string, unknown>,
+	): Promise<ExtensionRecord>;
+	uninstallExtension(id: string): Promise<void>;
+
+	createSeoProject(input: {
+		workspaceId: string;
+		extensionId: string;
+		domain: string;
+		repoPath: string;
+	}): Promise<SeoProjectRecord>;
+	listSeoProjectsByWorkspace(workspaceId: string): Promise<SeoProjectRecord[]>;
+	getSeoProject(id: string): Promise<SeoProjectRecord | null>;
+	updateSeoProject(
+		id: string,
+		patch: {
+			domain?: string;
+			repoPath?: string;
+			blogConfig?: { dir: string; frontmatterStyle: string } | null;
+			fixerAgentId?: string | null;
+		},
+	): Promise<SeoProjectRecord>;
+	deleteSeoProject(id: string): Promise<void>;
+
+	createSeoAnalysisRun(input: {
+		seoProjectId: string;
+		workspaceId: string;
+	}): Promise<SeoAnalysisRunRecord>;
+	getSeoAnalysisRun(id: string): Promise<SeoAnalysisRunRecord | null>;
+	/** Most recent first. */
+	listSeoAnalysisRunsByProject(
+		seoProjectId: string,
+	): Promise<SeoAnalysisRunRecord[]>;
+	updateSeoAnalysisRun(
+		id: string,
+		patch: {
+			status?: SeoAnalysisRunStatus;
+			score?: number | null;
+			pagesScanned?: number;
+			summary?: string | null;
+			errorMessage?: string | null;
+			completedAt?: Date | null;
+		},
+	): Promise<SeoAnalysisRunRecord>;
+
+	createSeoFinding(input: {
+		runId: string;
+		seoProjectId: string;
+		category: SeoFindingCategory;
+		severity: SeoFindingSeverity;
+		title: string;
+		description: string;
+		recommendation: string;
+		location?: string | null;
+	}): Promise<SeoFindingRecord>;
+	listSeoFindingsByRun(runId: string): Promise<SeoFindingRecord[]>;
+	/** Unresolved findings across every run for the project, newest first. */
+	listOpenSeoFindingsByProject(
+		seoProjectId: string,
+	): Promise<SeoFindingRecord[]>;
+	getSeoFinding(id: string): Promise<SeoFindingRecord | null>;
+	setSeoFindingResolved(id: string, resolved: boolean): Promise<SeoFindingRecord>;
+
+	createSeoBlogPost(input: {
+		seoProjectId: string;
+		workspaceId: string;
+		keyword: string;
+	}): Promise<SeoBlogPostRecord>;
+	listSeoBlogPostsByProject(
+		seoProjectId: string,
+	): Promise<SeoBlogPostRecord[]>;
+	getSeoBlogPost(id: string): Promise<SeoBlogPostRecord | null>;
+	updateSeoBlogPost(
+		id: string,
+		patch: {
+			title?: string | null;
+			filePath?: string | null;
+			status?: SeoBlogPostStatus;
+			taskId?: string | null;
+			errorMessage?: string | null;
+		},
+	): Promise<SeoBlogPostRecord>;
 }

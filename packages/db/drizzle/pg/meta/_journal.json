@@ -155,6 +155,13 @@
       "when": 1783000009001,
       "tag": "0021_push_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1783000010001,
+      "tag": "0022_mcp_server_env",
+      "breakpoints": true
     }
   ]
 }

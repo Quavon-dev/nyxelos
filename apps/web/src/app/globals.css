@@ -122,6 +122,12 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Installed (standalone) PWA has no browser chrome to eat the
+       notch/home-indicator, so pad it ourselves; a no-op in a normal tab. */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
   }
   html {
     @apply font-sans;

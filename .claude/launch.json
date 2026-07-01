@@ -6,6 +6,14 @@
       "runtimeExecutable": "bun",
       "runtimeArgs": ["run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "bunx",
+      "runtimeArgs": ["next", "dev", "--turbopack"],
+      "cwd": "apps/web",
+      "port": 3100,
+      "autoPort": true
     }
   ]
 }
