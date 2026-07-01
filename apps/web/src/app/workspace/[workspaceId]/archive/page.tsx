@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArchiveRestore, MessageSquare, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { CardListSkeleton, PageHeaderSkeleton, StatCardsSkeleton } from "@/components/loading";
 import { PageHeader, StatCard } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -55,8 +56,18 @@ export default function ArchivePage() {
     (a, b) => +new Date(b.archivedAt ?? b.createdAt) - +new Date(a.archivedAt ?? a.createdAt),
   );
 
+  if (archivedChatsQuery.isLoading) {
+    return (
+      <div className="mx-auto w-full max-w-5xl space-y-6 p-4 sm:p-6 md:p-8">
+        <PageHeaderSkeleton actions={1} />
+        <StatCardsSkeleton count={2} />
+        <CardListSkeleton rows={4} />
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 p-8">
+    <div className="mx-auto w-full max-w-5xl space-y-6 p-4 sm:p-6 md:p-8">
       <PageHeader
         title="Archive"
         description="Archived chats stay out of the active sidebar but remain available for review, restore, or permanent deletion."

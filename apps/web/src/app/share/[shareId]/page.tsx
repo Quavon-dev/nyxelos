@@ -5,6 +5,7 @@ import { MessageSquareOff } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { MessageBubble } from "@/components/chat/message-bubble";
+import { CenteredLoader } from "@/components/loading";
 import { trpcClient } from "@/lib/trpc";
 
 /** A public, read-only view of a chat someone shared via the sidebar's
@@ -22,7 +23,7 @@ export default function SharedChatPage() {
   });
 
   if (sharedQuery.isLoading) {
-    return <div className="flex h-full items-center justify-center p-6" />;
+    return <CenteredLoader label="Loading shared chat…" />;
   }
 
   if (!sharedQuery.data) {

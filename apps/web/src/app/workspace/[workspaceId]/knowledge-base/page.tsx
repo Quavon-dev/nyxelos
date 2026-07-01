@@ -136,7 +136,7 @@ export default function KnowledgeBasePage() {
   const documents = documentsQuery.data ?? [];
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 p-8">
+    <div className="mx-auto w-full max-w-5xl space-y-6 p-4 sm:p-6 md:p-8">
       <PageHeader
         title="Knowledge base"
         description="Obsidian-backed project memory: local vault indexing, docs-agent sync, and a lightweight graph view for note connectivity."

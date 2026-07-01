@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { PageHeaderSkeleton, TableSkeleton } from "@/components/loading";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -92,8 +93,17 @@ export default function McpServersPage() {
 
   const servers = serversQuery.data ?? [];
 
+  if (serversQuery.isLoading) {
+    return (
+      <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
+        <PageHeaderSkeleton actions={1} />
+        <TableSkeleton rows={4} cols={4} />
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-8">
+    <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
       <PageHeader
         title="MCP servers"
         description="Connected tool servers, reachable by any agent that lists them. Nyxel connects on demand — nothing here is kept running until an agent actually needs it."
@@ -118,7 +128,7 @@ export default function McpServersPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {servers.map((server) => (
+                  {servers.map((server) =>
                     (() => {
                       const testedResult =
                         testedServerId === server.id && testConnection.isSuccess
@@ -154,7 +164,9 @@ export default function McpServersPage() {
                                   variant="outline"
                                   size="sm"
                                   onClick={() => testConnection.mutate(server.id)}
-                                  disabled={testConnection.isPending && testedServerId === server.id}
+                                  disabled={
+                                    testConnection.isPending && testedServerId === server.id
+                                  }
                                 >
                                   {testConnection.isPending && testedServerId === server.id
                                     ? "Connecting…"
@@ -181,7 +193,9 @@ export default function McpServersPage() {
                                   <button
                                     type="button"
                                     className="font-medium text-foreground underline underline-offset-2"
-                                    onClick={() => openAuthorizationWindow(authRequired.authorizationUrl)}
+                                    onClick={() =>
+                                      openAuthorizationWindow(authRequired.authorizationUrl)
+                                    }
                                   >
                                     Continue sign-in
                                   </button>
@@ -199,8 +213,8 @@ export default function McpServersPage() {
                           </TableCell>
                         </TableRow>
                       );
-                    })()
-                  ))}
+                    })(),
+                  )}
                 </TableBody>
               </Table>
             </div>
@@ -212,8 +226,8 @@ export default function McpServersPage() {
         <CardHeader>
           <CardTitle>Add server</CardTitle>
           <CardDescription>
-            Register a new stdio or HTTP MCP server. For remote servers, use the actual MCP
-            endpoint URL, not the provider's documentation page.
+            Register a new stdio or HTTP MCP server. For remote servers, use the actual MCP endpoint
+            URL, not the provider's documentation page.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -275,8 +289,8 @@ export default function McpServersPage() {
                 onChange={(e) => setUrl(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                Example: use https://api.notion.com/mcp or another direct MCP endpoint, not a
-                docs URL.
+                Example: use https://api.notion.com/mcp or another direct MCP endpoint, not a docs
+                URL.
               </p>
             </div>
           )}

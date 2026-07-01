@@ -1,13 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { SystemPanel, SystemScreen } from "@/components/system-screen";
+import { Button } from "@/components/ui/button";
 import { trpcClient } from "@/lib/trpc";
 
 type AuthState =
   | { status: "working"; message: string }
   | { status: "success"; message: string }
   | { status: "error"; message: string };
+
+const DETAIL: Record<AuthState["status"], string> = {
+  working: "Nyxel is exchanging the authorization code for a usable session.",
+  success: "Return to Nyxel if this tab does not close automatically.",
+  error: "Retry the connection from Nyxel after fixing the provider or endpoint settings.",
+};
 
 export default function McpAuthCallbackPage() {
   const searchParams = useSearchParams();
@@ -48,7 +57,10 @@ export default function McpAuthCallbackPage() {
       .then(() => {
         if (cancelled) return;
         window.sessionStorage.setItem(attemptKey, "done");
-        window.opener?.postMessage({ type: "nyxel:mcp-auth-complete", serverId }, window.location.origin);
+        window.opener?.postMessage(
+          { type: "nyxel:mcp-auth-complete", serverId },
+          window.location.origin,
+        );
         setState({
           status: "success",
           message: "MCP sign-in is complete. This window can close now.",
@@ -78,20 +90,33 @@ export default function McpAuthCallbackPage() {
   }, [code, error, serverId, workspaceId]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-6">
-      <div className="w-full max-w-md rounded-2xl border bg-card p-8 shadow-sm">
-        <p className="text-sm font-medium uppercase tracking-[0.18em] text-muted-foreground">
-          MCP Authentication
-        </p>
-        <h1 className="mt-3 text-2xl font-semibold text-foreground">{state.message}</h1>
-        <p className="mt-3 text-sm text-muted-foreground">
-          {state.status === "working"
-            ? "Nyxel is exchanging the authorization code for a usable session."
-            : state.status === "success"
-              ? "Return to Nyxel if this tab does not close automatically."
-              : "Retry the connection from Nyxel after fixing the provider or endpoint settings."}
-        </p>
-      </div>
-    </main>
+    <SystemScreen width="sm">
+      <SystemPanel
+        title={
+          <span className="flex items-center gap-2.5">
+            <StatusIcon status={state.status} />
+            <span>{state.message}</span>
+          </span>
+        }
+        description={DETAIL[state.status]}
+        footer="MCP Authentication · Nyxel"
+      >
+        {state.status === "error" && workspaceId && (
+          <Button asChild variant="outline" className="w-full">
+            <a href={`/workspace/${workspaceId}/mcp-servers`}>Back to MCP servers</a>
+          </Button>
+        )}
+      </SystemPanel>
+    </SystemScreen>
   );
+}
+
+function StatusIcon({ status }: { status: AuthState["status"] }) {
+  if (status === "working") {
+    return <Loader2 className="size-5 shrink-0 animate-spin text-muted-foreground" />;
+  }
+  if (status === "success") {
+    return <CheckCircle2 className="size-5 shrink-0 text-primary" />;
+  }
+  return <XCircle className="size-5 shrink-0 text-destructive" />;
 }

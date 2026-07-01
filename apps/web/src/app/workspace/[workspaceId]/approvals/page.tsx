@@ -4,10 +4,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Clock, XCircle } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useState } from "react";
+import { CardListSkeleton, PageHeaderSkeleton, StatCardsSkeleton } from "@/components/loading";
 import { PageHeader, StatCard } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -64,8 +66,19 @@ export default function ApprovalsPage() {
   const approvedCount = resolved.filter((a) => a.status === "approved").length;
   const rejectedCount = resolved.filter((a) => a.status === "rejected").length;
 
+  if (pendingQuery.isLoading) {
+    return (
+      <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
+        <PageHeaderSkeleton />
+        <StatCardsSkeleton count={3} />
+        <Skeleton className="h-9 w-64 rounded-md" />
+        <CardListSkeleton rows={3} />
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-8">
+    <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
       <PageHeader
         title="Approvals"
         description="Sensitive tool calls — writing a file, or any MCP tool, since its side effects aren't declared — wait here for a human decision before they run."

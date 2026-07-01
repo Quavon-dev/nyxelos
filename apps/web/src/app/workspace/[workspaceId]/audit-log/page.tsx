@@ -4,10 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, CheckCircle2, Clock, XCircle } from "lucide-react";
 import { useParams } from "next/navigation";
 import { Area, AreaChart, XAxis } from "recharts";
+import { PageHeaderSkeleton, StatCardsSkeleton, TableSkeleton } from "@/components/loading";
 import { PageHeader, StatCard } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer } from "@/components/ui/chart";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -75,8 +77,19 @@ export default function AuditLogPage() {
   const pendingCount = entries.filter((e) => e.status === "pending_approval").length;
   const dailyActivity = buildDailyActivity(entries);
 
+  if (logQuery.isLoading) {
+    return (
+      <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
+        <PageHeaderSkeleton />
+        <StatCardsSkeleton count={4} />
+        <Skeleton className="h-48 w-full rounded-xl" />
+        <TableSkeleton rows={6} cols={5} />
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-8">
+    <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
       <PageHeader
         title="Audit log"
         description="Every tool call any agent has made — from a live chat, a scheduled automation, a resolved approval, or a delegated sub-agent — most recent first."

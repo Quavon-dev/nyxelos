@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Network, Sparkles } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useState } from "react";
+import { CardListSkeleton, PageHeaderSkeleton, StatCardsSkeleton } from "@/components/loading";
 import { PageHeader, StatCard } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,8 +62,8 @@ export default function AgentsPage() {
     queryFn: () => trpcClient.models.list.query({ workspaceId }),
   });
   const skillsQuery = useQuery({
-    queryKey: ["skills", "list"],
-    queryFn: () => trpcClient.skills.list.query(),
+    queryKey: ["skills", "list", workspaceId],
+    queryFn: () => trpcClient.skills.list.query({ workspaceId }),
   });
   const toolsQuery = useQuery({
     queryKey: ["tools", "list", workspaceId],
@@ -169,8 +170,18 @@ export default function AgentsPage() {
     (a) => a.autonomyLevel === "autonomous" || a.autonomyLevel === "super_agent",
   ).length;
 
+  if (agentsQuery.isLoading) {
+    return (
+      <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
+        <PageHeaderSkeleton actions={1} />
+        <StatCardsSkeleton count={3} />
+        <CardListSkeleton rows={4} />
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-8">
+    <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
       <PageHeader
         title="Agents"
         description="Saved configurations of system prompt, model, autonomy level, and attached skills/tools/MCP servers."
@@ -341,8 +352,8 @@ export default function AgentsPage() {
                   Auto-attach all runtime skills, workspace tools, and MCP servers
                 </span>
                 <span className="block text-xs text-muted-foreground">
-                  Keeps the agent tool-ready regardless of model. Sensitive actions still go
-                  through the normal approval queue.
+                  Keeps the agent tool-ready regardless of model. Sensitive actions still go through
+                  the normal approval queue.
                 </span>
               </Label>
             </div>
@@ -441,13 +452,13 @@ export default function AgentsPage() {
                         <Checkbox
                           id={`delegate-${a.id}`}
                           checked={delegateAgentIds.includes(a.id)}
-                          onCheckedChange={() => toggle(delegateAgentIds, a.id, setDelegateAgentIds)}
+                          onCheckedChange={() =>
+                            toggle(delegateAgentIds, a.id, setDelegateAgentIds)
+                          }
                         />
                         <Label htmlFor={`delegate-${a.id}`} className="font-normal">
                           {a.name}{" "}
-                          <span className="text-xs text-muted-foreground">
-                            ({a.autonomyLevel})
-                          </span>
+                          <span className="text-xs text-muted-foreground">({a.autonomyLevel})</span>
                         </Label>
                       </div>
                     ))}

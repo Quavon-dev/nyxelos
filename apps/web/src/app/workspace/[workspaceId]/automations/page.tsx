@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, CheckCircle2, ListChecks } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useState } from "react";
+import { PageHeaderSkeleton, StatCardsSkeleton, TableSkeleton } from "@/components/loading";
 import { PageHeader, StatCard } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -118,8 +119,18 @@ export default function AutomationsPage() {
   const automations = automationsQuery.data ?? [];
   const enabledCount = automations.filter((a) => a.enabled).length;
 
+  if (automationsQuery.isLoading) {
+    return (
+      <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
+        <PageHeaderSkeleton actions={1} />
+        <StatCardsSkeleton count={3} />
+        <TableSkeleton rows={5} cols={4} />
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-8">
+    <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
       <PageHeader
         title="Automations"
         description={

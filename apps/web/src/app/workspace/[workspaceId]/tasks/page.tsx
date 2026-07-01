@@ -5,6 +5,7 @@ import { CheckSquare, Clock, ListTodo, Workflow } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
+import { PageHeaderSkeleton, StatCardsSkeleton, TableSkeleton } from "@/components/loading";
 import { PageHeader, StatCard } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -100,11 +101,12 @@ export default function TasksPage() {
     id ? (agents.find((a) => a.id === id)?.name ?? id) : "Unassigned";
 
   const allTasks = tasksQuery.data ?? [];
-  const tasks = assigneeFilter === "all"
-    ? allTasks
-    : assigneeFilter === "unassigned"
-      ? allTasks.filter((t) => !t.assignedAgentId)
-      : allTasks.filter((t) => t.assignedAgentId === assigneeFilter);
+  const tasks =
+    assigneeFilter === "all"
+      ? allTasks
+      : assigneeFilter === "unassigned"
+        ? allTasks.filter((t) => !t.assignedAgentId)
+        : allTasks.filter((t) => t.assignedAgentId === assigneeFilter);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["tasks", workspaceId] });
 
@@ -120,7 +122,10 @@ export default function TasksPage() {
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const completeTask = useMutation({
     mutationFn: (taskId: string) =>
-      trpcClient.tasks.complete.mutate({ taskId, resultSummary: "Marked complete from task board." }),
+      trpcClient.tasks.complete.mutate({
+        taskId,
+        resultSummary: "Marked complete from task board.",
+      }),
     onMutate: (taskId) => setBusyTaskId(taskId),
     onSuccess: invalidate,
     onSettled: () => setBusyTaskId(null),
@@ -159,8 +164,18 @@ export default function TasksPage() {
   const waitingApprovalCount = allTasks.filter((t) => t.status === "waiting_approval").length;
   const completedCount = allTasks.filter((t) => t.status === "completed").length;
 
+  if (tasksQuery.isLoading) {
+    return (
+      <div className="mx-auto w-full max-w-5xl space-y-6 p-4 sm:p-6 md:p-8">
+        <PageHeaderSkeleton actions={1} />
+        <StatCardsSkeleton count={3} />
+        <TableSkeleton rows={6} cols={4} />
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 p-8">
+    <div className="mx-auto w-full max-w-5xl space-y-6 p-4 sm:p-6 md:p-8">
       <PageHeader
         title="Tasks"
         description="Durable work items tracked across agents — created from chat, automations, or delegated by super-agents."
@@ -184,7 +199,10 @@ export default function TasksPage() {
         <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>All tasks</CardTitle>
           <div className="flex gap-2">
-            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as TaskStatus | "all")}>
+            <Select
+              value={statusFilter}
+              onValueChange={(v) => setStatusFilter(v as TaskStatus | "all")}
+            >
               <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>

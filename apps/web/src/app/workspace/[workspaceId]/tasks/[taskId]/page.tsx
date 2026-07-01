@@ -5,11 +5,13 @@ import { ArrowLeft, Bot, CheckCircle2, Clock, ListTree, XCircle } from "lucide-r
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { MultiSelectPromptCard } from "@/components/chat/multi-select-prompt";
+import { PageHeaderSkeleton } from "@/components/loading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { MultiSelectPromptCard } from "@/components/chat/multi-select-prompt";
 import { parseAssistantContent } from "@/lib/chat-prompts";
 import type { AgentRunStatus, TaskPriority, TaskStatus } from "@/lib/trpc";
 import { trpcClient } from "@/lib/trpc";
@@ -149,12 +151,19 @@ export default function TaskDetailPage() {
   }, [task, runs.length, startTask]);
 
   if (taskQuery.isLoading) {
-    return <div className="mx-auto w-full max-w-4xl p-8 text-sm text-muted-foreground">Loading task…</div>;
+    return (
+      <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
+        <Skeleton className="h-4 w-28" />
+        <PageHeaderSkeleton actions={2} />
+        <Skeleton className="h-32 w-full rounded-xl" />
+        <Skeleton className="h-48 w-full rounded-xl" />
+      </div>
+    );
   }
 
   if (!task) {
     return (
-      <div className="mx-auto w-full max-w-4xl space-y-4 p-8">
+      <div className="mx-auto w-full max-w-4xl space-y-4 p-4 sm:p-6 md:p-8">
         <Link
           href={`/workspace/${workspaceId}/tasks`}
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -170,7 +179,7 @@ export default function TaskDetailPage() {
   const isBlocked = task.status === "blocked" || task.status === "waiting_approval";
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-8">
+    <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
       <Link
         href={`/workspace/${workspaceId}/tasks`}
         className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -283,8 +292,8 @@ export default function TaskDetailPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Give the same agent a new instruction. The task stays the same and the agent
-            continues on a fresh run automatically.
+            Give the same agent a new instruction. The task stays the same and the agent continues
+            on a fresh run automatically.
           </p>
           {followUpPrompt && (
             <MultiSelectPromptCard
@@ -301,7 +310,11 @@ export default function TaskDetailPage() {
             ref={followUpTextareaRef}
             value={followUpInstruction}
             onChange={(e) => setFollowUpInstruction(e.target.value)}
-            placeholder={followUpPrompt ? "Eigene Antwort schreiben..." : "Add the next instruction for this agent..."}
+            placeholder={
+              followUpPrompt
+                ? "Eigene Antwort schreiben..."
+                : "Add the next instruction for this agent..."
+            }
             rows={followUpPrompt ? 3 : 4}
           />
           <div className="flex items-center gap-2">
@@ -325,10 +338,7 @@ export default function TaskDetailPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {linkedApprovals.map((approval) => (
-              <div
-                key={approval.id}
-                className="space-y-2 rounded-lg border p-3 text-sm"
-              >
+              <div key={approval.id} className="space-y-2 rounded-lg border p-3 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <code className="text-xs">{approval.toolLabel}</code>
                   <Badge
