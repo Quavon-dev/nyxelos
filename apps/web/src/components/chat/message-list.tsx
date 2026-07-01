@@ -134,7 +134,7 @@ export function MessageList({
       {streamingMessage && (
         <MessageBubble
           sender="assistant"
-          content={streamingMessage.content || "…"}
+          content={streamingMessage.content}
           streaming
           reasoning={streamingMessage.reasoning}
           steps={streamingMessage.steps}

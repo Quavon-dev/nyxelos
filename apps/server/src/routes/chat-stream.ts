@@ -5,7 +5,11 @@ import { z } from "zod";
 import { prepareMessageContentForModel } from "../attachment-processing";
 import { resolveAgentRuntimeConfig } from "../auto-agent";
 import type { AgentActivityStep } from "../chat-agent-activity";
-import { hasAgentActivity, serializeAgentActivity } from "../chat-agent-activity";
+import {
+	hasAgentActivity,
+	serializeAgentActivity,
+	stripAgentActivity,
+} from "../chat-agent-activity";
 import { summarizeChatMessageForModel } from "../chat-message";
 import {
 	getKnowledgeBaseContextForPrompt,
@@ -136,7 +140,7 @@ export function registerChatStreamRoute(app: Hono) {
 							modelId,
 							installedProviders,
 						}) ?? summarizeChatMessageForModel(entry.content)
-					: entry.content,
+					: stripAgentActivity(entry.content),
 		}));
 
 		// resolveModel() (called synchronously inside streamChat) throws for an

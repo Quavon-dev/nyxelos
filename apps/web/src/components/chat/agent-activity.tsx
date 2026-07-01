@@ -117,6 +117,31 @@ function ToolStepRow({ step }: { step: AgentActivityStep }) {
 }
 
 /**
+ * Three bouncing dots — the only signal that a turn is in flight before the
+ * model has emitted a single reasoning/text/tool-call event yet (e.g. still
+ * doing prompt processing on a local model). Without this the UI goes
+ * completely silent between hitting send and the first visible token/step,
+ * which reads as "did this even go through?".
+ */
+export function TypingIndicator() {
+	return (
+		<span
+			className="inline-flex items-center gap-1 py-1"
+			role="status"
+			aria-label="Nyxel arbeitet…"
+		>
+			{[0, 1, 2].map((i) => (
+				<span
+					key={i}
+					className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60"
+					style={{ animationDelay: `${i * 150}ms` }}
+				/>
+			))}
+		</span>
+	);
+}
+
+/**
  * Renders a model turn's "thinking" trail — reasoning text (what Gemini
  * labels "Gedanken") and the tool calls it made, in call order. Shown live
  * while streaming and, once persisted, replayed from the trailing

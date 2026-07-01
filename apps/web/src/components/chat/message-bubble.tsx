@@ -3,7 +3,7 @@ import type { AgentActivityStep } from "@/lib/chat-agent-activity";
 import { parseAgentActivity } from "@/lib/chat-agent-activity";
 import { parseChatMessageContent } from "@/lib/chat-message";
 import { parseAssistantContent } from "@/lib/chat-prompts";
-import { AgentActivity } from "./agent-activity";
+import { AgentActivity, TypingIndicator } from "./agent-activity";
 import { MarkdownContent } from "./markdown-content";
 import { MessageActions } from "./message-actions";
 import { MultiSelectPromptCard } from "./multi-select-prompt";
@@ -82,9 +82,11 @@ export function MessageBubble({
 							<MultiSelectPromptCard prompt={parsed.prompt} mode="preview" />
 						</div>
 					) : streaming && !isUser ? (
-						<div className="whitespace-pre-wrap break-words">
-							{content || "…"}
-						</div>
+						content.trim() ? (
+							<div className="whitespace-pre-wrap break-words">{content}</div>
+						) : (
+							<TypingIndicator />
+						)
 					) : userAttachment ? (
 						<div className="space-y-2">
 							{userAttachment.text.trim() && (

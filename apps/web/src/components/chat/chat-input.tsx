@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
 	type AttachedFile,
@@ -160,9 +160,14 @@ export function ChatInput({
 							disabled ||
 							(!value.trim() && !attachedFile)
 						}
+						aria-label={disabled ? "Nyxel arbeitet…" : "Senden"}
 						className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
 					>
-						<ArrowUp className="size-4" />
+						{disabled ? (
+							<Loader2 className="size-4 animate-spin" />
+						) : (
+							<ArrowUp className="size-4" />
+						)}
 					</button>
 				</div>
 			</div>

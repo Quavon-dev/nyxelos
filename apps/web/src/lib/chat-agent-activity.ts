@@ -11,7 +11,30 @@ export interface AgentActivity {
 	steps: AgentActivityStep[];
 }
 
-const ACTIVITY_BLOCK = /```nyxel-activity\s*\n([\s\S]*?)```/;
+const ACTIVITY_OPEN = "```nyxel-activity\n";
+const ACTIVITY_CLOSE = "```";
+
+/**
+ * Locates the trailing ```nyxel-activity block by anchoring on it being the
+ * last thing serializeAgentActivity ever appends, rather than regex-matching
+ * up to the first ``` — tool outputs/reasoning routinely embed their own
+ * triple-backtick fences (e.g. a file read returning markdown with ```bash
+ * blocks), which would otherwise truncate the JSON capture and make
+ * JSON.parse throw, silently leaking the raw block to the user.
+ */
+function splitAgentActivityBlock(
+	content: string,
+): { json: string; body: string } | null {
+	const startIdx = content.lastIndexOf(ACTIVITY_OPEN);
+	if (startIdx === -1 || !content.endsWith(ACTIVITY_CLOSE)) return null;
+	const jsonStart = startIdx + ACTIVITY_OPEN.length;
+	const jsonEnd = content.length - ACTIVITY_CLOSE.length;
+	if (jsonEnd <= jsonStart) return null;
+	return {
+		json: content.slice(jsonStart, jsonEnd).replace(/\n$/, ""),
+		body: content.slice(0, startIdx).trim(),
+	};
+}
 
 function isAgentActivityStep(value: unknown): value is AgentActivityStep {
 	if (!value || typeof value !== "object") return false;
@@ -39,15 +62,15 @@ export function parseAgentActivity(content: string): {
 	activity: AgentActivity | null;
 	body: string;
 } {
-	const match = content.match(ACTIVITY_BLOCK);
-	if (!match) return { activity: null, body: content };
+	const split = splitAgentActivityBlock(content);
+	if (!split) return { activity: null, body: content };
 
 	try {
-		const parsed = JSON.parse(match[1] ?? "");
+		const parsed = JSON.parse(split.json);
 		if (!isAgentActivity(parsed) || (!parsed.reasoning && parsed.steps.length === 0)) {
 			return { activity: null, body: content };
 		}
-		return { activity: parsed, body: content.replace(match[0], "").trim() };
+		return { activity: parsed, body: split.body };
 	} catch {
 		return { activity: null, body: content };
 	}
