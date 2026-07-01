@@ -87,7 +87,7 @@ const CHAT_MODE_COPY: Record<ChatToolMode, { title: string; description: string 
 	auto: {
 		title: "AUTO",
 		description:
-			"No confirmation questions. The assistant plans, gathers context, and acts directly unless a configured guardrail sends that action to approval.",
+			"Fully autonomous. Never asks clarifying or scoping questions — picks the best interpretation, gathers context with tools, and acts immediately. Only reports hard approval blocks.",
 	},
 };
 

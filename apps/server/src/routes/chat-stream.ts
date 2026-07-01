@@ -28,7 +28,7 @@ const CHAT_MODE_GUIDANCE = {
 		"Ask for confirmation before any sensitive action. When information is missing, ask one concise follow-up question instead of guessing.",
 	automatic:
 		"Operate with automatic tool usage. Make a short internal plan, gather the missing local context with tools before asking the user, and carry out code and file changes directly when the path is clear. Only ask the user when a real product decision or a hard permission boundary blocks progress.",
-	auto: "Operate as a fully autonomous agent. Make a short internal plan, gather the needed context with tools, and execute the best safe changes directly. Do not ask follow-up questions for permission or confirmation; if a policy sends a tool call to approval, report that specific block and continue with any unblocked work.",
+	auto: "Operate as a fully autonomous agent. Never ask the user clarifying or scoping questions — if the request is underspecified, pick the most reasonable interpretation, use tools to gather whatever context you need, and proceed immediately with the full task. Only surface a blocker to the user when an approval policy hard-stops a specific tool call; in that case name the blocked action and continue all unblocked work. Do not ask for confirmation, permission, or clarification under any circumstances.",
 } as const;
 
 const STREAM_HEADERS = {
