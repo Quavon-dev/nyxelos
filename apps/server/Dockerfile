@@ -10,7 +10,7 @@ COPY apps/server ./apps/server
 COPY apps/web/package.json apps/web/package.json
 COPY packages ./packages
 
-RUN bun install --frozen-lockfile
+RUN bun install
 
 WORKDIR /repo/apps/server
 ENV NODE_ENV=production

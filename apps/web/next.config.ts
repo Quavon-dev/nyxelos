@@ -3,10 +3,12 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // Monorepo: pin the Turbopack workspace root to this package so it doesn't
-  // try to infer it (and fail) from a nested build directory.
+  // Monorepo + Bun's symlinked node_modules (`node_modules/next` points into
+  // the root `node_modules/.bun/...` store) mean the real `next` package
+  // lives outside `apps/web`. Turbopack's root must cover that symlink
+  // target, so point it at the monorepo root rather than this package.
   turbopack: {
-    root: path.join(__dirname),
+    root: path.join(__dirname, "../.."),
   },
 };
 
