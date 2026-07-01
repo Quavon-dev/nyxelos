@@ -365,49 +365,53 @@ export default function ChatPage() {
 	}, [draft, chatId, router, sendMessageAndCheckApprovals]);
 
 	return (
-		<div className="mx-auto flex h-full max-w-3xl flex-col p-4">
-			<ChatTopBar
-				models={modelsQuery.data ?? []}
-				modelId={currentModelId}
-				onModelChange={handleModelChange}
-				onNewChat={() => router.push("/chat")}
-				onDuplicate={() => duplicateChat.mutate()}
-				onShare={() => shareChat.mutate()}
-				onTogglePin={() => chat && pinChat.mutate(!chat.pinnedAt)}
-				pinned={Boolean(chat?.pinnedAt)}
-			/>
-			<MessageList
-				messages={messagesQuery.data ?? []}
-				streamingMessage={streamingMessage}
-				approvals={chatApprovals}
-				tasks={chatTasks}
-				workspaceId={workspaceId}
-				actingApprovalId={actingApprovalId}
-				onApproveApproval={(id) => approveApproval.mutate(id)}
-				onRejectApproval={(id) => rejectApproval.mutate(id)}
-			/>
-			{(error || forkAgent.isError || updateChatToolPolicy.isError) && (
-				<p className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-					{error ??
-						(forkAgent.error as Error | undefined)?.message ??
-						(updateChatToolPolicy.error as Error | undefined)?.message}
-				</p>
-			)}
-			<ChatInput
-				onSend={sendMessageAndCheckApprovals}
-				disabled={isStreaming}
-				workspaceId={workspaceId}
-				modelId={agentQuery.data?.modelId ?? chat?.modelId}
-				toolSelection={toolSelection}
-				onToolSelectionChange={handleToolSelectionChange}
-				chatToolPolicy={chatToolPolicy}
-				onChatToolPolicyChange={handleChatToolPolicyChange}
-				attachedFile={attachedFile}
-				onAttachedFileChange={setAttachedFile}
-				messages={messagesQuery.data ?? []}
-				assistantQuestion={pendingQuestion}
-				assistantPrompt={pendingPrompt}
-			/>
+		<div className="flex h-full flex-col">
+			<div className="px-4 pt-3">
+				<ChatTopBar
+					models={modelsQuery.data ?? []}
+					modelId={currentModelId}
+					onModelChange={handleModelChange}
+					onNewChat={() => router.push("/chat")}
+					onDuplicate={() => duplicateChat.mutate()}
+					onShare={() => shareChat.mutate()}
+					onTogglePin={() => chat && pinChat.mutate(!chat.pinnedAt)}
+					pinned={Boolean(chat?.pinnedAt)}
+				/>
+			</div>
+			<div className="mx-auto flex w-full max-w-3xl min-h-0 flex-1 flex-col p-4 pt-0">
+				<MessageList
+					messages={messagesQuery.data ?? []}
+					streamingMessage={streamingMessage}
+					approvals={chatApprovals}
+					tasks={chatTasks}
+					workspaceId={workspaceId}
+					actingApprovalId={actingApprovalId}
+					onApproveApproval={(id) => approveApproval.mutate(id)}
+					onRejectApproval={(id) => rejectApproval.mutate(id)}
+				/>
+				{(error || forkAgent.isError || updateChatToolPolicy.isError) && (
+					<p className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+						{error ??
+							(forkAgent.error as Error | undefined)?.message ??
+							(updateChatToolPolicy.error as Error | undefined)?.message}
+					</p>
+				)}
+				<ChatInput
+					onSend={sendMessageAndCheckApprovals}
+					disabled={isStreaming}
+					workspaceId={workspaceId}
+					modelId={agentQuery.data?.modelId ?? chat?.modelId}
+					toolSelection={toolSelection}
+					onToolSelectionChange={handleToolSelectionChange}
+					chatToolPolicy={chatToolPolicy}
+					onChatToolPolicyChange={handleChatToolPolicyChange}
+					attachedFile={attachedFile}
+					onAttachedFileChange={setAttachedFile}
+					messages={messagesQuery.data ?? []}
+					assistantQuestion={pendingQuestion}
+					assistantPrompt={pendingPrompt}
+				/>
+			</div>
 		</div>
 	);
 }

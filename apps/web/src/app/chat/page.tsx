@@ -234,6 +234,7 @@ export default function ChatLandingPage() {
 									onVoiceResult={(text) =>
 										setMessage((prev) => (prev ? `${prev} ${text}` : text))
 									}
+									showContextWindow={false}
 								/>
 							</div>
 							<button
