@@ -33,12 +33,17 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
+  // React 19 supports `ref` as a plain prop on function components (no
+  // forwardRef needed) — declared explicitly so components like the shadcn
+  // sidebar block, which forward a ref onto <Button>, still type-check.
+  ref?: React.Ref<HTMLButtonElement>;
 }
 
-function Button({ className, variant, size, asChild = false, ...props }: ButtonProps) {
+function Button({ className, variant, size, asChild = false, ref, ...props }: ButtonProps) {
   const Comp = asChild ? Slot : "button";
   return (
     <Comp
+      ref={ref}
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}

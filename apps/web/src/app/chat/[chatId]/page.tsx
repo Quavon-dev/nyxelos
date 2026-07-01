@@ -18,8 +18,10 @@ export default function ChatPage() {
 
   const { sendMessage, streamingMessage, isStreaming } = useChatStream(chatId);
 
+  // 3.5rem matches the app header's fixed height (h-14) — the shell no
+  // longer gives this page the full viewport, just what's left below it.
   return (
-    <div className="mx-auto flex h-screen max-w-2xl flex-col p-4">
+    <div className="mx-auto flex h-[calc(100svh-3.5rem)] max-w-2xl flex-col p-4">
       <MessageList messages={messagesQuery.data ?? []} streamingMessage={streamingMessage} />
       <ChatInput onSend={sendMessage} disabled={isStreaming} />
     </div>

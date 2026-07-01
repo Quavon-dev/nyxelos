@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { createLocalDataBackend } from "./backends/index.ts";
 import type {
   CalendarEvent,
   CompanionStatus,
@@ -10,7 +11,6 @@ import type {
   SearchContactsInput,
   SearchPhotosInput,
 } from "./contracts.ts";
-import { createLocalDataBackend } from "./backends/index.ts";
 
 function summarizeEvents(events: CalendarEvent[]): string {
   if (events.length === 0) return "No matching events found.";
@@ -153,7 +153,10 @@ async function main(): Promise<void> {
       description:
         "Search local macOS contacts by name, organization, email, or phone number. Uses Contacts.framework when available and an AppleScript fallback otherwise.",
       inputSchema: {
-        query: z.string().min(1).describe("Search text for names, company names, email addresses, or phone numbers."),
+        query: z
+          .string()
+          .min(1)
+          .describe("Search text for names, company names, email addresses, or phone numbers."),
         limit: z.number().int().min(1).max(200).optional().describe("Maximum number of contacts."),
         includeNotes: z
           .boolean()
@@ -202,7 +205,10 @@ async function main(): Promise<void> {
           .optional()
           .describe("Optional inclusive ISO-8601 end date filter."),
         limit: z.number().int().min(1).max(200).optional().describe("Maximum number of photos."),
-        includeHidden: z.boolean().optional().describe("Include hidden assets when the backend supports it."),
+        includeHidden: z
+          .boolean()
+          .optional()
+          .describe("Include hidden assets when the backend supports it."),
       },
     },
     async (rawInput: SearchPhotosInput = {}) => {

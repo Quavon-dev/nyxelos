@@ -40,10 +40,14 @@ async function runOsascript(script: string): Promise<string> {
 }
 
 async function runMdFind(query: string): Promise<string[]> {
-  const { stdout } = await execFileAsync("mdfind", ["-onlyin", `${process.env.HOME}/Pictures`, query], {
-    timeout: 30_000,
-    maxBuffer: 10 * 1024 * 1024,
-  });
+  const { stdout } = await execFileAsync(
+    "mdfind",
+    ["-onlyin", `${process.env.HOME}/Pictures`, query],
+    {
+      timeout: 30_000,
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
 
   return stdout
     .split("\n")
@@ -204,16 +208,18 @@ export class FallbackBackend implements LocalDataBackend {
 
     const output = await runOsascript(script);
 
-    return splitRecords(output).map(([id, calendarName, title, start, end, location, notes, allDay]) => ({
-      id: id || `${calendarName}-${title}-${start}`,
-      calendarName: calendarName || "Calendar",
-      title: title || "(untitled)",
-      start: isoDate(start) ?? start ?? "",
-      end: isoDate(end) ?? end ?? "",
-      location: location || null,
-      notes: notes || null,
-      allDay: allDay === "true",
-    }));
+    return splitRecords(output).map(
+      ([id, calendarName, title, start, end, location, notes, allDay]) => ({
+        id: id || `${calendarName}-${title}-${start}`,
+        calendarName: calendarName || "Calendar",
+        title: title || "(untitled)",
+        start: isoDate(start) ?? start ?? "",
+        end: isoDate(end) ?? end ?? "",
+        location: location || null,
+        notes: notes || null,
+        allDay: allDay === "true",
+      }),
+    );
   }
 
   async searchContacts(input: Required<SearchContactsInput>): Promise<ContactRecord[]> {
@@ -278,18 +284,22 @@ export class FallbackBackend implements LocalDataBackend {
 
     const output = await runOsascript(script);
 
-    return splitRecords(output).map(([id, fullName, organization, emails, phoneNumbers, notes]) => ({
-      id: id || fullName || crypto.randomUUID(),
-      fullName: fullName || "(unnamed contact)",
-      organization: organization || null,
-      emails: emails ? emails.split(", ").filter(Boolean) : [],
-      phoneNumbers: phoneNumbers ? phoneNumbers.split(", ").filter(Boolean) : [],
-      notes: notes || null,
-    }));
+    return splitRecords(output).map(
+      ([id, fullName, organization, emails, phoneNumbers, notes]) => ({
+        id: id || fullName || crypto.randomUUID(),
+        fullName: fullName || "(unnamed contact)",
+        organization: organization || null,
+        emails: emails ? emails.split(", ").filter(Boolean) : [],
+        phoneNumbers: phoneNumbers ? phoneNumbers.split(", ").filter(Boolean) : [],
+        notes: notes || null,
+      }),
+    );
   }
 
   async searchPhotos(input: Required<SearchPhotosInput>): Promise<PhotoRecord[]> {
-    const filters: string[] = ['(kMDItemContentTypeTree == "public.image" || kMDItemContentTypeTree == "public.movie")'];
+    const filters: string[] = [
+      '(kMDItemContentTypeTree == "public.image" || kMDItemContentTypeTree == "public.movie")',
+    ];
 
     if (input.query) {
       const escaped = input.query.replace(/"/g, '\\"');
@@ -305,7 +315,9 @@ export class FallbackBackend implements LocalDataBackend {
     }
 
     const paths = await runMdFind(filters.join(" && "));
-    const rows = await Promise.all(paths.slice(0, input.limit).map((path) => runMdls(path).then((meta) => ({ path, meta }))));
+    const rows = await Promise.all(
+      paths.slice(0, input.limit).map((path) => runMdls(path).then((meta) => ({ path, meta }))),
+    );
 
     return rows.map(({ path, meta }, index) => ({
       id: path,
@@ -316,7 +328,10 @@ export class FallbackBackend implements LocalDataBackend {
       height: meta.kMDItemPixelHeight ? Number(meta.kMDItemPixelHeight) : null,
       favorite: null,
       hidden: null,
-      mediaType: path.toLowerCase().endsWith(".mov") || path.toLowerCase().endsWith(".mp4") ? "video" : "image",
+      mediaType:
+        path.toLowerCase().endsWith(".mov") || path.toLowerCase().endsWith(".mp4")
+          ? "video"
+          : "image",
       path,
     }));
   }

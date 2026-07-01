@@ -38,7 +38,11 @@ export function createSqliteRepository(filePath: string): DbRepository {
     },
 
     async getInstallation() {
-      const row = db.select().from(schema.installation).where(eq(schema.installation.id, "main")).get();
+      const row = db
+        .select()
+        .from(schema.installation)
+        .where(eq(schema.installation.id, "main"))
+        .get();
       return row ?? null;
     },
 

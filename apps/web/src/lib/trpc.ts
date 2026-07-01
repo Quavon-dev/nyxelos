@@ -351,7 +351,9 @@ type NyxelTrpcClient = {
       query(input: { workspaceId: string }): Promise<KnowledgeBaseGraph>;
     };
     runDocsAgent: {
-      mutate(input: { workspaceId: string }): Promise<{ ok: boolean; skipped: boolean; notePath?: string }>;
+      mutate(input: {
+        workspaceId: string;
+      }): Promise<{ ok: boolean; skipped: boolean; notePath?: string }>;
     };
   };
 };

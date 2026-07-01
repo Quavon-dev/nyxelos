@@ -1,6 +1,6 @@
-import type { LocalDataBackend } from "./types.ts";
 import { FallbackBackend } from "./fallback.ts";
 import { NativeBridgeBackend, resolveNativeBridgePath } from "./native-bridge.ts";
+import type { LocalDataBackend } from "./types.ts";
 
 export async function createLocalDataBackend(): Promise<LocalDataBackend> {
   const preference = (process.env.NYXEL_COMPANION_BACKEND ?? "auto").toLowerCase();

@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { trpcClient, type InstallationMode } from "@/lib/trpc";
+import { type InstallationMode, trpcClient } from "@/lib/trpc";
 
 type InstallForm = {
   mode: InstallationMode;
@@ -30,7 +30,8 @@ const MODE_COPY: Record<
   },
   server: {
     title: "Server mode",
-    description: "Shared deployment with a domain, PostgreSQL, TLS, and reverse proxying via Caddy.",
+    description:
+      "Shared deployment with a domain, PostgreSQL, TLS, and reverse proxying via Caddy.",
     database: "PostgreSQL container",
     network: "HTTPS via Caddy on your own domain",
   },
@@ -274,110 +275,67 @@ export default function HomePage() {
   const workspaceId = installationQuery.data.record?.primaryWorkspaceId;
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(178,245,234,0.45),_transparent_30%),linear-gradient(180deg,_#f7faf8_0%,_#edf3ef_100%)] p-6 md:p-10">
-      <div className="mx-auto max-w-5xl space-y-6">
-        <section className="grid gap-4 md:grid-cols-[1.3fr_0.7fr]">
-          <Card className="border-white/60 bg-white/82 p-6 backdrop-blur">
-            <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">
-              {installationQuery.data.record?.mode === "server" ? "Server mode" : "PC mode"}
-            </p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-5xl">Nyxel is installed.</h1>
-            <p className="mt-3 max-w-2xl text-muted-foreground">
-              The instance is bound to{" "}
-              <span className="font-medium text-foreground">
-                {installationQuery.data.record?.appUrl ?? installationQuery.data.defaultAppUrl}
-              </span>
-              . The rest of the stack can now assume a stable owner and workspace.
-            </p>
-            <div className="mt-5 flex flex-wrap gap-3">
-              <Button disabled={startChat.isPending} onClick={() => startChat.mutate()}>
-                {startChat.isPending ? "Starting…" : "Start first chat"}
+    <div className="mx-auto w-full max-w-5xl space-y-6 p-8">
+      <section className="grid gap-4 md:grid-cols-[1.3fr_0.7fr]">
+        <Card className="p-6">
+          <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">
+            {installationQuery.data.record?.mode === "server" ? "Server mode" : "PC mode"}
+          </p>
+          <h1 className="mt-3 text-2xl font-semibold tracking-tight">Overview</h1>
+          <p className="mt-3 max-w-2xl text-muted-foreground">
+            The instance is bound to{" "}
+            <span className="font-medium text-foreground">
+              {installationQuery.data.record?.appUrl ?? installationQuery.data.defaultAppUrl}
+            </span>
+            .
+          </p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Button disabled={startChat.isPending} onClick={() => startChat.mutate()}>
+              {startChat.isPending ? "Starting…" : "Start first chat"}
+            </Button>
+            {workspaceId && (
+              <Button asChild variant="outline">
+                <Link href={`/workspace/${workspaceId}/settings`}>Open workspace settings</Link>
               </Button>
-              {workspaceId && (
-                <Button asChild variant="outline">
-                  <Link href={`/workspace/${workspaceId}/settings`}>Open workspace settings</Link>
-                </Button>
-              )}
-            </div>
-            {startChat.isError && (
-              <p className="mt-3 text-sm text-destructive">{(startChat.error as Error).message}</p>
             )}
-          </Card>
-
-          <Card className="border-white/60 bg-white/70 p-6 backdrop-blur">
-            <p className="text-sm font-medium">Deployment summary</p>
-            <div className="mt-4 space-y-3 text-sm">
-              <p>Database driver: {installationQuery.data.driver}</p>
-              <p>Workspace id: {workspaceId}</p>
-              <p>Owner id: {installationQuery.data.record?.ownerUserId}</p>
-            </div>
-          </Card>
-        </section>
-
-        {workspaceId && (
-          <nav className="flex flex-wrap gap-4 text-sm">
-            <Link className="underline underline-offset-4" href={`/workspace/${workspaceId}/settings`}>
-              Custom instructions
-            </Link>
-            <Link className="underline underline-offset-4" href={`/workspace/${workspaceId}/agents`}>
-              Agents
-            </Link>
-            <Link
-              className="underline underline-offset-4"
-              href={`/workspace/${workspaceId}/mcp-servers`}
-            >
-              MCP servers
-            </Link>
-            <Link
-              className="underline underline-offset-4"
-              href={`/workspace/${workspaceId}/automations`}
-            >
-              Automations
-            </Link>
-            <Link
-              className="underline underline-offset-4"
-              href={`/workspace/${workspaceId}/approvals`}
-            >
-              Approvals
-            </Link>
-            <Link
-              className="underline underline-offset-4"
-              href={`/workspace/${workspaceId}/audit-log`}
-            >
-              Audit log
-            </Link>
-            <Link
-              className="underline underline-offset-4"
-              href={`/workspace/${workspaceId}/knowledge-base`}
-            >
-              Knowledge base
-            </Link>
-          </nav>
-        )}
-
-        <Card className="border-white/60 bg-white/82 p-6 backdrop-blur">
-          <h2 className="font-medium">Detected models</h2>
-          {modelsQuery.isLoading && (
-            <p className="mt-2 text-sm text-muted-foreground">Checking for local and cloud models…</p>
+          </div>
+          {startChat.isError && (
+            <p className="mt-3 text-sm text-destructive">{(startChat.error as Error).message}</p>
           )}
-          {modelsQuery.data?.length === 0 && (
-            <p className="mt-2 text-sm text-muted-foreground">
-              No models detected. Start Ollama/LM Studio or set an API key for a cloud provider.
-            </p>
-          )}
-          <ul className="mt-4 space-y-2">
-            {modelsQuery.data?.map((model) => (
-              <li
-                key={model.id}
-                className="flex items-center justify-between rounded-lg border bg-background/70 px-4 py-3 text-sm"
-              >
-                <span>{model.label}</span>
-                <span className="text-muted-foreground">{model.kind}</span>
-              </li>
-            ))}
-          </ul>
         </Card>
-      </div>
-    </main>
+
+        <Card className="p-6">
+          <p className="text-sm font-medium">Deployment summary</p>
+          <div className="mt-4 space-y-3 text-sm">
+            <p>Database driver: {installationQuery.data.driver}</p>
+            <p className="truncate">Workspace id: {workspaceId}</p>
+            <p className="truncate">Owner id: {installationQuery.data.record?.ownerUserId}</p>
+          </div>
+        </Card>
+      </section>
+
+      <Card className="p-6">
+        <h2 className="font-medium">Detected models</h2>
+        {modelsQuery.isLoading && (
+          <p className="mt-2 text-sm text-muted-foreground">Checking for local and cloud models…</p>
+        )}
+        {modelsQuery.data?.length === 0 && (
+          <p className="mt-2 text-sm text-muted-foreground">
+            No models detected. Start Ollama/LM Studio or set an API key for a cloud provider.
+          </p>
+        )}
+        <ul className="mt-4 space-y-2">
+          {modelsQuery.data?.map((model) => (
+            <li
+              key={model.id}
+              className="flex items-center justify-between rounded-lg border px-4 py-3 text-sm"
+            >
+              <span>{model.label}</span>
+              <span className="text-muted-foreground">{model.kind}</span>
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </div>
   );
 }

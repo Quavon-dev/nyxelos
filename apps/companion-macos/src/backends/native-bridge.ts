@@ -1,8 +1,8 @@
-import { access } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { constants } from "node:fs";
+import { access } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type {
   CalendarEvent,

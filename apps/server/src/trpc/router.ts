@@ -1,14 +1,14 @@
 import { getDb } from "@nyxel/db";
 import { listAvailableModels } from "@nyxel/model-providers";
 import { z } from "zod";
+import { resolveApprovalDecision } from "../approvals";
+import { auth } from "../auth";
 import {
   buildKnowledgeBaseGraph,
   getKnowledgeBaseOverview,
   listKnowledgeBaseDocuments,
   runDocsAgentForWorkspace,
 } from "../knowledge-base";
-import { resolveApprovalDecision } from "../approvals";
-import { auth } from "../auth";
 import { ensureMcpServerConnected, mcpManager } from "../mcp-runtime";
 import { computeNextRunAt, runAutomation } from "../scheduler";
 import { skillRegistry } from "../skills-registry";

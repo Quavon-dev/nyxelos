@@ -1,7 +1,7 @@
-import { getDb } from "@nyxel/db";
-import type { AuditLogRecord } from "@nyxel/db";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import type { AuditLogRecord } from "@nyxel/db";
+import { getDb } from "@nyxel/db";
 import { logAudit } from "./audit";
 
 const KNOWLEDGE_BASE_POLL_INTERVAL_MS = 60_000;
@@ -114,7 +114,10 @@ async function loadVaultDocuments(vaultPath: string): Promise<KnowledgeBaseDocum
   );
 }
 
-async function pingObsidianRestApi(url: string, apiKey: string | null): Promise<{
+async function pingObsidianRestApi(
+  url: string,
+  apiKey: string | null,
+): Promise<{
   reachable: boolean;
   error: string | null;
 }> {
@@ -204,18 +207,16 @@ function summarizeAuditEntry(entry: AuditLogRecord) {
 
 export async function getKnowledgeBaseOverview(workspaceId: string) {
   const db = getDb();
-  const config =
-    (await db.getKnowledgeBaseConfig(workspaceId)) ??
-    {
-      workspaceId,
-      vaultPath: "knowledge-base",
-      obsidianRestUrl: "http://127.0.0.1:27124/",
-      obsidianApiKey: null,
-      docsAgentEnabled: true,
-      lastDocsSyncAt: null,
-      lastDocsSyncError: null,
-      updatedAt: new Date(0),
-    };
+  const config = (await db.getKnowledgeBaseConfig(workspaceId)) ?? {
+    workspaceId,
+    vaultPath: "knowledge-base",
+    obsidianRestUrl: "http://127.0.0.1:27124/",
+    obsidianApiKey: null,
+    docsAgentEnabled: true,
+    lastDocsSyncAt: null,
+    lastDocsSyncError: null,
+    updatedAt: new Date(0),
+  };
 
   const absoluteVaultPath = resolveVaultPath(config.vaultPath);
   const documents = await loadVaultDocuments(config.vaultPath);
@@ -243,7 +244,9 @@ export async function getKnowledgeBaseOverview(workspaceId: string) {
   };
 }
 
-export async function listKnowledgeBaseDocuments(workspaceId: string): Promise<KnowledgeBaseDocument[]> {
+export async function listKnowledgeBaseDocuments(
+  workspaceId: string,
+): Promise<KnowledgeBaseDocument[]> {
   const config = await getDb().getKnowledgeBaseConfig(workspaceId);
   return loadVaultDocuments(config?.vaultPath ?? "knowledge-base");
 }
@@ -320,7 +323,11 @@ export async function runDocsAgentForWorkspace(
 
     const absoluteVaultPath = resolveVaultPath(config.vaultPath);
     const noteDate = new Date().toISOString().slice(0, 10);
-    const notePath = path.join(absoluteVaultPath, "02-Dev-Log", `${noteDate}-phase-3-implementation.md`);
+    const notePath = path.join(
+      absoluteVaultPath,
+      "02-Dev-Log",
+      `${noteDate}-phase-3-implementation.md`,
+    );
     const timestamp = new Date().toLocaleString("en-US", {
       dateStyle: "medium",
       timeStyle: "short",

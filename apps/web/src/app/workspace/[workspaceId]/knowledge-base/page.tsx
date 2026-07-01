@@ -55,7 +55,12 @@ function GraphPreview({
         {positioned.map((node) => (
           <g key={node.id}>
             <circle cx={node.x} cy={node.y} r="10" fill="currentColor" fillOpacity="0.85" />
-            <text x={node.x} y={node.y - 16} textAnchor="middle" className="fill-current text-[10px]">
+            <text
+              x={node.x}
+              y={node.y - 16}
+              textAnchor="middle"
+              className="fill-current text-[10px]"
+            >
               {node.label.length > 22 ? `${node.label.slice(0, 22)}…` : node.label}
             </text>
           </g>
@@ -153,7 +158,9 @@ export default function KnowledgeBasePage() {
             value={obsidianApiKey}
             onChange={(e) => setObsidianApiKey(e.target.value)}
             placeholder={
-              overview?.config.obsidianApiKeySet ? "API key stored; enter to replace" : "Obsidian API key"
+              overview?.config.obsidianApiKeySet
+                ? "API key stored; enter to replace"
+                : "Obsidian API key"
             }
             type="password"
           />
@@ -168,10 +175,17 @@ export default function KnowledgeBasePage() {
           </label>
 
           <div className="flex gap-2">
-            <Button onClick={() => saveConfig.mutate()} disabled={saveConfig.isPending || !vaultPath}>
+            <Button
+              onClick={() => saveConfig.mutate()}
+              disabled={saveConfig.isPending || !vaultPath}
+            >
               {saveConfig.isPending ? "Saving…" : "Save config"}
             </Button>
-            <Button variant="outline" onClick={() => runDocsAgent.mutate()} disabled={runDocsAgent.isPending}>
+            <Button
+              variant="outline"
+              onClick={() => runDocsAgent.mutate()}
+              disabled={runDocsAgent.isPending}
+            >
               {runDocsAgent.isPending ? "Running…" : "Run docs agent now"}
             </Button>
           </div>
@@ -196,7 +210,8 @@ export default function KnowledgeBasePage() {
             Last docs sync: {formatDate(overview?.config.lastDocsSyncAt ?? null)}
           </div>
           <div className="text-sm text-muted-foreground">
-            Obsidian REST: {overview?.obsidian.reachable ? "reachable" : overview?.obsidian.error ?? "checking"}
+            Obsidian REST:{" "}
+            {overview?.obsidian.reachable ? "reachable" : (overview?.obsidian.error ?? "checking")}
           </div>
           {overview?.config.lastDocsSyncError && (
             <div className="text-sm text-destructive">{overview.config.lastDocsSyncError}</div>
@@ -212,7 +227,10 @@ export default function KnowledgeBasePage() {
           </p>
         </div>
         {graphQuery.data ? (
-          <GraphPreview nodes={graphQuery.data.nodes.slice(0, 20)} edges={graphQuery.data.edges.slice(0, 40)} />
+          <GraphPreview
+            nodes={graphQuery.data.nodes.slice(0, 20)}
+            edges={graphQuery.data.edges.slice(0, 40)}
+          />
         ) : (
           <p className="text-sm text-muted-foreground">Loading graph…</p>
         )}
