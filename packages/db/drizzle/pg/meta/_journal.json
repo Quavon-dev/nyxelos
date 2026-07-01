@@ -169,6 +169,13 @@
       "when": 1783000011001,
       "tag": "0023_mcp_server_oauth_state",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783000012001,
+      "tag": "0023_model_installation_disabled_ids",
+      "breakpoints": true
     }
   ]
 }

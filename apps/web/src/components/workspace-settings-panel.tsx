@@ -1,7 +1,7 @@
 "use client";
 
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, NotebookPen, Plug, Search, Settings2, ShieldCheck, Smartphone } from "lucide-react";
+import { Bot, NotebookPen, Plug, Search, Settings2, ShieldCheck, Smartphone, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -478,6 +478,23 @@ export function WorkspaceSettingsPanel({
     },
   });
 
+  const invalidateModelQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ["models", "installations", workspaceId] });
+    queryClient.invalidateQueries({ queryKey: ["models", "list", workspaceId] });
+  };
+
+  const setModelEnabled = useMutation({
+    mutationFn: (input: { id: string; modelId: string; enabled: boolean }) =>
+      trpcClient.models.setModelEnabled.mutate(input),
+    onSuccess: invalidateModelQueries,
+  });
+
+  const removeModel = useMutation({
+    mutationFn: (input: { id: string; modelId: string }) =>
+      trpcClient.models.removeModelFromInstallation.mutate(input),
+    onSuccess: invalidateModelQueries,
+  });
+
   const activeSection = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0];
 
   const filteredSections = useMemo(() => {
@@ -828,15 +845,49 @@ export function WorkspaceSettingsPanel({
                     key={provider.id}
                     className="flex flex-col gap-3 rounded-lg border-l-2 border-l-emerald-500 border-y border-r p-3 md:flex-row md:items-start md:justify-between"
                   >
-                    <div className="space-y-1 text-sm">
+                    <div className="w-full space-y-1 text-sm">
                       <div className="font-medium">{provider.label}</div>
                       <div className="text-muted-foreground">{provider.baseUrl}</div>
-                      <div className="flex flex-wrap gap-1 pt-1">
-                        {provider.modelIds.map((id) => (
-                          <Badge key={id} className="bg-emerald-500/10 text-emerald-600">
-                            {id}
-                          </Badge>
-                        ))}
+                      <div className="flex flex-col gap-1 pt-1">
+                        {provider.modelIds.map((modelId) => {
+                          const isEnabled = !provider.disabledModelIds.includes(modelId);
+                          return (
+                            <div
+                              key={modelId}
+                              className="flex items-center gap-2 rounded-md border px-2 py-1"
+                            >
+                              <Switch
+                                checked={isEnabled}
+                                onCheckedChange={(checked) =>
+                                  setModelEnabled.mutate({
+                                    id: provider.id,
+                                    modelId,
+                                    enabled: checked,
+                                  })
+                                }
+                              />
+                              <span
+                                className={cn(
+                                  "text-xs",
+                                  !isEnabled && "text-muted-foreground line-through",
+                                )}
+                              >
+                                {modelId}
+                              </span>
+                              <button
+                                type="button"
+                                className="ml-auto text-muted-foreground hover:text-destructive"
+                                onClick={() =>
+                                  removeModel.mutate({ id: provider.id, modelId })
+                                }
+                                disabled={removeModel.isPending}
+                                aria-label={`Remove ${modelId}`}
+                              >
+                                <X className="size-3.5" />
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                     <Button
@@ -845,7 +896,7 @@ export function WorkspaceSettingsPanel({
                       onClick={() => removeProvider.mutate({ id: provider.id })}
                       disabled={removeProvider.isPending}
                     >
-                      Remove
+                      Remove all
                     </Button>
                   </div>
                 ))}
@@ -865,7 +916,16 @@ export function WorkspaceSettingsPanel({
                   kind="claude_cli"
                   title="Claude CLI"
                   description="Sign in once, use Claude models directly."
-                  presets={["default", "claude-sonnet-5", "claude-opus-4-8", "claude-fable-5"]}
+                  presets={[
+                    "default",
+                    "claude-fable-5",
+                    "claude-opus-4-8",
+                    "claude-opus-4-7",
+                    "claude-opus-4-6",
+                    "claude-sonnet-5",
+                    "claude-sonnet-4-6",
+                    "claude-haiku-4-5",
+                  ]}
                   queryClient={queryClient}
                 />
                 <CliProviderCard

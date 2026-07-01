@@ -435,6 +435,39 @@ export const appRouter = router({
 		deleteInstallation: publicProcedure
 			.input(z.object({ id: z.string() }))
 			.mutation(({ input }) => getDb().deleteModelInstallation(input.id)),
+		// Per-model controls within an installation, applicable to every
+		// provider kind (LM Studio, Claude CLI, Codex CLI, ...) — lets a user
+		// hide/show or permanently drop one model without touching the
+		// installation's connection/auth itself.
+		setModelEnabled: publicProcedure
+			.input(z.object({ id: z.string(), modelId: z.string(), enabled: z.boolean() }))
+			.mutation(async ({ input }) => {
+				const db = getDb();
+				const installation = await db.getModelInstallation(input.id);
+				if (!installation) throw new Error(`Model installation not found: ${input.id}`);
+				const disabledModelIds = input.enabled
+					? installation.disabledModelIds.filter((id) => id !== input.modelId)
+					: Array.from(new Set([...installation.disabledModelIds, input.modelId]));
+				return db.updateModelInstallation({ id: input.id, disabledModelIds });
+			}),
+		removeModelFromInstallation: publicProcedure
+			.input(z.object({ id: z.string(), modelId: z.string() }))
+			.mutation(async ({ input }) => {
+				const db = getDb();
+				const installation = await db.getModelInstallation(input.id);
+				if (!installation) throw new Error(`Model installation not found: ${input.id}`);
+				const modelIds = installation.modelIds.filter((id) => id !== input.modelId);
+				const disabledModelIds = installation.disabledModelIds.filter(
+					(id) => id !== input.modelId,
+				);
+				// An installation with no models left is just clutter — drop it
+				// instead of leaving an empty "Claude CLI"/"LM Studio" row behind.
+				if (modelIds.length === 0) {
+					await db.deleteModelInstallation(input.id);
+					return null;
+				}
+				return db.updateModelInstallation({ id: input.id, modelIds, disabledModelIds });
+			}),
 		// Local CLI providers (claude_cli/codex_cli) — see
 		// apps/server/src/cli-providers.ts. Auth state is host-wide, not
 		// per-workspace, so these three take no workspaceId.

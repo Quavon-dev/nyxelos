@@ -69,6 +69,7 @@ export async function scanProviderImportSources(): Promise<ProviderImportSource[
         baseUrl: "https://api.anthropic.com",
         apiKey: anthropicKey,
         modelIds: getDefaultModelIdsForProviderKind("anthropic"),
+        disabledModelIds: [],
       }),
     );
   }
@@ -82,6 +83,7 @@ export async function scanProviderImportSources(): Promise<ProviderImportSource[
         baseUrl: "https://api.openai.com/v1",
         apiKey: openaiKey,
         modelIds: getDefaultModelIdsForProviderKind("openai"),
+        disabledModelIds: [],
       }),
     );
   }
@@ -101,6 +103,7 @@ export async function scanProviderImportSources(): Promise<ProviderImportSource[
           baseUrl: "https://api.openai.com/v1",
           apiKey: codexOpenAiKey,
           modelIds: getDefaultModelIdsForProviderKind("openai"),
+          disabledModelIds: [],
         }),
       );
     } else if (codexAuth.tokens?.id_token) {
@@ -170,6 +173,7 @@ export async function scanProviderImportSources(): Promise<ProviderImportSource[
         baseUrl: lmStudioDetected.baseUrl,
         apiKey: getLmStudioApiKey() ?? null,
         modelIds: lmStudioDetected.modelIds,
+        disabledModelIds: [],
       },
     });
   } else if (await exists(join(HOME, ".lmstudio"))) {

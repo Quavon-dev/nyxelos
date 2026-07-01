@@ -162,6 +162,13 @@
       "when": 1783000010000,
       "tag": "0022_mcp_server_oauth_state",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1783000011000,
+      "tag": "0022_model_installation_disabled_ids",
+      "breakpoints": true
     }
   ]
 }

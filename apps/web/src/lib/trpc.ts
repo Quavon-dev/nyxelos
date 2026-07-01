@@ -562,6 +562,8 @@ export type ModelInstallationSummary = {
 	baseUrl: string;
 	apiKey: string | null;
 	modelIds: string[];
+	/** Subset of modelIds hidden from the model picker without removing them. */
+	disabledModelIds: string[];
 	enabled: boolean;
 	createdAt: Date;
 	updatedAt: Date;
@@ -647,6 +649,16 @@ type NyxelTrpcClient = {
 		};
 		deleteInstallation: {
 			mutate(input: { id: string }): Promise<void>;
+		};
+		setModelEnabled: {
+			mutate(input: {
+				id: string;
+				modelId: string;
+				enabled: boolean;
+			}): Promise<ModelInstallationSummary>;
+		};
+		removeModelFromInstallation: {
+			mutate(input: { id: string; modelId: string }): Promise<ModelInstallationSummary | null>;
 		};
 		cliStatus: {
 			query(input: { providerKind: CliProviderKind }): Promise<CliAuthStatus>;

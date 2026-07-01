@@ -9,6 +9,7 @@ const installedProviders = [
 		baseUrl: "https://api.anthropic.com",
 		apiKey: null,
 		modelIds: ["claude-sonnet-5"],
+		disabledModelIds: [],
 		enabled: true,
 	},
 ];

@@ -26,6 +26,8 @@ export interface InstalledModelProvider {
   baseUrl: string;
   apiKey: string | null;
   modelIds: string[];
+  /** Subset of modelIds hidden from the model picker without removing them. */
+  disabledModelIds: string[];
   enabled: boolean;
 }
 
@@ -47,6 +49,30 @@ const CLOUD_MODELS: CloudModelDefinition[] = [
     label: "Claude Fable 5",
     provider: "anthropic",
     modelName: "claude-fable-5",
+  },
+  {
+    id: "anthropic/claude-opus-4-7",
+    label: "Claude Opus 4.7",
+    provider: "anthropic",
+    modelName: "claude-opus-4-7",
+  },
+  {
+    id: "anthropic/claude-opus-4-6",
+    label: "Claude Opus 4.6",
+    provider: "anthropic",
+    modelName: "claude-opus-4-6",
+  },
+  {
+    id: "anthropic/claude-sonnet-4-6",
+    label: "Claude Sonnet 4.6",
+    provider: "anthropic",
+    modelName: "claude-sonnet-4-6",
+  },
+  {
+    id: "anthropic/claude-haiku-4-5",
+    label: "Claude Haiku 4.5",
+    provider: "anthropic",
+    modelName: "claude-haiku-4-5",
   },
 ];
 
@@ -76,6 +102,7 @@ export function toInstalledModelProvider(installation: {
   baseUrl: string;
   apiKey: string | null;
   modelIds: string[];
+  disabledModelIds: string[];
   enabled: boolean;
 }): InstalledModelProvider {
   return {
@@ -85,6 +112,7 @@ export function toInstalledModelProvider(installation: {
     baseUrl: installation.baseUrl,
     apiKey: installation.apiKey,
     modelIds: installation.modelIds,
+    disabledModelIds: installation.disabledModelIds,
     enabled: installation.enabled,
   };
 }
@@ -105,18 +133,20 @@ export async function listAvailableModels(
   const custom: ModelSummary[] = installedProviders
     .filter((provider) => provider.enabled)
     .flatMap((provider) =>
-      provider.modelIds.map((modelId) => ({
-        id: `custom:${provider.id}/${modelId}`,
-        label: `${modelId} (${provider.label})`,
-        kind:
-          provider.providerKind === "claude_cli" || provider.providerKind === "codex_cli"
-            ? ("local" as const)
-            : provider.providerKind === "openai_compatible"
-              ? ("custom" as const)
-              : ("cloud" as const),
-        provider: provider.providerKind,
-        providerLabel: provider.label,
-      })),
+      provider.modelIds
+        .filter((modelId) => !provider.disabledModelIds.includes(modelId))
+        .map((modelId) => ({
+          id: `custom:${provider.id}/${modelId}`,
+          label: `${modelId} (${provider.label})`,
+          kind:
+            provider.providerKind === "claude_cli" || provider.providerKind === "codex_cli"
+              ? ("local" as const)
+              : provider.providerKind === "openai_compatible"
+                ? ("custom" as const)
+                : ("cloud" as const),
+          provider: provider.providerKind,
+          providerLabel: provider.label,
+        })),
     );
 
   const merged = [
@@ -280,9 +310,13 @@ function inferOpenAiCompatibleApiKey(prefix: string): string | undefined {
  * offer the sentinel and let the free-text field cover API-key accounts. */
 const CLAUDE_CLI_DEFAULT_MODELS = [
   CLI_DEFAULT_MODEL_SENTINEL,
-  "claude-sonnet-5",
-  "claude-opus-4-8",
   "claude-fable-5",
+  "claude-opus-4-8",
+  "claude-opus-4-7",
+  "claude-opus-4-6",
+  "claude-sonnet-5",
+  "claude-sonnet-4-6",
+  "claude-haiku-4-5",
 ];
 const CODEX_CLI_DEFAULT_MODELS = [CLI_DEFAULT_MODEL_SENTINEL];
 
