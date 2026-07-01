@@ -20,7 +20,8 @@
       "runtimeExecutable": "bun",
       "runtimeArgs": ["run", "--hot", "src/index.ts"],
       "cwd": "apps/server",
-      "port": 3001
+      "port": 3001,
+      "autoPort": true
     }
   ]
 }

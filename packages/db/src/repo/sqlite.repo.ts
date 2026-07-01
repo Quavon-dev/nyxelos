@@ -1816,6 +1816,15 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					...(patch.fixerAgentId !== undefined
 						? { fixerAgentId: patch.fixerAgentId }
 						: {}),
+					...(patch.reanalyzeCronExpression !== undefined
+						? { reanalyzeCronExpression: patch.reanalyzeCronExpression }
+						: {}),
+					...(patch.nextReanalyzeAt !== undefined
+						? { nextReanalyzeAt: patch.nextReanalyzeAt }
+						: {}),
+					...(patch.lastReanalyzeAt !== undefined
+						? { lastReanalyzeAt: patch.lastReanalyzeAt }
+						: {}),
 					updatedAt: new Date(),
 				})
 				.where(eq(schema.seoProject.id, id))
@@ -1823,6 +1832,19 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.get();
 			if (!row) throw new Error(`SEO project not found: ${id}`);
 			return row;
+		},
+
+		async listDueSeoProjects(now) {
+			return db
+				.select()
+				.from(schema.seoProject)
+				.where(
+					and(
+						isNotNull(schema.seoProject.reanalyzeCronExpression),
+						lte(schema.seoProject.nextReanalyzeAt, now),
+					),
+				)
+				.all();
 		},
 
 		async deleteSeoProject(id) {

@@ -21,7 +21,7 @@ export type McpTransport = "stdio" | "http";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 export type ApprovalKind = "skill" | "tool" | "mcp";
-export type AuditActor = "chat" | "automation" | "approval" | "delegate";
+export type AuditActor = "chat" | "automation" | "approval" | "delegate" | "extension";
 export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
 export type ChatToolMode = "default" | "automatic" | "auto";
 export type TaskStatus =
@@ -587,6 +587,9 @@ export const seoProject = sqliteTable("seo_project", {
 	fixerAgentId: text("fixer_agent_id").references(() => agent.id, {
 		onDelete: "set null",
 	}),
+	reanalyzeCronExpression: text("reanalyze_cron_expression"),
+	nextReanalyzeAt: integer("next_reanalyze_at", { mode: "timestamp" }),
+	lastReanalyzeAt: integer("last_reanalyze_at", { mode: "timestamp" }),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });

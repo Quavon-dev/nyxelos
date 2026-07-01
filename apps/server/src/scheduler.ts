@@ -6,6 +6,7 @@ import { CronExpressionParser } from "cron-parser";
 import { executeManagedTask } from "./agent-runtime";
 import { logAudit } from "./audit";
 import { notifyWorkspaceOwner } from "./push";
+import { runSeoAnalysis } from "./seo-analyzer";
 
 const POLL_INTERVAL_MS = 30_000;
 const REPO_ROOT = path.resolve(new URL("../../..", import.meta.url).pathname);
@@ -207,6 +208,37 @@ async function checkFileWatchAutomations(): Promise<void> {
 }
 
 /**
+ * Checks every SEO project with a recurring re-analysis schedule whose
+ * nextReanalyzeAt has passed and re-runs the crawl+scan for it — a deliberate
+ * poll separate from listDueAutomations since a crawl/scan isn't an agent
+ * chat turn, so it doesn't belong in the automation table's agent-driven
+ * model. Failures are caught per-project so one broken schedule can't stall
+ * the others.
+ */
+async function checkDueSeoProjects(): Promise<void> {
+  const db = getDb();
+  let due: Awaited<ReturnType<typeof db.listDueSeoProjects>>;
+  try {
+    due = await db.listDueSeoProjects(new Date());
+  } catch (err) {
+    console.error("Scheduler: failed to query due SEO projects:", err);
+    return;
+  }
+  for (const project of due) {
+    try {
+      await runSeoAnalysis(project.id);
+      const now = new Date();
+      const nextReanalyzeAt = project.reanalyzeCronExpression
+        ? computeNextRunAt(project.reanalyzeCronExpression, now)
+        : null;
+      await db.updateSeoProject(project.id, { lastReanalyzeAt: now, nextReanalyzeAt });
+    } catch (err) {
+      console.error(`Scheduler: SEO re-analysis for "${project.domain}" (${project.id}) failed:`, err);
+    }
+  }
+}
+
+/**
  * Polls the automation table every 30s: cron automations whose nextRunAt has
  * passed run headlessly (one full completion, no client attached to stream
  * to — see runAutomation); file_watch automations are separately checked for
@@ -232,6 +264,7 @@ export function startScheduler(): () => void {
     }
 
     await checkFileWatchAutomations();
+    await checkDueSeoProjects();
   }, POLL_INTERVAL_MS);
 
   // Timers otherwise keep the process alive forever — unref lets a clean

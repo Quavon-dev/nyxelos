@@ -12,9 +12,11 @@ import {
   Library,
   MessageSquare,
   Plug,
+  Puzzle,
   ScrollText,
   Settings,
   Sparkles,
+  TrendingUp,
   Wrench,
 } from "lucide-react";
 import Link from "next/link";
@@ -39,6 +41,13 @@ import { trpcClient } from "@/lib/trpc";
 import { useInstallation } from "@/lib/use-installation";
 import { WorkspaceSettingsPanel } from "@/components/workspace-settings-panel";
 
+// Maps an ExtensionCatalogEntry.icon string (see apps/server/src/extensions.ts)
+// to the actual lucide component — keeps the catalog data serializable
+// instead of shipping component references over tRPC.
+const EXTENSION_ICON_MAP: Record<string, typeof Puzzle> = {
+  TrendingUp,
+};
+
 export function AppSidebar() {
   const pathname = usePathname();
   const installationQuery = useInstallation();
@@ -56,6 +65,31 @@ export function AppSidebar() {
     refetchInterval: 15_000,
   });
   const pendingCount = pendingApprovalsQuery.data?.length ?? 0;
+
+  // Installed + enabled extensions render as their own sidebar group below
+  // "Workspace" — see workspace-settings-panel.tsx's "Extensions" section for
+  // where they get installed.
+  const extensionCatalogQuery = useQuery({
+    queryKey: ["extensions", "catalog"],
+    queryFn: () => trpcClient.extensions.catalog.query(),
+  });
+  const installedExtensionsQuery = useQuery({
+    queryKey: ["extensions", "list", workspaceId],
+    queryFn: () => trpcClient.extensions.list.query({ workspaceId: workspaceId! }),
+    enabled: Boolean(workspaceId),
+  });
+  const extensionNavItems = (installedExtensionsQuery.data ?? [])
+    .filter((ext) => ext.enabled)
+    .map((ext) => {
+      const catalogEntry = extensionCatalogQuery.data?.find((e) => e.key === ext.key);
+      if (!catalogEntry || !workspaceId) return null;
+      return {
+        href: `/workspace/${workspaceId}/extensions/${catalogEntry.route}`,
+        label: catalogEntry.name,
+        icon: EXTENSION_ICON_MAP[catalogEntry.icon] ?? Puzzle,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
 
   const navItems = workspaceId
     ? [
@@ -129,6 +163,26 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {extensionNavItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Extensions</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {extensionNavItems.map((item) => (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton asChild isActive={pathname === item.href} tooltip={item.label}>
+                      <Link href={item.href}>
+                        <item.icon />
+                        <span>{item.label}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       {workspaceId && (

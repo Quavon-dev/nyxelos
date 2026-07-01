@@ -169,6 +169,20 @@
       "when": 1783000011000,
       "tag": "0022_model_installation_disabled_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1783000012000,
+      "tag": "0023_extensions_and_seo_analyzer",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1783000013000,
+      "tag": "0025_seo_project_reanalyze_schedule",
+      "breakpoints": true
     }
   ]
 }

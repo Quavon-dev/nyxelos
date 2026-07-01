@@ -17,7 +17,7 @@ export type McpTransport = "stdio" | "http";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 export type ApprovalKind = "skill" | "tool" | "mcp";
-export type AuditActor = "chat" | "automation" | "approval" | "delegate";
+export type AuditActor = "chat" | "automation" | "approval" | "delegate" | "extension";
 export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
 export type ChatToolMode = "default" | "automatic" | "auto";
 export type TaskStatus =
@@ -412,6 +412,9 @@ export interface SeoProjectRecord {
 	repoPath: string;
 	blogConfig: { dir: string; frontmatterStyle: string } | null;
 	fixerAgentId: string | null;
+	reanalyzeCronExpression: string | null;
+	nextReanalyzeAt: Date | null;
+	lastReanalyzeAt: Date | null;
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -919,9 +922,15 @@ export interface DbRepository {
 			repoPath?: string;
 			blogConfig?: { dir: string; frontmatterStyle: string } | null;
 			fixerAgentId?: string | null;
+			reanalyzeCronExpression?: string | null;
+			nextReanalyzeAt?: Date | null;
+			lastReanalyzeAt?: Date | null;
 		},
 	): Promise<SeoProjectRecord>;
 	deleteSeoProject(id: string): Promise<void>;
+	/** Enabled recurring re-analysis whose nextReanalyzeAt has passed — polled
+	 * by the scheduler's tick alongside due automations. */
+	listDueSeoProjects(now: Date): Promise<SeoProjectRecord[]>;
 
 	createSeoAnalysisRun(input: {
 		seoProjectId: string;

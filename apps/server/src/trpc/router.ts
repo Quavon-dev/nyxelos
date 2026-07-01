@@ -15,6 +15,7 @@ import {
 import { z } from "zod";
 import { resolveApprovalDecision } from "../approvals";
 import { auth } from "../auth";
+import { logAudit } from "../audit";
 import {
 	checkCliAuthStatus,
 	type CliProviderKind,
@@ -32,6 +33,13 @@ import {
 	runDocsAgentForWorkspace,
 } from "../knowledge-base";
 import { MCP_CONNECTOR_CATALOG } from "../mcp-connectors";
+import { EXTENSION_CATALOG, getExtensionCatalogEntry } from "../extensions";
+import {
+	dispatchSeoFix,
+	generateSeoBlogPost,
+	runSeoAnalysis,
+	validateRepoPath,
+} from "../seo-analyzer";
 import { writeMcpSecretFile } from "../mcp-secrets";
 import {
 	completeMcpServerAuthorization,
@@ -1283,6 +1291,162 @@ export const appRouter = router({
 				await completeMcpServerAuthorization(server, input.code);
 				return { ok: true };
 			}),
+	}),
+
+	extensions: router({
+		catalog: publicProcedure.query(() => EXTENSION_CATALOG),
+		list: publicProcedure
+			.input(z.object({ workspaceId: z.string() }))
+			.query(({ input }) =>
+				getDb().listExtensionsByWorkspace(input.workspaceId),
+			),
+		install: publicProcedure
+			.input(z.object({ workspaceId: z.string(), key: z.string() }))
+			.mutation(async ({ input }) => {
+				const catalogEntry = getExtensionCatalogEntry(input.key);
+				if (!catalogEntry) throw new Error(`Unknown extension: ${input.key}`);
+				const db = getDb();
+				const existing = await db.getExtensionByKey(
+					input.workspaceId,
+					input.key,
+				);
+				const record = existing
+					? await db.setExtensionEnabled(existing.id, true)
+					: await db.installExtension({
+							workspaceId: input.workspaceId,
+							key: input.key,
+						});
+				await logAudit({
+					workspaceId: input.workspaceId,
+					actor: "extension",
+					toolLabel: "extensions.install",
+					input: { key: input.key },
+					status: "success",
+				});
+				return record;
+			}),
+		setEnabled: publicProcedure
+			.input(z.object({ id: z.string(), enabled: z.boolean() }))
+			.mutation(({ input }) =>
+				getDb().setExtensionEnabled(input.id, input.enabled),
+			),
+		updateConfig: publicProcedure
+			.input(
+				z.object({ id: z.string(), config: z.record(z.string(), z.unknown()) }),
+			)
+			.mutation(({ input }) =>
+				getDb().updateExtensionConfig(input.id, input.config),
+			),
+		uninstall: publicProcedure
+			.input(z.object({ id: z.string() }))
+			.mutation(async ({ input }) => {
+				const db = getDb();
+				const existing = await db.getExtension(input.id);
+				await db.uninstallExtension(input.id);
+				if (existing) {
+					await logAudit({
+						workspaceId: existing.workspaceId,
+						actor: "extension",
+						toolLabel: "extensions.uninstall",
+						input: { key: existing.key },
+						status: "success",
+					});
+				}
+			}),
+	}),
+
+	seoAnalyzer: router({
+		listProjects: publicProcedure
+			.input(z.object({ workspaceId: z.string() }))
+			.query(({ input }) => getDb().listSeoProjectsByWorkspace(input.workspaceId)),
+		createProject: publicProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					domain: z.string().min(1),
+					repoPath: z.string().min(1),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				await validateRepoPath(input.repoPath);
+				const db = getDb();
+				const ext = await db.getExtensionByKey(input.workspaceId, "seo-analyzer");
+				if (!ext) {
+					throw new Error(
+						"The SEO/GEO/AEO Analyzer extension isn't installed in this workspace.",
+					);
+				}
+				return db.createSeoProject({
+					workspaceId: input.workspaceId,
+					extensionId: ext.id,
+					domain: input.domain.trim(),
+					repoPath: input.repoPath.trim(),
+				});
+			}),
+		updateProject: publicProcedure
+			.input(
+				z.object({
+					id: z.string(),
+					domain: z.string().min(1).optional(),
+					repoPath: z.string().min(1).optional(),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				if (input.repoPath) await validateRepoPath(input.repoPath);
+				return getDb().updateSeoProject(input.id, {
+					domain: input.domain,
+					repoPath: input.repoPath,
+				});
+			}),
+		deleteProject: publicProcedure
+			.input(z.object({ id: z.string() }))
+			.mutation(({ input }) => getDb().deleteSeoProject(input.id)),
+		setSchedule: publicProcedure
+			.input(z.object({ id: z.string(), cronExpression: z.string().nullable() }))
+			.mutation(async ({ input }) => {
+				if (input.cronExpression === null) {
+					return getDb().updateSeoProject(input.id, {
+						reanalyzeCronExpression: null,
+						nextReanalyzeAt: null,
+					});
+				}
+				const nextReanalyzeAt = computeNextRunAt(input.cronExpression, new Date());
+				if (!nextReanalyzeAt) {
+					throw new Error(`"${input.cronExpression}" is not a valid cron expression.`);
+				}
+				return getDb().updateSeoProject(input.id, {
+					reanalyzeCronExpression: input.cronExpression,
+					nextReanalyzeAt,
+				});
+			}),
+		listRuns: publicProcedure
+			.input(z.object({ seoProjectId: z.string() }))
+			.query(({ input }) => getDb().listSeoAnalysisRunsByProject(input.seoProjectId)),
+		listFindings: publicProcedure
+			.input(z.object({ runId: z.string() }))
+			.query(({ input }) => getDb().listSeoFindingsByRun(input.runId)),
+		listOpenFindings: publicProcedure
+			.input(z.object({ seoProjectId: z.string() }))
+			.query(({ input }) => getDb().listOpenSeoFindingsByProject(input.seoProjectId)),
+		listBlogPosts: publicProcedure
+			.input(z.object({ seoProjectId: z.string() }))
+			.query(({ input }) => getDb().listSeoBlogPostsByProject(input.seoProjectId)),
+		runAnalysis: publicProcedure
+			.input(z.object({ seoProjectId: z.string() }))
+			.mutation(({ input }) => runSeoAnalysis(input.seoProjectId)),
+		dispatchFix: publicProcedure
+			.input(
+				z.object({
+					seoProjectId: z.string(),
+					findingIds: z.array(z.string()).min(1),
+				}),
+			)
+			.mutation(({ input }) => dispatchSeoFix(input.seoProjectId, input.findingIds)),
+		generateBlogPost: publicProcedure
+			.input(z.object({ seoProjectId: z.string(), keyword: z.string().min(1) }))
+			.mutation(({ input }) =>
+				generateSeoBlogPost(input.seoProjectId, input.keyword),
+			),
 	}),
 
 	automations: router({

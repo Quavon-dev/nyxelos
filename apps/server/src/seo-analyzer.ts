@@ -1,0 +1,756 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import {
+	getDb,
+	type AgentRecord,
+	type SeoAnalysisRunRecord,
+	type SeoBlogPostRecord,
+	type SeoFindingCategory,
+	type SeoFindingRecord,
+	type SeoFindingSeverity,
+	type SeoProjectRecord,
+} from "@nyxel/db";
+import { executeManagedTask } from "./agent-runtime";
+import { logAudit } from "./audit";
+import { notifyWorkspaceOwner } from "./push";
+
+/** Confirms `repoPath` is an absolute, existing, readable directory before
+ * we ever link it to a project — the analyzer and fixer agent both treat
+ * this path as their filesystem root, so a bad path here would otherwise
+ * surface as a much more confusing error deep in a crawl or agent run. */
+export async function validateRepoPath(repoPath: string): Promise<void> {
+	if (!path.isAbsolute(repoPath)) {
+		throw new Error(`Repo path must be absolute: "${repoPath}"`);
+	}
+	let stat: import("node:fs").Stats;
+	try {
+		stat = await fs.stat(repoPath);
+	} catch {
+		throw new Error(`Repo path does not exist: "${repoPath}"`);
+	}
+	if (!stat.isDirectory()) {
+		throw new Error(`Repo path is not a directory: "${repoPath}"`);
+	}
+	try {
+		await fs.access(repoPath, fs.constants.R_OK);
+	} catch {
+		throw new Error(`Repo path is not readable: "${repoPath}"`);
+	}
+}
+
+export interface DraftFinding {
+	category: SeoFindingCategory;
+	severity: SeoFindingSeverity;
+	title: string;
+	description: string;
+	recommendation: string;
+	location?: string | null;
+}
+
+const MAX_PAGES = 15;
+const FETCH_TIMEOUT_MS = 8000;
+const USER_AGENT = "NyxelSEOAnalyzer/1.0 (+https://nyxel.local)";
+
+function normalizeDomain(domain: string): string {
+	return domain.startsWith("http://") || domain.startsWith("https://")
+		? domain
+		: `https://${domain}`;
+}
+
+async function fetchText(
+	url: string,
+): Promise<{ status: number; body: string } | null> {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+	try {
+		const res = await fetch(url, {
+			signal: controller.signal,
+			headers: { "User-Agent": USER_AGENT },
+		});
+		return { status: res.status, body: await res.text() };
+	} catch {
+		return null;
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/** Sitemap-first URL discovery, falling back to just the homepage — a full
+ * crawler (following in-page links breadth-first) is more than a v1 needs
+ * and risks wandering into an unbounded site. */
+async function discoverUrls(baseUrl: string): Promise<string[]> {
+	const urls = new Set<string>([baseUrl]);
+	const sitemapUrl = new URL("/sitemap.xml", baseUrl).toString();
+	const sitemap = await fetchText(sitemapUrl);
+	if (sitemap && sitemap.status === 200) {
+		const locMatches = sitemap.body.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi);
+		for (const match of locMatches) {
+			if (urls.size >= MAX_PAGES) break;
+			const loc = match[1]?.trim();
+			if (loc) urls.add(loc);
+		}
+	}
+	return [...urls].slice(0, MAX_PAGES);
+}
+
+function extractTag(html: string, regex: RegExp): string | null {
+	const match = html.match(regex);
+	return match?.[1]?.trim() ?? null;
+}
+
+function countMatches(html: string, regex: RegExp): number {
+	return [...html.matchAll(regex)].length;
+}
+
+/** SEO/GEO/AEO checks against one already-fetched page's HTML. Regex-based
+ * on purpose — a full DOM parser (cheerio/jsdom) is unnecessary weight for
+ * meta-tag presence/shape checks, and this runs per-page across a crawl. */
+function analyzePageHtml(url: string, html: string): DraftFinding[] {
+	const findings: DraftFinding[] = [];
+
+	// --- SEO ---
+	const title = extractTag(html, /<title[^>]*>([^<]*)<\/title>/i);
+	if (!title) {
+		findings.push({
+			category: "seo",
+			severity: "critical",
+			title: "Missing <title> tag",
+			description: `${url} has no <title> element.`,
+			recommendation: "Add a unique, descriptive <title> (50-60 characters) to every page.",
+			location: url,
+		});
+	} else if (title.length < 10 || title.length > 60) {
+		findings.push({
+			category: "seo",
+			severity: "warning",
+			title: "Title length outside recommended range",
+			description: `${url}'s title is ${title.length} characters ("${title}").`,
+			recommendation: "Keep titles between roughly 10 and 60 characters so they don't truncate in search results.",
+			location: url,
+		});
+	}
+
+	const description = extractTag(
+		html,
+		/<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i,
+	);
+	if (!description) {
+		findings.push({
+			category: "seo",
+			severity: "warning",
+			title: "Missing meta description",
+			description: `${url} has no <meta name="description"> tag.`,
+			recommendation: "Add a unique meta description (roughly 50-160 characters) summarizing the page.",
+			location: url,
+		});
+	} else if (description.length < 50 || description.length > 160) {
+		findings.push({
+			category: "seo",
+			severity: "info",
+			title: "Meta description length outside recommended range",
+			description: `${url}'s meta description is ${description.length} characters.`,
+			recommendation: "Aim for roughly 50-160 characters so the snippet doesn't truncate in search results.",
+			location: url,
+		});
+	}
+
+	const hasCanonical = /<link[^>]+rel=["']canonical["']/i.test(html);
+	if (!hasCanonical) {
+		findings.push({
+			category: "seo",
+			severity: "info",
+			title: "Missing canonical link",
+			description: `${url} has no <link rel="canonical"> tag.`,
+			recommendation: "Add a self-referencing canonical link to avoid duplicate-content ambiguity.",
+			location: url,
+		});
+	}
+
+	const h1Count = countMatches(html, /<h1[\s>]/gi);
+	if (h1Count === 0) {
+		findings.push({
+			category: "seo",
+			severity: "warning",
+			title: "No <h1> heading",
+			description: `${url} has no <h1> element.`,
+			recommendation: "Every page should have exactly one <h1> describing its main topic.",
+			location: url,
+		});
+	} else if (h1Count > 1) {
+		findings.push({
+			category: "seo",
+			severity: "info",
+			title: "Multiple <h1> headings",
+			description: `${url} has ${h1Count} <h1> elements.`,
+			recommendation: "Use a single <h1> per page; demote the rest to <h2>/<h3>.",
+			location: url,
+		});
+	}
+
+	const imgTags = html.match(/<img\b[^>]*>/gi) ?? [];
+	const imagesMissingAlt = imgTags.filter((tag) => !/\balt=/i.test(tag)).length;
+	if (imagesMissingAlt > 0) {
+		findings.push({
+			category: "seo",
+			severity: "warning",
+			title: "Images missing alt text",
+			description: `${url} has ${imagesMissingAlt} <img> tag(s) without an alt attribute.`,
+			recommendation: "Add descriptive alt text to every content image for accessibility and image search.",
+			location: url,
+		});
+	}
+
+	// --- GEO (structured data / answer-engine readability of facts) ---
+	const jsonLdBlocks = [
+		...html.matchAll(
+			/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+		),
+	].map((m) => m[1] ?? "");
+
+	if (jsonLdBlocks.length === 0) {
+		findings.push({
+			category: "geo",
+			severity: "warning",
+			title: "No structured data (JSON-LD) found",
+			description: `${url} has no application/ld+json script blocks.`,
+			recommendation:
+				"Add JSON-LD structured data (Organization, WebSite, and page-specific types) so search and answer engines can extract facts reliably.",
+			location: url,
+		});
+	}
+
+	const parsedTypes = new Set<string>();
+	for (const block of jsonLdBlocks) {
+		try {
+			const parsed = JSON.parse(block);
+			const entries = Array.isArray(parsed) ? parsed : [parsed];
+			for (const entry of entries) {
+				const type = entry?.["@type"];
+				if (typeof type === "string") parsedTypes.add(type);
+				else if (Array.isArray(type)) type.forEach((t) => typeof t === "string" && parsedTypes.add(t));
+			}
+		} catch {
+			// Malformed JSON-LD — surfaced separately below rather than crashing the scan.
+		}
+	}
+
+	if (jsonLdBlocks.length > 0 && parsedTypes.size === 0) {
+		findings.push({
+			category: "geo",
+			severity: "info",
+			title: "Structured data present but unparseable",
+			description: `${url} has JSON-LD script block(s) that failed to parse as JSON.`,
+			recommendation: "Validate structured data with a JSON-LD linter — malformed blocks are silently ignored by consumers.",
+			location: url,
+		});
+	}
+
+	const hasOrgOrLocalBusiness = [...parsedTypes].some((t) =>
+		/Organization|LocalBusiness/i.test(t),
+	);
+	if (jsonLdBlocks.length > 0 && !hasOrgOrLocalBusiness) {
+		findings.push({
+			category: "geo",
+			severity: "info",
+			title: "No Organization/LocalBusiness structured data",
+			description: `${url}'s structured data doesn't declare an Organization or LocalBusiness type.`,
+			recommendation:
+				"Add an Organization (or LocalBusiness) JSON-LD block site-wide so answer engines can attribute facts to your brand.",
+			location: url,
+		});
+	}
+
+	// --- AEO (answer-engine optimization) ---
+	const hasFaqSchema = [...parsedTypes].some((t) => /FAQPage|QAPage/i.test(t));
+	if (!hasFaqSchema) {
+		const headingTexts = [
+			...html.matchAll(/<h[23][^>]*>([^<]*)<\/h[23]>/gi),
+		].map((m) => m[1]?.trim() ?? "");
+		const questionHeadings = headingTexts.filter((t) =>
+			/^(what|how|why|when|where|who|can|does|is)\b/i.test(t),
+		);
+		if (questionHeadings.length > 0) {
+			findings.push({
+				category: "aeo",
+				severity: "info",
+				title: "Question-style headings without FAQPage schema",
+				description: `${url} has ${questionHeadings.length} question-style heading(s) but no FAQPage/QAPage structured data.`,
+				recommendation:
+					"Wrap Q&A-style content in FAQPage JSON-LD so answer engines (and search AI overviews) can surface it directly.",
+				location: url,
+			});
+		}
+	}
+
+	return findings;
+}
+
+/** Runs the full crawl + on-page analysis for a domain. Network failures on
+ * individual pages are recorded as findings rather than aborting the whole
+ * run — a single broken page shouldn't hide findings from the rest of the
+ * site. */
+export async function crawlAndAnalyze(
+	domain: string,
+): Promise<{ findings: DraftFinding[]; pagesScanned: number }> {
+	const baseUrl = normalizeDomain(domain);
+	const urls = await discoverUrls(baseUrl);
+	const findings: DraftFinding[] = [];
+	let pagesScanned = 0;
+
+	for (const url of urls) {
+		const page = await fetchText(url);
+		if (!page || page.status >= 400) {
+			findings.push({
+				category: "seo",
+				severity: "critical",
+				title: "Page unreachable",
+				description: `${url} ${page ? `returned HTTP ${page.status}` : "could not be fetched"}.`,
+				recommendation: "Fix the broken URL or remove it from the sitemap/navigation.",
+				location: url,
+			});
+			continue;
+		}
+		pagesScanned += 1;
+		findings.push(...analyzePageHtml(url, page.body));
+	}
+
+	const llmsTxt = await fetchText(new URL("/llms.txt", baseUrl).toString());
+	if (!llmsTxt || llmsTxt.status >= 400) {
+		findings.push({
+			category: "aeo",
+			severity: "info",
+			title: "No llms.txt found",
+			description: `${baseUrl} has no /llms.txt file.`,
+			recommendation:
+				"Add an llms.txt at the domain root summarizing the site for AI crawlers and answer engines (see llmstxt.org).",
+			location: baseUrl,
+		});
+	}
+
+	return { findings, pagesScanned };
+}
+
+/** Known blog-content directory conventions, checked in order — the first
+ * one that exists under repoPath wins. Covers Next.js/Astro/Hugo-ish
+ * layouts without needing per-framework detection logic. */
+const BLOG_DIR_CANDIDATES = [
+	{ dir: "content/blog", frontmatterStyle: "yaml" },
+	{ dir: "src/content/blog", frontmatterStyle: "yaml" },
+	{ dir: "posts", frontmatterStyle: "yaml" },
+	{ dir: "src/posts", frontmatterStyle: "yaml" },
+	{ dir: "blog", frontmatterStyle: "yaml" },
+	{ dir: "app/blog", frontmatterStyle: "yaml" },
+	{ dir: "src/app/blog", frontmatterStyle: "yaml" },
+];
+
+async function pathIsDirectory(target: string): Promise<boolean> {
+	try {
+		const stat = await fs.stat(target);
+		return stat.isDirectory();
+	} catch {
+		return false;
+	}
+}
+
+/** Repo-side checks that don't require network access: robots.txt/sitemap
+ * presence, Next.js metadata usage, and blog directory detection. Runs
+ * alongside crawlAndAnalyze so a linked project gets both "what the live
+ * site shows" and "what the source is set up to produce" findings. */
+export async function analyzeRepoSource(repoPath: string): Promise<{
+	findings: DraftFinding[];
+	blogConfig: { dir: string; frontmatterStyle: string } | null;
+}> {
+	const findings: DraftFinding[] = [];
+
+	const robotsExists =
+		(await pathIsDirectory(repoPath)) &&
+		(await Promise.all(
+			["public/robots.txt", "static/robots.txt", "app/robots.ts", "app/robots.js"].map(
+				async (rel) => {
+					try {
+						await fs.access(path.join(repoPath, rel));
+						return true;
+					} catch {
+						return false;
+					}
+				},
+			),
+		)).some(Boolean);
+	if (!robotsExists) {
+		findings.push({
+			category: "seo",
+			severity: "warning",
+			title: "No robots.txt found in repo",
+			description: "None of the common robots.txt locations exist under the linked repo.",
+			recommendation: "Add a robots.txt (or a Next.js app/robots.ts) so crawlers get explicit guidance.",
+			location: repoPath,
+		});
+	}
+
+	const sitemapExists = (
+		await Promise.all(
+			["public/sitemap.xml", "app/sitemap.ts", "app/sitemap.js"].map(async (rel) => {
+				try {
+					await fs.access(path.join(repoPath, rel));
+					return true;
+				} catch {
+					return false;
+				}
+			}),
+		)
+	).some(Boolean);
+	if (!sitemapExists) {
+		findings.push({
+			category: "seo",
+			severity: "warning",
+			title: "No sitemap generation found in repo",
+			description: "None of the common sitemap.xml locations exist under the linked repo.",
+			recommendation: "Add a generated sitemap.xml (or a Next.js app/sitemap.ts) so search engines can discover every page.",
+			location: repoPath,
+		});
+	}
+
+	let blogConfig: { dir: string; frontmatterStyle: string } | null = null;
+	for (const candidate of BLOG_DIR_CANDIDATES) {
+		if (await pathIsDirectory(path.join(repoPath, candidate.dir))) {
+			blogConfig = candidate;
+			break;
+		}
+	}
+
+	return { findings, blogConfig };
+}
+
+/** 100 minus a per-severity penalty, floored at 0 — deliberately simple
+ * (no weighting by category) so the score stays easy to explain: "critical
+ * issues cost the most, info notes barely move it." */
+function scoreFindings(findings: DraftFinding[]): number {
+	const penalty = findings.reduce((sum, f) => {
+		if (f.severity === "critical") return sum + 15;
+		if (f.severity === "warning") return sum + 6;
+		return sum + 2;
+	}, 0);
+	return Math.max(0, 100 - penalty);
+}
+
+/** Orchestrates one full analysis run for a linked project: crawls the live
+ * domain, scans the repo source, persists every finding, and updates the
+ * run record with a score/summary. Runs entirely server-side — the tRPC
+ * mutation just calls this and returns the resulting run. */
+export async function runSeoAnalysis(
+	seoProjectId: string,
+): Promise<SeoAnalysisRunRecord> {
+	const db = getDb();
+	const project = await db.getSeoProject(seoProjectId);
+	if (!project) throw new Error(`Unknown SEO project: ${seoProjectId}`);
+
+	const run = await db.createSeoAnalysisRun({
+		seoProjectId,
+		workspaceId: project.workspaceId,
+	});
+
+	try {
+		const [crawl, repoScan] = await Promise.all([
+			crawlAndAnalyze(project.domain),
+			analyzeRepoSource(project.repoPath),
+		]);
+		const findings = [...crawl.findings, ...repoScan.findings];
+
+		for (const finding of findings) {
+			await db.createSeoFinding({ runId: run.id, seoProjectId, ...finding });
+		}
+
+		if (repoScan.blogConfig && !project.blogConfig) {
+			await db.updateSeoProject(seoProjectId, { blogConfig: repoScan.blogConfig });
+		}
+
+		const score = scoreFindings(findings);
+		const critical = findings.filter((f) => f.severity === "critical").length;
+		const warning = findings.filter((f) => f.severity === "warning").length;
+		const info = findings.filter((f) => f.severity === "info").length;
+		const summary = `${findings.length} finding(s): ${critical} critical, ${warning} warning, ${info} info.`;
+
+		const completed = await db.updateSeoAnalysisRun(run.id, {
+			status: "completed",
+			score,
+			pagesScanned: crawl.pagesScanned,
+			summary,
+			completedAt: new Date(),
+		});
+
+		await logAudit({
+			workspaceId: project.workspaceId,
+			actor: "extension",
+			toolLabel: "seo_analyzer.run_analysis",
+			input: { seoProjectId, domain: project.domain },
+			output: { score, pagesScanned: crawl.pagesScanned, findingCount: findings.length },
+			status: "success",
+		});
+		await notifyWorkspaceOwner(project.workspaceId, {
+			title: "SEO analysis complete",
+			body: `${project.domain}: score ${score} — ${summary}`,
+			url: `/workspace/${project.workspaceId}/extensions/seo-analyzer`,
+			tag: `seo-analysis-${seoProjectId}`,
+		});
+
+		return completed;
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		const failed = await db.updateSeoAnalysisRun(run.id, {
+			status: "failed",
+			errorMessage: message,
+			completedAt: new Date(),
+		});
+
+		await logAudit({
+			workspaceId: project.workspaceId,
+			actor: "extension",
+			toolLabel: "seo_analyzer.run_analysis",
+			input: { seoProjectId, domain: project.domain },
+			output: message,
+			status: "error",
+		});
+
+		return failed;
+	}
+}
+
+function seoFixerSystemPrompt(project: SeoProjectRecord): string {
+	return [
+		`You are the SEO/GEO/AEO fixer agent for "${project.domain}".`,
+		`Its source lives at "${project.repoPath}" — every file tool you have is scoped to that directory, so use relative paths from there.`,
+		"You will be given a list of SEO/GEO/AEO findings (each with a category, severity, description, and recommendation). Fix as many as you reasonably can by editing the repo source directly — meta tags, structured data, headings, alt text, robots.txt, sitemap generation, etc.",
+		"Prefer minimal, targeted edits over rewrites. If a finding needs a decision only a human can make (e.g. business-specific copy), leave a clear TODO comment instead of guessing content.",
+		"When you're done, summarize exactly what you changed and which findings you addressed.",
+	].join(" ");
+}
+
+/** Lazily provisions the per-project fixer agent on first fix dispatch,
+ * scoped to the project's repoPath via dedicated DB tools (not the
+ * workspace-wide toolset) so it can never touch files outside the linked
+ * repo. Reused on every subsequent dispatch for the same project. */
+async function ensureSeoFixerAgent(project: SeoProjectRecord): Promise<AgentRecord> {
+	const db = getDb();
+	if (project.fixerAgentId) {
+		const existing = await db.getAgent(project.fixerAgentId);
+		if (existing) return existing;
+	}
+
+	const workspace = await db.getWorkspace(project.workspaceId);
+	if (!workspace?.defaultModelId) {
+		throw new Error(
+			"Set a default model for this workspace before dispatching SEO fixes (Settings → General).",
+		);
+	}
+
+	const dirConfig = { allowedDirs: [project.repoPath] };
+	const toolSeeds: { kind: "file_read" | "file_list" | "file_write" | "file_patch"; name: string; description: string; sensitive: boolean }[] = [
+		{ kind: "file_read", name: "SEO fixer: read file", description: `Read a file under ${project.repoPath}.`, sensitive: false },
+		{ kind: "file_list", name: "SEO fixer: list files", description: `List files under ${project.repoPath}.`, sensitive: false },
+		{ kind: "file_write", name: "SEO fixer: write file", description: `Write a file under ${project.repoPath}.`, sensitive: true },
+		{ kind: "file_patch", name: "SEO fixer: patch file", description: `Apply a targeted edit to a file under ${project.repoPath}.`, sensitive: true },
+	];
+	const tools = await Promise.all(
+		toolSeeds.map((seed) =>
+			db.createTool({
+				workspaceId: project.workspaceId,
+				name: seed.name,
+				description: seed.description,
+				kind: seed.kind,
+				config: dirConfig,
+				sensitive: seed.sensitive,
+				enabled: true,
+			}),
+		),
+	);
+
+	const agent = await db.createAgent({
+		workspaceId: project.workspaceId,
+		name: `SEO Fixer — ${project.domain}`,
+		systemPrompt: seoFixerSystemPrompt(project),
+		modelId: workspace.defaultModelId,
+		autonomyLevel: "assisted",
+		toolIds: tools.map((t) => t.id),
+	});
+
+	await db.updateSeoProject(project.id, { fixerAgentId: agent.id });
+	return agent;
+}
+
+function formatFindingForPrompt(finding: SeoFindingRecord, index: number): string {
+	const location = finding.location ? ` (${finding.location})` : "";
+	return [
+		`${index + 1}. [${finding.category.toUpperCase()}/${finding.severity}] ${finding.title}${location}`,
+		`   ${finding.description}`,
+		`   Recommendation: ${finding.recommendation}`,
+	].join("\n");
+}
+
+/** Dispatches the fixer agent at a chosen set of findings for a project,
+ * running synchronously to completion (same "await the whole run" shape as
+ * automations.runNow) and marking every targeted finding resolved once the
+ * run finishes without throwing. */
+export async function dispatchSeoFix(
+	seoProjectId: string,
+	findingIds: string[],
+): Promise<{ taskId: string; runId: string; output: string }> {
+	const db = getDb();
+	const project = await db.getSeoProject(seoProjectId);
+	if (!project) throw new Error(`Unknown SEO project: ${seoProjectId}`);
+	if (findingIds.length === 0) throw new Error("Select at least one finding to fix.");
+
+	const findings = (
+		await Promise.all(findingIds.map((id) => db.getSeoFinding(id)))
+	).filter((f): f is SeoFindingRecord => f !== null && f.seoProjectId === seoProjectId);
+	if (findings.length === 0) throw new Error("None of the selected findings belong to this project.");
+
+	const agent = await ensureSeoFixerAgent(project);
+
+	const instruction = [
+		`Fix the following ${findings.length} SEO/GEO/AEO finding(s) for ${project.domain}:`,
+		"",
+		...findings.map((f, i) => formatFindingForPrompt(f, i)),
+	].join("\n");
+
+	const task = await db.createTask({
+		workspaceId: project.workspaceId,
+		assignedAgentId: agent.id,
+		title: `Fix ${findings.length} SEO finding(s) — ${project.domain}`,
+		instruction,
+		input: { seoProjectId, findingIds: findings.map((f) => f.id) },
+	});
+
+	const result = await executeManagedTask({
+		taskId: task.id,
+		agent,
+		trigger: "extension",
+	});
+
+	for (const finding of findings) {
+		await db.setSeoFindingResolved(finding.id, true);
+	}
+
+	await logAudit({
+		workspaceId: project.workspaceId,
+		agentId: agent.id,
+		actor: "extension",
+		toolLabel: "seo_analyzer.dispatch_fix",
+		input: { seoProjectId, findingIds: findings.map((f) => f.id) },
+		output: result.output,
+		status: "success",
+	});
+	await notifyWorkspaceOwner(project.workspaceId, {
+		title: "SEO fixes applied",
+		body: `${project.domain}: fixer agent addressed ${findings.length} finding(s).`,
+		url: `/workspace/${project.workspaceId}/extensions/seo-analyzer`,
+		tag: `seo-fix-${seoProjectId}`,
+	});
+
+	return { taskId: task.id, runId: result.run.id, output: result.output };
+}
+
+/** Generates one blog post targeting `keyword`, dispatched to the same
+ * repo-scoped fixer agent used for findings. Requires a detected blog
+ * directory (set by analyzeRepoSource during a prior analysis run, or
+ * re-detected here if the project predates that detection). */
+export async function generateSeoBlogPost(
+	seoProjectId: string,
+	keyword: string,
+): Promise<SeoBlogPostRecord> {
+	const db = getDb();
+	const project = await db.getSeoProject(seoProjectId);
+	if (!project) throw new Error(`Unknown SEO project: ${seoProjectId}`);
+
+	let blogConfig = project.blogConfig;
+	if (!blogConfig) {
+		const scan = await analyzeRepoSource(project.repoPath);
+		blogConfig = scan.blogConfig;
+		if (blogConfig) await db.updateSeoProject(seoProjectId, { blogConfig });
+	}
+	if (!blogConfig) {
+		throw new Error(
+			"No blog directory detected in this repo yet — run an analysis first, or this site may not have a blog.",
+		);
+	}
+
+	const post = await db.createSeoBlogPost({
+		seoProjectId,
+		workspaceId: project.workspaceId,
+		keyword,
+	});
+
+	try {
+		const agent = await ensureSeoFixerAgent(project);
+		await db.updateSeoBlogPost(post.id, { status: "generating" });
+
+		const instruction = [
+			`Write a new blog post targeting the keyword "${keyword}" for ${project.domain}.`,
+			`The blog content directory is "${blogConfig.dir}" (relative to the repo root); the site's frontmatter convention is "${blogConfig.frontmatterStyle}".`,
+			"1. List the files in that directory and read one or two existing posts to learn the frontmatter fields and tone used.",
+			"2. Write a new, original, genuinely useful markdown post targeting the keyword — not thin or duplicate content — matching the site's existing frontmatter and style.",
+			"3. Pick a URL-safe filename slug derived from the keyword.",
+			"4. On the final line of your response, report the result in exactly this format: FILE: <path relative to repo root> TITLE: <post title>",
+		].join("\n");
+
+		const task = await db.createTask({
+			workspaceId: project.workspaceId,
+			assignedAgentId: agent.id,
+			title: `Draft blog post — "${keyword}" (${project.domain})`,
+			instruction,
+			input: { seoProjectId, blogPostId: post.id, keyword },
+		});
+
+		const result = await executeManagedTask({
+			taskId: task.id,
+			agent,
+			trigger: "extension",
+		});
+
+		const fileMatch = result.output.match(/FILE:\s*(\S+)/i);
+		const titleMatch = result.output.match(/TITLE:\s*(.+)/i);
+		const title = titleMatch?.[1]?.trim() ?? null;
+		const filePath = fileMatch?.[1]?.trim() ?? null;
+
+		const written = await db.updateSeoBlogPost(post.id, {
+			status: "written",
+			filePath,
+			title,
+			taskId: task.id,
+		});
+
+		await logAudit({
+			workspaceId: project.workspaceId,
+			agentId: agent.id,
+			actor: "extension",
+			toolLabel: "seo_analyzer.generate_blog_post",
+			input: { seoProjectId, keyword },
+			output: { title, filePath },
+			status: "success",
+		});
+		await notifyWorkspaceOwner(project.workspaceId, {
+			title: "Blog post drafted",
+			body: `${project.domain}: "${title ?? keyword}" is ready for review.`,
+			url: `/workspace/${project.workspaceId}/extensions/seo-analyzer`,
+			tag: `seo-blog-${post.id}`,
+		});
+
+		return written;
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		const failed = await db.updateSeoBlogPost(post.id, {
+			status: "failed",
+			errorMessage: message,
+		});
+
+		await logAudit({
+			workspaceId: project.workspaceId,
+			actor: "extension",
+			toolLabel: "seo_analyzer.generate_blog_post",
+			input: { seoProjectId, keyword },
+			output: message,
+			status: "error",
+		});
+
+		return failed;
+	}
+}

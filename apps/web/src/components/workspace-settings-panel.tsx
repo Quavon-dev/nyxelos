@@ -1,7 +1,18 @@
 "use client";
 
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, NotebookPen, Plug, Search, Settings2, ShieldCheck, Smartphone, X } from "lucide-react";
+import {
+  Bot,
+  NotebookPen,
+  Plug,
+  Puzzle,
+  Search,
+  Settings2,
+  ShieldCheck,
+  Smartphone,
+  X,
+} from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -90,6 +101,13 @@ const SECTIONS = [
     color: "text-sky-500 bg-sky-500/10",
     description: "Server URL and push notifications for this device.",
   },
+  {
+    id: "extensions",
+    label: "Extensions",
+    icon: Puzzle,
+    color: "text-orange-500 bg-orange-500/10",
+    description: "Optional marketplace features — installed ones appear in the sidebar.",
+  },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -101,6 +119,7 @@ const NAV_GROUPS: { label: string; sections: SectionId[] }[] = [
   { label: "Workspace", sections: ["general", "instructions", "approvals"] },
   { label: "Models", sections: ["providers", "models"] },
   { label: "Device", sections: ["connection"] },
+  { label: "Extensions", sections: ["extensions"] },
 ];
 
 const AUTONOMY_LEVELS: { value: AutonomyLevel; label: string }[] = [
@@ -337,6 +356,29 @@ export function WorkspaceSettingsPanel({
   const availableModelsQuery = useQuery({
     queryKey: ["models", "list", workspaceId],
     queryFn: () => trpcClient.models.list.query({ workspaceId }),
+  });
+  const extensionCatalogQuery = useQuery({
+    queryKey: ["extensions", "catalog"],
+    queryFn: () => trpcClient.extensions.catalog.query(),
+  });
+  const installedExtensionsQuery = useQuery({
+    queryKey: ["extensions", "list", workspaceId],
+    queryFn: () => trpcClient.extensions.list.query({ workspaceId }),
+  });
+  const invalidateExtensions = () =>
+    queryClient.invalidateQueries({ queryKey: ["extensions", "list", workspaceId] });
+  const installExtension = useMutation({
+    mutationFn: (key: string) => trpcClient.extensions.install.mutate({ workspaceId, key }),
+    onSuccess: invalidateExtensions,
+  });
+  const setExtensionEnabled = useMutation({
+    mutationFn: (input: { id: string; enabled: boolean }) =>
+      trpcClient.extensions.setEnabled.mutate(input),
+    onSuccess: invalidateExtensions,
+  });
+  const uninstallExtension = useMutation({
+    mutationFn: (id: string) => trpcClient.extensions.uninstall.mutate({ id }),
+    onSuccess: invalidateExtensions,
   });
 
   const [instructions, setInstructions] = useState("");
@@ -1100,6 +1142,78 @@ export function WorkspaceSettingsPanel({
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {section === "extensions" && (
+          <div className="space-y-6">
+            <div className="space-y-1">
+              <h3 className="text-sm font-medium">Marketplace</h3>
+              <p className="text-sm text-muted-foreground">
+                Optional NyxelOS features. Installing one adds it to the sidebar outside the
+                normal workspace navigation.
+              </p>
+            </div>
+            {extensionCatalogQuery.isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {(extensionCatalogQuery.data ?? []).map((entry) => {
+                  const installed = installedExtensionsQuery.data?.find(
+                    (e) => e.key === entry.key,
+                  );
+                  return (
+                    <div key={entry.key} className="space-y-3 rounded-lg border p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">{entry.name}</p>
+                          <Badge variant="secondary" className="text-[10px]">
+                            {entry.category}
+                          </Badge>
+                        </div>
+                        {installed && (
+                          <Switch
+                            checked={installed.enabled}
+                            onCheckedChange={(checked) =>
+                              setExtensionEnabled.mutate({ id: installed.id, enabled: checked })
+                            }
+                          />
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground">{entry.description}</p>
+                      <div className="flex gap-2">
+                        {installed ? (
+                          <>
+                            <Button size="sm" variant="outline" asChild>
+                              <Link href={`/workspace/${workspaceId}/extensions/${entry.route}`}>
+                                Open
+                              </Link>
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive"
+                              disabled={uninstallExtension.isPending}
+                              onClick={() => uninstallExtension.mutate(installed.id)}
+                            >
+                              Uninstall
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            size="sm"
+                            disabled={installExtension.isPending}
+                            onClick={() => installExtension.mutate(entry.key)}
+                          >
+                            Install
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>

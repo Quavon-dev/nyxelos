@@ -176,6 +176,27 @@
       "when": 1783000012001,
       "tag": "0023_model_installation_disabled_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1783000013001,
+      "tag": "0024_extensions_and_seo_analyzer",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1783000014001,
+      "tag": "0026_seo_project_reanalyze_schedule",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1783000015001,
+      "tag": "0027_audit_actor_extension",
+      "breakpoints": true
     }
   ]
 }

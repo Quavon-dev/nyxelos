@@ -58,6 +58,7 @@ export const auditActor = pgEnum("audit_actor", [
 	"automation",
 	"approval",
 	"delegate",
+	"extension",
 ]);
 
 export const auditStatus = pgEnum("audit_status", [
@@ -659,6 +660,12 @@ export const seoProject = pgTable("seo_project", {
 	fixerAgentId: text("fixer_agent_id").references(() => agent.id, {
 		onDelete: "set null",
 	}),
+	// Optional recurring re-analysis, polled by the same scheduler loop as
+	// automations (see apps/server/src/scheduler.ts) rather than going through
+	// the agent-driven automation table — a crawl+scan isn't an LLM turn.
+	reanalyzeCronExpression: text("reanalyze_cron_expression"),
+	nextReanalyzeAt: timestamp("next_reanalyze_at"),
+	lastReanalyzeAt: timestamp("last_reanalyze_at"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

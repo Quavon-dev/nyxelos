@@ -490,6 +490,85 @@ export type McpToolListResult =
 			message: string;
 	  };
 
+export type ExtensionCatalogEntry = {
+	key: string;
+	name: string;
+	description: string;
+	category: string;
+	icon: string;
+	route: string;
+};
+
+export type ExtensionSummary = {
+	id: string;
+	workspaceId: string;
+	key: string;
+	enabled: boolean;
+	config: Record<string, unknown>;
+	installedAt: Date;
+};
+
+export type SeoAnalysisRunStatus = "running" | "completed" | "failed";
+export type SeoFindingCategory = "seo" | "geo" | "aeo";
+export type SeoFindingSeverity = "info" | "warning" | "critical";
+export type SeoBlogPostStatus = "suggested" | "generating" | "written" | "failed";
+
+export type SeoProjectSummary = {
+	id: string;
+	workspaceId: string;
+	extensionId: string;
+	domain: string;
+	repoPath: string;
+	blogConfig: { dir: string; frontmatterStyle: string } | null;
+	fixerAgentId: string | null;
+	reanalyzeCronExpression: string | null;
+	nextReanalyzeAt: Date | null;
+	lastReanalyzeAt: Date | null;
+	createdAt: Date;
+	updatedAt: Date;
+};
+
+export type SeoAnalysisRunSummary = {
+	id: string;
+	seoProjectId: string;
+	workspaceId: string;
+	status: SeoAnalysisRunStatus;
+	score: number | null;
+	pagesScanned: number;
+	summary: string | null;
+	errorMessage: string | null;
+	startedAt: Date;
+	completedAt: Date | null;
+};
+
+export type SeoFindingSummary = {
+	id: string;
+	runId: string;
+	seoProjectId: string;
+	category: SeoFindingCategory;
+	severity: SeoFindingSeverity;
+	title: string;
+	description: string;
+	recommendation: string;
+	location: string | null;
+	resolved: boolean;
+	createdAt: Date;
+};
+
+export type SeoBlogPostSummary = {
+	id: string;
+	seoProjectId: string;
+	workspaceId: string;
+	keyword: string;
+	title: string | null;
+	filePath: string | null;
+	status: SeoBlogPostStatus;
+	taskId: string | null;
+	errorMessage: string | null;
+	createdAt: Date;
+	updatedAt: Date;
+};
+
 export type KnowledgeBaseConfigSummary = {
 	workspaceId: string;
 	vaultPath: string;
@@ -1028,6 +1107,84 @@ type NyxelTrpcClient = {
 		};
 		finishAuth: {
 			mutate(input: { id: string; code: string }): Promise<{ ok: boolean }>;
+		};
+	};
+	extensions: {
+		catalog: {
+			query(): Promise<ExtensionCatalogEntry[]>;
+		};
+		list: {
+			query(input: { workspaceId: string }): Promise<ExtensionSummary[]>;
+		};
+		install: {
+			mutate(input: { workspaceId: string; key: string }): Promise<ExtensionSummary>;
+		};
+		setEnabled: {
+			mutate(input: { id: string; enabled: boolean }): Promise<ExtensionSummary>;
+		};
+		updateConfig: {
+			mutate(input: {
+				id: string;
+				config: Record<string, unknown>;
+			}): Promise<ExtensionSummary>;
+		};
+		uninstall: {
+			mutate(input: { id: string }): Promise<void>;
+		};
+	};
+	seoAnalyzer: {
+		listProjects: {
+			query(input: { workspaceId: string }): Promise<SeoProjectSummary[]>;
+		};
+		createProject: {
+			mutate(input: {
+				workspaceId: string;
+				domain: string;
+				repoPath: string;
+			}): Promise<SeoProjectSummary>;
+		};
+		updateProject: {
+			mutate(input: {
+				id: string;
+				domain?: string;
+				repoPath?: string;
+			}): Promise<SeoProjectSummary>;
+		};
+		deleteProject: {
+			mutate(input: { id: string }): Promise<void>;
+		};
+		setSchedule: {
+			mutate(input: {
+				id: string;
+				cronExpression: string | null;
+			}): Promise<SeoProjectSummary>;
+		};
+		listRuns: {
+			query(input: { seoProjectId: string }): Promise<SeoAnalysisRunSummary[]>;
+		};
+		listFindings: {
+			query(input: { runId: string }): Promise<SeoFindingSummary[]>;
+		};
+		listOpenFindings: {
+			query(input: { seoProjectId: string }): Promise<SeoFindingSummary[]>;
+		};
+		listBlogPosts: {
+			query(input: { seoProjectId: string }): Promise<SeoBlogPostSummary[]>;
+		};
+		runAnalysis: {
+			mutate(input: { seoProjectId: string }): Promise<SeoAnalysisRunSummary>;
+		};
+		dispatchFix: {
+			mutate(input: {
+				seoProjectId: string;
+				findingIds: string[];
+			}): Promise<{ taskId: string; runId: string; output: string }>;
+		};
+		generateBlogPost: {
+			mutate(input: {
+				seoProjectId: string;
+				keyword: string;
+			}): Promise<SeoBlogPostSummary>;
 		};
 	};
 	automations: {
