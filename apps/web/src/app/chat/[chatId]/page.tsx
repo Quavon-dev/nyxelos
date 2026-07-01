@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { ChatInput } from "@/components/chat/chat-input";
 import { MessageList } from "@/components/chat/message-list";
 import { trpcClient } from "@/lib/trpc";
@@ -10,6 +11,10 @@ import { useChatStream } from "@/lib/use-chat-stream";
 export default function ChatPage() {
   const params = useParams<{ chatId: string }>();
   const chatId = params.chatId;
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const draft = searchParams.get("draft");
+  const sentDraftRef = useRef(false);
 
   const messagesQuery = useQuery({
     queryKey: ["messages", chatId],
@@ -18,10 +23,19 @@ export default function ChatPage() {
 
   const { sendMessage, streamingMessage, isStreaming } = useChatStream(chatId);
 
-  // 3.5rem matches the app header's fixed height (h-14) — the shell no
-  // longer gives this page the full viewport, just what's left below it.
+  // A chat created from the landing page's composer arrives here with its
+  // first message tucked into ?draft= — send it once, then drop the param
+  // from the URL so refreshing doesn't resend it.
+  useEffect(() => {
+    if (draft && !sentDraftRef.current) {
+      sentDraftRef.current = true;
+      sendMessage(draft);
+      router.replace(`/chat/${chatId}`);
+    }
+  }, [draft, chatId, sendMessage, router]);
+
   return (
-    <div className="mx-auto flex h-[calc(100svh-3.5rem)] max-w-2xl flex-col p-4">
+    <div className="mx-auto flex h-full max-w-2xl flex-col p-4">
       <MessageList messages={messagesQuery.data ?? []} streamingMessage={streamingMessage} />
       <ChatInput onSend={sendMessage} disabled={isStreaming} />
     </div>

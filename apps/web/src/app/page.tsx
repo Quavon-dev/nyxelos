@@ -4,8 +4,9 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { type InstallationMode, trpcClient } from "@/lib/trpc";
 
@@ -284,66 +285,73 @@ export default function HomePage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 p-8">
-      <section className="grid gap-4 md:grid-cols-[1.3fr_0.7fr]">
-        <Card className="p-6">
-          <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">
-            {installationQuery.data.record?.mode === "server" ? "Server mode" : "PC mode"}
-          </p>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight">Overview</h1>
-          <p className="mt-3 max-w-2xl text-muted-foreground">
-            The instance is bound to{" "}
+      <PageHeader
+        title="Overview"
+        description={
+          <>
+            {installationQuery.data.record?.mode === "server" ? "Server mode" : "PC mode"} · bound
+            to{" "}
             <span className="font-medium text-foreground">
               {installationQuery.data.record?.appUrl ?? installationQuery.data.defaultAppUrl}
             </span>
-            .
-          </p>
-          <div className="mt-5 flex flex-wrap gap-3">
+          </>
+        }
+        actions={
+          <>
             <Button disabled={startChat.isPending} onClick={() => startChat.mutate()}>
               {startChat.isPending ? "Starting…" : "Start first chat"}
             </Button>
             {workspaceId && (
               <Button asChild variant="outline">
-                <Link href={`/workspace/${workspaceId}/settings`}>Open workspace settings</Link>
+                <Link href={`/workspace/${workspaceId}/settings`}>Workspace settings</Link>
               </Button>
             )}
-          </div>
-          {startChat.isError && (
-            <p className="mt-3 text-sm text-destructive">{(startChat.error as Error).message}</p>
-          )}
-        </Card>
+          </>
+        }
+      />
+      {startChat.isError && (
+        <p className="text-sm text-destructive">{(startChat.error as Error).message}</p>
+      )}
 
-        <Card className="p-6">
-          <p className="text-sm font-medium">Deployment summary</p>
-          <div className="mt-4 space-y-3 text-sm">
+      <section className="grid gap-4 md:grid-cols-[0.7fr_1.3fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Deployment summary</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
             <p>Database driver: {installationQuery.data.driver}</p>
             <p className="truncate">Workspace id: {workspaceId}</p>
             <p className="truncate">Owner id: {installationQuery.data.record?.ownerUserId}</p>
-          </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Detected models</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {modelsQuery.isLoading && (
+              <p className="text-sm text-muted-foreground">Checking for local and cloud models…</p>
+            )}
+            {modelsQuery.data?.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No models detected. Start Ollama/LM Studio or set an API key for a cloud provider.
+              </p>
+            )}
+            <ul className="space-y-2">
+              {modelsQuery.data?.map((model) => (
+                <li
+                  key={model.id}
+                  className="flex items-center justify-between rounded-lg border px-4 py-3 text-sm"
+                >
+                  <span>{model.label}</span>
+                  <span className="text-muted-foreground">{model.kind}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
         </Card>
       </section>
-
-      <Card className="p-6">
-        <h2 className="font-medium">Detected models</h2>
-        {modelsQuery.isLoading && (
-          <p className="mt-2 text-sm text-muted-foreground">Checking for local and cloud models…</p>
-        )}
-        {modelsQuery.data?.length === 0 && (
-          <p className="mt-2 text-sm text-muted-foreground">
-            No models detected. Start Ollama/LM Studio or set an API key for a cloud provider.
-          </p>
-        )}
-        <ul className="mt-4 space-y-2">
-          {modelsQuery.data?.map((model) => (
-            <li
-              key={model.id}
-              className="flex items-center justify-between rounded-lg border px-4 py-3 text-sm"
-            >
-              <span>{model.label}</span>
-              <span className="text-muted-foreground">{model.kind}</span>
-            </li>
-          ))}
-        </ul>
-      </Card>
     </div>
   );
 }

@@ -3,9 +3,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { trpcClient } from "@/lib/trpc";
 
 function formatDate(value: Date | string | null) {
@@ -130,139 +133,158 @@ export default function KnowledgeBasePage() {
   const documents = documentsQuery.data ?? [];
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Knowledge base</h1>
-        <p className="text-muted-foreground">
-          Obsidian-backed project memory: local vault indexing, docs-agent sync, and a lightweight
-          graph view for note connectivity.
-        </p>
-      </div>
+    <div className="mx-auto w-full max-w-5xl space-y-6 p-8">
+      <PageHeader
+        title="Knowledge base"
+        description="Obsidian-backed project memory: local vault indexing, docs-agent sync, and a lightweight graph view for note connectivity."
+      />
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        <Card className="space-y-4 p-4">
-          <div>
-            <h2 className="font-medium">Configuration</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Configuration</CardTitle>
             <p className="text-sm text-muted-foreground">
               The vault stays file-first. Obsidian REST is optional and only used for reachability
               checks today.
             </p>
-          </div>
-
-          <Input value={vaultPath} onChange={(e) => setVaultPath(e.target.value)} />
-          <Input
-            value={obsidianRestUrl}
-            onChange={(e) => setObsidianRestUrl(e.target.value)}
-            placeholder="http://127.0.0.1:27124/"
-          />
-          <Input
-            value={obsidianApiKey}
-            onChange={(e) => setObsidianApiKey(e.target.value)}
-            placeholder={
-              overview?.config.obsidianApiKeySet
-                ? "API key stored; enter to replace"
-                : "Obsidian API key"
-            }
-            type="password"
-          />
-
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={docsAgentEnabled}
-              onChange={(e) => setDocsAgentEnabled(e.target.checked)}
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Input value={vaultPath} onChange={(e) => setVaultPath(e.target.value)} />
+            <Input
+              value={obsidianRestUrl}
+              onChange={(e) => setObsidianRestUrl(e.target.value)}
+              placeholder="http://127.0.0.1:27124/"
             />
-            Enable automatic docs agent
-          </label>
+            <Input
+              value={obsidianApiKey}
+              onChange={(e) => setObsidianApiKey(e.target.value)}
+              placeholder={
+                overview?.config.obsidianApiKeySet
+                  ? "API key stored; enter to replace"
+                  : "Obsidian API key"
+              }
+              type="password"
+            />
 
-          <div className="flex gap-2">
-            <Button
-              onClick={() => saveConfig.mutate()}
-              disabled={saveConfig.isPending || !vaultPath}
-            >
-              {saveConfig.isPending ? "Saving…" : "Save config"}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => runDocsAgent.mutate()}
-              disabled={runDocsAgent.isPending}
-            >
-              {runDocsAgent.isPending ? "Running…" : "Run docs agent now"}
-            </Button>
-          </div>
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div className="space-y-0.5">
+                <Label htmlFor="docs-agent-enabled">Automatic docs agent</Label>
+                <p className="text-xs text-muted-foreground">
+                  Keeps the vault in sync without a manual trigger.
+                </p>
+              </div>
+              <Switch
+                id="docs-agent-enabled"
+                checked={docsAgentEnabled}
+                onCheckedChange={setDocsAgentEnabled}
+              />
+            </div>
 
-          {saveConfig.isError && (
-            <p className="text-sm text-destructive">{(saveConfig.error as Error).message}</p>
-          )}
-          {runDocsAgent.isError && (
-            <p className="text-sm text-destructive">{(runDocsAgent.error as Error).message}</p>
-          )}
+            <div className="flex gap-2 border-t pt-4">
+              <Button
+                onClick={() => saveConfig.mutate()}
+                disabled={saveConfig.isPending || !vaultPath}
+              >
+                {saveConfig.isPending ? "Saving…" : "Save config"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => runDocsAgent.mutate()}
+                disabled={runDocsAgent.isPending}
+              >
+                {runDocsAgent.isPending ? "Running…" : "Run docs agent now"}
+              </Button>
+            </div>
+
+            {saveConfig.isError && (
+              <p className="text-sm text-destructive">{(saveConfig.error as Error).message}</p>
+            )}
+            {runDocsAgent.isError && (
+              <p className="text-sm text-destructive">{(runDocsAgent.error as Error).message}</p>
+            )}
+          </CardContent>
         </Card>
 
-        <Card className="space-y-3 p-4">
-          <h2 className="font-medium">Status</h2>
-          <div className="text-sm text-muted-foreground">
-            Vault path: {overview?.config.absoluteVaultPath ?? "Loading…"}
-          </div>
-          <div className="text-sm text-muted-foreground">
-            Notes: {overview?.stats.noteCount ?? 0} · Links: {overview?.stats.edgeCount ?? 0}
-          </div>
-          <div className="text-sm text-muted-foreground">
-            Last docs sync: {formatDate(overview?.config.lastDocsSyncAt ?? null)}
-          </div>
-          <div className="text-sm text-muted-foreground">
-            Obsidian REST:{" "}
-            {overview?.obsidian.reachable ? "reachable" : (overview?.obsidian.error ?? "checking")}
-          </div>
-          {overview?.config.lastDocsSyncError && (
-            <div className="text-sm text-destructive">{overview.config.lastDocsSyncError}</div>
-          )}
+        <Card>
+          <CardHeader>
+            <CardTitle>Status</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="text-sm text-muted-foreground">
+              Vault path: {overview?.config.absoluteVaultPath ?? "Loading…"}
+            </div>
+            <div className="text-sm text-muted-foreground">
+              Notes: {overview?.stats.noteCount ?? 0} · Links: {overview?.stats.edgeCount ?? 0}
+            </div>
+            <div className="text-sm text-muted-foreground">
+              Last docs sync: {formatDate(overview?.config.lastDocsSyncAt ?? null)}
+            </div>
+            <div className="text-sm text-muted-foreground">
+              Obsidian REST:{" "}
+              {overview?.obsidian.reachable
+                ? "reachable"
+                : (overview?.obsidian.error ?? "checking")}
+            </div>
+            {overview?.config.lastDocsSyncError && (
+              <div className="text-sm text-destructive">{overview.config.lastDocsSyncError}</div>
+            )}
+          </CardContent>
         </Card>
       </div>
 
-      <Card className="space-y-4 p-4">
-        <div>
-          <h2 className="font-medium">Graph view</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>Graph view</CardTitle>
           <p className="text-sm text-muted-foreground">
-            This is rendered from markdown links in the vault, independent of the Obsidian app.
+            Rendered from markdown links in the vault, independent of the Obsidian app.
           </p>
-        </div>
-        {graphQuery.data ? (
-          <GraphPreview
-            nodes={graphQuery.data.nodes.slice(0, 20)}
-            edges={graphQuery.data.edges.slice(0, 40)}
-          />
-        ) : (
-          <p className="text-sm text-muted-foreground">Loading graph…</p>
-        )}
+        </CardHeader>
+        <CardContent>
+          {graphQuery.data ? (
+            <GraphPreview
+              nodes={graphQuery.data.nodes.slice(0, 20)}
+              edges={graphQuery.data.edges.slice(0, 40)}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">Loading graph…</p>
+          )}
+        </CardContent>
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="space-y-2 p-4">
-          <h2 className="font-medium">Recent notes</h2>
-          <ul className="space-y-2 text-sm">
-            {(overview?.recentDocuments ?? []).map((doc) => (
-              <li key={doc.path} className="rounded-md border p-3">
-                <div className="font-medium">{doc.title}</div>
-                <div className="text-muted-foreground">{doc.path}</div>
-                <div className="text-muted-foreground">
-                  {doc.links.length} link(s) · updated {formatDate(doc.modifiedAt)}
-                </div>
-              </li>
-            ))}
-          </ul>
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent notes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2 text-sm">
+              {(overview?.recentDocuments ?? []).map((doc) => (
+                <li key={doc.path} className="rounded-lg border p-3">
+                  <div className="font-medium">{doc.title}</div>
+                  <div className="text-muted-foreground">{doc.path}</div>
+                  <div className="text-muted-foreground">
+                    {doc.links.length} link(s) · updated {formatDate(doc.modifiedAt)}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
         </Card>
 
-        <Card className="space-y-2 p-4">
-          <h2 className="font-medium">All indexed notes</h2>
-          <ul className="max-h-[420px] space-y-2 overflow-auto text-sm">
-            {documents.map((doc) => (
-              <li key={doc.path} className="rounded-md border p-3">
-                <div className="font-medium">{doc.title}</div>
-                <div className="text-muted-foreground">{doc.path}</div>
-              </li>
-            ))}
-          </ul>
+        <Card>
+          <CardHeader>
+            <CardTitle>All indexed notes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="max-h-[420px] space-y-2 overflow-auto text-sm">
+              {documents.map((doc) => (
+                <li key={doc.path} className="rounded-lg border p-3">
+                  <div className="font-medium">{doc.title}</div>
+                  <div className="text-muted-foreground">{doc.path}</div>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
         </Card>
       </div>
     </div>

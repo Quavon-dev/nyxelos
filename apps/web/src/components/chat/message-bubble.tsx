@@ -6,8 +6,8 @@ export function MessageBubble({ sender, content }: { sender: string; content: st
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[80%] rounded-lg px-3 py-2 text-sm",
-          isUser ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+          "max-w-[80%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
+          isUser ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
         )}
       >
         {content}

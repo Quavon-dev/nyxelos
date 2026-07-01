@@ -150,3 +150,5 @@ bun.lockb.bak
 .build/
 apps/server/nyxel.sqlite-shm
 apps/server/nyxel.sqlite-wal
+
+apps/web/src/components/example

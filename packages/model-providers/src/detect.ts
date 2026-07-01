@@ -21,6 +21,13 @@ export interface OpenAiCompatibleProbeResult {
   modelIds: string[];
 }
 
+export interface OpenAiCompatibleProbeFailure {
+  baseUrl: string;
+  status: number | null;
+  code: string | null;
+  message: string | null;
+}
+
 type OpenAiRuntimeProbe = {
   providerKey: string;
   providerLabel: string;
@@ -88,25 +95,26 @@ async function safeFetchJson<T>(
   url: string,
   init?: RequestInit,
   timeoutMs = 800,
-): Promise<T | null> {
+): Promise<{ ok: true; data: T } | { ok: false; status: number | null; body: unknown | null }> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const res = await fetch(url, { ...init, signal: controller.signal });
     clearTimeout(timer);
-    if (!res.ok) return null;
-    return (await res.json()) as T;
+    const json = (await res.json().catch(() => null)) as T | null;
+    if (!res.ok) return { ok: false, status: res.status, body: json };
+    return { ok: true, data: json as T };
   } catch {
-    return null;
+    return { ok: false, status: null, body: null };
   }
 }
 
 export async function detectOllamaModels(): Promise<DetectedLocalModel[]> {
   const base = normalizeOpenAiCompatibleBaseUrl(getOllamaBaseUrl());
-  const data = await safeFetchJson<{ models?: Array<{ name: string }> }>(`${base}/api/tags`);
-  if (!data?.models) return [];
+  const result = await safeFetchJson<{ models?: Array<{ name: string }> }>(`${base}/api/tags`);
+  if (!result.ok || !result.data?.models) return [];
 
-  return data.models.map((m) => ({
+  return result.data.models.map((m) => ({
     id: `ollama/${m.name}`,
     label: m.name,
     provider: "ollama",
@@ -121,8 +129,21 @@ export async function probeOpenAiCompatibleEndpoint(input: {
   providerKey?: string;
   providerLabel?: string;
 }): Promise<OpenAiCompatibleProbeResult | null> {
+  const detailed = await probeOpenAiCompatibleEndpointDetailed(input);
+  return "modelIds" in detailed ? detailed : null;
+}
+
+export async function probeOpenAiCompatibleEndpointDetailed(input: {
+  baseUrl: string;
+  apiKey?: string | null;
+  providerKey?: string;
+  providerLabel?: string;
+}): Promise<OpenAiCompatibleProbeResult | OpenAiCompatibleProbeFailure> {
   const baseUrl = normalizeOpenAiCompatibleBaseUrl(input.baseUrl);
-  const data = await safeFetchJson<{ data?: Array<{ id: string }> }>(
+  const result = await safeFetchJson<{
+    data?: Array<{ id: string }>;
+    error?: { code?: string; message?: string };
+  }>(
     `${baseUrl}/v1/models`,
     input.apiKey
       ? {
@@ -133,8 +154,28 @@ export async function probeOpenAiCompatibleEndpoint(input: {
       : undefined,
   );
 
-  const modelIds = data?.data?.map((model) => model.id).filter(Boolean) ?? [];
-  if (modelIds.length === 0) return null;
+  if (!result.ok) {
+    const body =
+      result.body && typeof result.body === "object"
+        ? (result.body as { error?: { code?: string; message?: string } })
+        : null;
+    return {
+      baseUrl,
+      status: result.status,
+      code: body?.error?.code ?? null,
+      message: body?.error?.message ?? null,
+    };
+  }
+
+  const modelIds = result.data?.data?.map((model) => model.id).filter(Boolean) ?? [];
+  if (modelIds.length === 0) {
+    return {
+      baseUrl,
+      status: 200,
+      code: "no_models",
+      message: "The endpoint responded successfully but returned no models.",
+    };
+  }
 
   return {
     providerKey: input.providerKey ?? "openai-compatible",
