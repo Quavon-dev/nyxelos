@@ -236,7 +236,7 @@ export function ChatComposerToolbar({
   const voice = useVoiceInput(onVoiceResult);
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex items-center gap-1.5">
       <input
         ref={fileInputRef}
         type="file"
@@ -245,37 +245,43 @@ export function ChatComposerToolbar({
         onChange={handleFilePick}
       />
 
-      {mode === "full" && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              aria-label="More tool options"
-            >
-              <Settings2 className="size-4" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56">
-            <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
-              <Search className="size-4" />
-              File search{attachedFile ? ` — ${attachedFile.name}` : ""}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={toggleSkills}>
-              <Sparkles className="size-4" />
-              Skills — {skillsActive ? "on" : "off"}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setArtifactsOpen(true)}>
-              <Blocks className="size-4" />
-              Artifacts ({artifacts.length})
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setMcpOpen(true)}>
-              <Plug className="size-4" />
-              MCP Server ({mcpSummary})
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+      {/* Single-line, horizontally scrollable pill row — never wraps. Wrapping
+       * here previously made this box taller than its siblings (the model
+       * picker, the send button), and with items-center on the parent row
+       * that made those siblings look like they were floating at odd
+       * vertical offsets instead of sitting on one clean line. */}
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [&::-webkit-scrollbar]:hidden">
+        {mode === "full" && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label="More tool options"
+              >
+                <Settings2 className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
+                <Search className="size-4" />
+                File search{attachedFile ? ` — ${attachedFile.name}` : ""}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={toggleSkills}>
+                <Sparkles className="size-4" />
+                Skills — {skillsActive ? "on" : "off"}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setArtifactsOpen(true)}>
+                <Blocks className="size-4" />
+                Artifacts ({artifacts.length})
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setMcpOpen(true)}>
+                <Plug className="size-4" />
+                MCP Server ({mcpSummary})
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
 
       {mode === "compact" && (
         <>
@@ -521,8 +527,9 @@ export function ChatComposerToolbar({
           </div>
         </PopoverContent>
       </Popover>
+      </div>
 
-      <div className="ml-auto flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         {mode === "compact" && (
           <Popover open={contextOpen} onOpenChange={setContextOpen}>
             <PopoverTrigger asChild>
