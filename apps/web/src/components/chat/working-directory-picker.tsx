@@ -119,11 +119,7 @@ export function WorkingDirectoryPicker({
 				</button>
 			</PopoverTrigger>
 
-			<PopoverContent
-				className="w-72 gap-0 p-1"
-				align="start"
-				sideOffset={6}
-			>
+			<PopoverContent className="w-72 gap-0 p-1" align="start" sideOffset={6}>
 				{recentDirs.length > 0 && (
 					<>
 						<p className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
