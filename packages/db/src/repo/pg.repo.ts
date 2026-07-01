@@ -287,7 +287,10 @@ export function createPgRepository(connectionString: string): DbRepository {
         .update(schema.chat)
         .set(
           shared
-            ? { shareId: existing.shareId ?? randomUUID(), sharedAt: existing.sharedAt ?? new Date() }
+            ? {
+                shareId: existing.shareId ?? randomUUID(),
+                sharedAt: existing.sharedAt ?? new Date(),
+              }
             : { shareId: null, sharedAt: null },
         )
         .where(eq(schema.chat.id, chatId))
@@ -347,7 +350,10 @@ export function createPgRepository(connectionString: string): DbRepository {
     },
 
     async createProject({ workspaceId, name }) {
-      const [row] = await db.insert(schema.project).values({ id: randomUUID(), workspaceId, name }).returning();
+      const [row] = await db
+        .insert(schema.project)
+        .values({ id: randomUUID(), workspaceId, name })
+        .returning();
       if (!row) throw new Error("Failed to create project");
       return mapProject(row);
     },
@@ -386,7 +392,11 @@ export function createPgRepository(connectionString: string): DbRepository {
 
       const [copy] = await db
         .insert(schema.project)
-        .values({ id: randomUUID(), workspaceId: source.workspaceId, name: `${source.name} (copy)` })
+        .values({
+          id: randomUUID(),
+          workspaceId: source.workspaceId,
+          name: `${source.name} (copy)`,
+        })
         .returning();
       if (!copy) throw new Error("Failed to duplicate project");
 

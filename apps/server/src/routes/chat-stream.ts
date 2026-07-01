@@ -25,6 +25,15 @@ const STREAM_HEADERS = {
   "X-Accel-Buffering": "no",
 };
 
+function isClosedStreamControllerError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    "code" in err &&
+    err.code === "ERR_INVALID_STATE" &&
+    err.message.includes("Controller is already closed")
+  );
+}
+
 /**
  * POST /api/chat/stream — persists the user message, resolves the system
  * prompt and tool set for this chat (workspace custom instructions, plus —
@@ -77,6 +86,7 @@ export function registerChatStreamRoute(app: Hono) {
     // a local model that's no longer running. Without this guard that throw
     // would escape as an opaque, stack-trace-dumping 500 instead of a clean
     // JSON error the UI can display.
+    let finalizedText = "";
     let result: ReturnType<typeof streamChat>;
     try {
       result = streamChat({
@@ -88,6 +98,9 @@ export function registerChatStreamRoute(app: Hono) {
           role: m.role === "tool" ? "assistant" : m.role,
           content: m.content,
         })),
+        onFinish: ({ text }) => {
+          finalizedText = text;
+        },
         onError: ({ error }) => {
           console.error(`Model stream failed mid-response for chat ${chatId}:`, error);
         },
@@ -97,21 +110,22 @@ export function registerChatStreamRoute(app: Hono) {
       return c.json({ error: messageText }, 502);
     }
 
-    const finalizedTextPromise = Promise.resolve(result.text).catch(() => "");
     const encoder = new TextEncoder();
+    let clientDisconnected = false;
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         let streamedText = "";
         try {
           for await (const chunk of result.textStream) {
             streamedText += chunk;
-            controller.enqueue(encoder.encode(chunk));
+            if (!clientDisconnected) {
+              controller.enqueue(encoder.encode(chunk));
+            }
           }
 
-          const finalizedText = await finalizedTextPromise;
           const assistantText = finalizedText.trim() ? finalizedText : streamedText;
 
-          if (assistantText && assistantText !== streamedText) {
+          if (!clientDisconnected && assistantText && assistantText !== streamedText) {
             const missingSuffix = assistantText.startsWith(streamedText)
               ? assistantText.slice(streamedText.length)
               : assistantText;
@@ -131,14 +145,23 @@ export function registerChatStreamRoute(app: Hono) {
               console.error(`Failed to persist assistant message for chat ${chatId}:`, err);
             }
           }
-          controller.close();
+          if (!clientDisconnected) {
+            controller.close();
+          }
         } catch (err) {
+          if (clientDisconnected || isClosedStreamControllerError(err)) {
+            return;
+          }
+
           const messageText =
             err instanceof Error ? err.message : "Model stream failed mid-response.";
           console.error(`Model stream failed mid-response for chat ${chatId}:`, err);
           controller.enqueue(encoder.encode(`\n\n[stream error] ${messageText}`));
           controller.close();
         }
+      },
+      cancel() {
+        clientDisconnected = true;
       },
     });
 

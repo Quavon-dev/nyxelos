@@ -165,6 +165,10 @@ export class McpClientManager {
   private configs = new Map<string, McpServerConfig>();
   private oauthProviders = new Map<string, InMemoryMcpOAuthProvider>();
 
+  constructor(
+    private readonly exchangeAuthorizationCode = runOAuthFlow,
+  ) {}
+
   private getOrCreateOAuthProvider(config: McpServerConfig): InMemoryMcpOAuthProvider | undefined {
     if (config.transport !== "http" || !config.oauth?.callbackUrl) return undefined;
     const existing = this.oauthProviders.get(config.id);
@@ -239,7 +243,10 @@ export class McpClientManager {
     if (!provider) {
       throw new Error(`MCP server "${config.name}" has no OAuth provider configured.`);
     }
-    await runOAuthFlow(provider, { serverUrl: config.url, authorizationCode });
+    await this.exchangeAuthorizationCode(provider, {
+      serverUrl: config.url,
+      authorizationCode,
+    });
     await this.disconnect(serverId);
   }
 

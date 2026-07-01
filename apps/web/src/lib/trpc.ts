@@ -389,12 +389,16 @@ type NyxelTrpcClient = {
     listArchived: {
       query(input: { workspaceId: string }): Promise<ChatSummary[]>;
     };
+    listByProject: {
+      query(input: { projectId: string }): Promise<ChatSummary[]>;
+    };
     create: {
       mutate(input: {
         workspaceId: string;
         title: string;
         modelId?: string;
         agentId?: string;
+        projectId?: string | null;
       }): Promise<ChatSummary>;
     };
     rename: {
@@ -402,6 +406,26 @@ type NyxelTrpcClient = {
     };
     setArchived: {
       mutate(input: { chatId: string; archived: boolean }): Promise<ChatSummary>;
+    };
+    setPinned: {
+      mutate(input: { chatId: string; pinned: boolean }): Promise<ChatSummary>;
+    };
+    setProject: {
+      mutate(input: { chatId: string; projectId: string | null }): Promise<ChatSummary>;
+    };
+    duplicate: {
+      mutate(input: { chatId: string }): Promise<ChatSummary>;
+    };
+    share: {
+      mutate(input: { chatId: string }): Promise<ChatSummary>;
+    };
+    unshare: {
+      mutate(input: { chatId: string }): Promise<ChatSummary>;
+    };
+    getShared: {
+      query(input: {
+        shareId: string;
+      }): Promise<{ chat: ChatSummary; messages: MessageSummary[] } | null>;
     };
     delete: {
       mutate(input: { chatId: string }): Promise<void>;
@@ -411,6 +435,26 @@ type NyxelTrpcClient = {
     };
     setAgent: {
       mutate(input: { chatId: string; agentId: string | null }): Promise<ChatSummary>;
+    };
+  };
+  projects: {
+    list: {
+      query(input: { workspaceId: string }): Promise<ProjectSummary[]>;
+    };
+    get: {
+      query(input: { projectId: string }): Promise<ProjectSummary | null>;
+    };
+    create: {
+      mutate(input: { workspaceId: string; name: string }): Promise<ProjectSummary>;
+    };
+    rename: {
+      mutate(input: { projectId: string; name: string }): Promise<ProjectSummary>;
+    };
+    duplicate: {
+      mutate(input: { projectId: string }): Promise<ProjectSummary>;
+    };
+    delete: {
+      mutate(input: { projectId: string }): Promise<void>;
     };
   };
   agents: {

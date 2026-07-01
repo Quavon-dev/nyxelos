@@ -352,7 +352,10 @@ export function createSqliteRepository(filePath: string): DbRepository {
         .update(schema.chat)
         .set(
           shared
-            ? { shareId: existing.shareId ?? randomUUID(), sharedAt: existing.sharedAt ?? new Date() }
+            ? {
+                shareId: existing.shareId ?? randomUUID(),
+                sharedAt: existing.sharedAt ?? new Date(),
+              }
             : { shareId: null, sharedAt: null },
         )
         .where(eq(schema.chat.id, chatId))

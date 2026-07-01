@@ -2,27 +2,22 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Archive,
+  Check,
+  ChevronDown,
   Compass,
-  Ellipsis,
+  Copy,
+  FolderPlus,
   History,
   LibraryBig,
-  Pencil,
   Plus,
   Search,
-  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { ChatListItem } from "@/components/chat/chat-list-item";
+import { ProjectListItem } from "@/components/chat/project-list-item";
 import { Button } from "@/components/ui/button";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
 import {
   Dialog,
   DialogContent,
@@ -31,15 +26,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { type ChatSummary, trpcClient } from "@/lib/trpc";
+import { type ChatSummary, type ProjectSummary, trpcClient } from "@/lib/trpc";
 import { useInstallation } from "@/lib/use-installation";
 import { cn } from "@/lib/utils";
 
@@ -69,6 +57,11 @@ function groupChats(chats: ChatSummary[]) {
   return groups.filter((g) => g.chats.length > 0);
 }
 
+function shareUrlFor(shareId: string) {
+  if (typeof window === "undefined") return `/share/${shareId}`;
+  return `${window.location.origin}/share/${shareId}`;
+}
+
 export function ChatSidebar() {
   const router = useRouter();
   const pathname = usePathname();
@@ -76,9 +69,19 @@ export function ChatSidebar() {
   const workspaceId = installationQuery.data?.record?.primaryWorkspaceId;
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [projectsOpen, setProjectsOpen] = useState(true);
+
   const [renameTarget, setRenameTarget] = useState<ChatSummary | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ChatSummary | null>(null);
+  const [shareTarget, setShareTarget] = useState<ChatSummary | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  const [projectDialog, setProjectDialog] = useState<
+    { mode: "create" } | { mode: "rename"; project: ProjectSummary } | null
+  >(null);
+  const [projectName, setProjectName] = useState("");
+  const [deleteProjectTarget, setDeleteProjectTarget] = useState<ProjectSummary | null>(null);
 
   const chatsQuery = useQuery({
     queryKey: ["chats", workspaceId],
@@ -86,15 +89,34 @@ export function ChatSidebar() {
     enabled: Boolean(workspaceId),
   });
 
+  const projectsQuery = useQuery({
+    queryKey: ["projects", workspaceId],
+    queryFn: () => trpcClient.projects.list.query({ workspaceId: workspaceId! }),
+    enabled: Boolean(workspaceId),
+  });
+  const projects = projectsQuery.data ?? [];
+
   const chats = chatsQuery.data ?? [];
   const filtered = useMemo(() => {
     if (!search.trim()) return chats;
     const q = search.trim().toLowerCase();
     return chats.filter((c) => c.title.toLowerCase().includes(q));
   }, [chats, search]);
-  const groups = useMemo(
-    () => groupChats([...filtered].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))),
+
+  const pinnedChats = useMemo(
+    () =>
+      filtered
+        .filter((c) => c.pinnedAt)
+        .sort((a, b) => +new Date(b.pinnedAt ?? 0) - +new Date(a.pinnedAt ?? 0)),
     [filtered],
+  );
+  const unpinnedChats = useMemo(() => filtered.filter((c) => !c.pinnedAt), [filtered]);
+  const groups = useMemo(
+    () =>
+      groupChats(
+        [...unpinnedChats].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
+      ),
+    [unpinnedChats],
   );
 
   const bottomNav = [
@@ -115,6 +137,11 @@ export function ChatSidebar() {
     queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] });
     queryClient.invalidateQueries({ queryKey: ["chats", "list", workspaceId] });
     queryClient.invalidateQueries({ queryKey: ["chats", "archived", workspaceId] });
+    queryClient.invalidateQueries({ queryKey: ["chats", "byProject"] });
+  }
+
+  function invalidateProjects() {
+    queryClient.invalidateQueries({ queryKey: ["projects", workspaceId] });
   }
 
   const renameChat = useMutation({
@@ -146,10 +173,132 @@ export function ChatSidebar() {
     },
   });
 
+  const pinChat = useMutation({
+    mutationFn: ({ chatId, pinned }: { chatId: string; pinned: boolean }) =>
+      trpcClient.chats.setPinned.mutate({ chatId, pinned }),
+    onSuccess: invalidateChats,
+  });
+
+  const moveChatToProject = useMutation({
+    mutationFn: ({ chatId, projectId }: { chatId: string; projectId: string | null }) =>
+      trpcClient.chats.setProject.mutate({ chatId, projectId }),
+    onSuccess: invalidateChats,
+  });
+
+  const duplicateChat = useMutation({
+    mutationFn: (chatId: string) => trpcClient.chats.duplicate.mutate({ chatId }),
+    onSuccess: (chat) => {
+      invalidateChats();
+      router.push(`/chat/${chat.id}`);
+    },
+  });
+
+  const shareChat = useMutation({
+    mutationFn: (chatId: string) => trpcClient.chats.share.mutate({ chatId }),
+    onSuccess: (chat) => {
+      invalidateChats();
+      setShareTarget(chat);
+    },
+  });
+
+  const unshareChat = useMutation({
+    mutationFn: (chatId: string) => trpcClient.chats.unshare.mutate({ chatId }),
+    onSuccess: () => {
+      invalidateChats();
+      setShareTarget(null);
+    },
+  });
+
+  const createProject = useMutation({
+    mutationFn: (name: string) =>
+      trpcClient.projects.create.mutate({ workspaceId: workspaceId!, name }),
+    onSuccess: (project) => {
+      invalidateProjects();
+      setProjectDialog(null);
+      setProjectName("");
+      router.push(`/chat/project/${project.id}`);
+    },
+  });
+
+  const renameProject = useMutation({
+    mutationFn: ({ projectId, name }: { projectId: string; name: string }) =>
+      trpcClient.projects.rename.mutate({ projectId, name }),
+    onSuccess: () => {
+      invalidateProjects();
+      setProjectDialog(null);
+      setProjectName("");
+    },
+  });
+
+  const duplicateProject = useMutation({
+    mutationFn: (projectId: string) => trpcClient.projects.duplicate.mutate({ projectId }),
+    onSuccess: (project) => {
+      invalidateProjects();
+      invalidateChats();
+      router.push(`/chat/project/${project.id}`);
+    },
+  });
+
+  const deleteProject = useMutation({
+    mutationFn: (projectId: string) => trpcClient.projects.delete.mutate({ projectId }),
+    onSuccess: (_, projectId) => {
+      invalidateProjects();
+      invalidateChats();
+      setDeleteProjectTarget(null);
+      if (pathname === `/chat/project/${projectId}`) router.push("/chat");
+    },
+  });
+
   function openRename(chat: ChatSummary) {
     setRenameTarget(chat);
     setRenameTitle(chat.title);
   }
+
+  function openShare(chat: ChatSummary) {
+    setLinkCopied(false);
+    setShareTarget(chat);
+    shareChat.mutate(chat.id);
+  }
+
+  async function copyShareLink() {
+    if (!shareTarget?.shareId) return;
+    try {
+      await navigator.clipboard.writeText(shareUrlFor(shareTarget.shareId));
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 1500);
+    } catch {
+      // Clipboard access can be denied by the browser — the link is still
+      // visible and selectable in the input, so this is a soft failure.
+    }
+  }
+
+  function openCreateProject() {
+    setProjectDialog({ mode: "create" });
+    setProjectName("");
+  }
+
+  function openRenameProject(project: ProjectSummary) {
+    setProjectDialog({ mode: "rename", project });
+    setProjectName(project.name);
+  }
+
+  function saveProject() {
+    const name = projectName.trim();
+    if (!name || !projectDialog) return;
+    if (projectDialog.mode === "create") createProject.mutate(name);
+    else renameProject.mutate({ projectId: projectDialog.project.id, name });
+  }
+
+  const chatActions = {
+    onRename: openRename,
+    onDuplicate: (chat: ChatSummary) => duplicateChat.mutate(chat.id),
+    onShare: openShare,
+    onTogglePin: (chat: ChatSummary) => pinChat.mutate({ chatId: chat.id, pinned: !chat.pinnedAt }),
+    onArchive: (chat: ChatSummary) => archiveChat.mutate(chat.id),
+    onDelete: (chat: ChatSummary) => setDeleteTarget(chat),
+    onMoveToProject: (chat: ChatSummary, projectId: string | null) =>
+      moveChatToProject.mutate({ chatId: chat.id, projectId }),
+  };
 
   return (
     <>
@@ -167,93 +316,96 @@ export function ChatSidebar() {
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-3 pb-3">
-          {groups.length === 0 && (
-            <p className="px-1 text-sm text-muted-foreground">
-              {chats.length === 0
-                ? "No chats yet — start one below."
-                : "No chats match your search."}
-            </p>
-          )}
-          {groups.map((group) => (
-            <div key={group.label} className="space-y-1">
-              <p className="px-1 text-xs text-muted-foreground">{group.label}</p>
-              {group.chats.map((chat) => {
-                const isActive = pathname === `/chat/${chat.id}`;
-                return (
-                  <ContextMenu key={chat.id}>
-                    <ContextMenuTrigger asChild>
-                      <div
-                        className={cn(
-                          "group flex items-center gap-1 rounded-md transition-colors",
-                          isActive ? "bg-muted" : "hover:bg-muted/60",
-                        )}
-                      >
-                        <Link
-                          href={`/chat/${chat.id}`}
-                          className={cn(
-                            "min-w-0 flex-1 truncate px-2 py-1.5 text-sm",
-                            isActive
-                              ? "font-medium text-foreground"
-                              : "text-foreground/80 group-hover:text-foreground",
-                          )}
-                        >
-                          {chat.title || "Untitled chat"}
-                        </Link>
-
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button
-                              type="button"
-                              className={cn(
-                                "mr-1 flex size-7 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition hover:bg-background/80 hover:text-foreground group-hover:opacity-100",
-                                isActive && "opacity-100",
-                              )}
-                              aria-label={`Open actions for ${chat.title || "chat"}`}
-                            >
-                              <Ellipsis className="size-4" />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-40 min-w-40">
-                            <DropdownMenuItem onClick={() => openRename(chat)}>
-                              <Pencil className="size-4" />
-                              Rename
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => archiveChat.mutate(chat.id)}>
-                              <Archive className="size-4" />
-                              Archive
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              variant="destructive"
-                              onClick={() => setDeleteTarget(chat)}
-                            >
-                              <Trash2 className="size-4" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent>
-                      <ContextMenuItem onClick={() => openRename(chat)}>
-                        <Pencil className="size-4" />
-                        Rename
-                      </ContextMenuItem>
-                      <ContextMenuItem onClick={() => archiveChat.mutate(chat.id)}>
-                        <Archive className="size-4" />
-                        Archive
-                      </ContextMenuItem>
-                      <ContextMenuSeparator />
-                      <ContextMenuItem variant="destructive" onClick={() => setDeleteTarget(chat)}>
-                        <Trash2 className="size-4" />
-                        Delete
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
-                );
-              })}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between px-1">
+              <button
+                type="button"
+                onClick={() => setProjectsOpen((open) => !open)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <ChevronDown
+                  className={cn("size-3.5 transition-transform", !projectsOpen && "-rotate-90")}
+                />
+                Projects
+              </button>
+              <button
+                type="button"
+                onClick={openCreateProject}
+                className="flex size-6 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                aria-label="New project"
+              >
+                <Plus className="size-3.5" />
+              </button>
             </div>
-          ))}
+
+            {projectsOpen && (
+              <div className="space-y-0.5">
+                {projects.length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={openCreateProject}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  >
+                    <FolderPlus className="size-4" />
+                    New project
+                  </button>
+                ) : (
+                  projects.map((project) => (
+                    <ProjectListItem
+                      key={project.id}
+                      project={project}
+                      isActive={pathname === `/chat/project/${project.id}`}
+                      onRename={openRenameProject}
+                      onDuplicate={(p) => duplicateProject.mutate(p.id)}
+                      onDelete={setDeleteProjectTarget}
+                    />
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            <p className="px-1 text-xs text-muted-foreground">Chats</p>
+
+            {pinnedChats.length === 0 && groups.length === 0 && (
+              <p className="px-1 text-sm text-muted-foreground">
+                {chats.length === 0
+                  ? "No chats yet — start one below."
+                  : "No chats match your search."}
+              </p>
+            )}
+
+            {pinnedChats.length > 0 && (
+              <div className="space-y-1">
+                <p className="px-1 text-xs text-muted-foreground">Pinned</p>
+                {pinnedChats.map((chat) => (
+                  <ChatListItem
+                    key={chat.id}
+                    chat={chat}
+                    isActive={pathname === `/chat/${chat.id}`}
+                    projects={projects}
+                    actions={chatActions}
+                  />
+                ))}
+              </div>
+            )}
+
+            {groups.map((group) => (
+              <div key={group.label} className="space-y-1">
+                <p className="px-1 text-xs text-muted-foreground">{group.label}</p>
+                {group.chats.map((chat) => (
+                  <ChatListItem
+                    key={chat.id}
+                    chat={chat}
+                    isActive={pathname === `/chat/${chat.id}`}
+                    projects={projects}
+                    actions={chatActions}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="space-y-3 border-t p-3">
@@ -324,6 +476,91 @@ export function ChatSidebar() {
               variant="destructive"
               onClick={() => deleteTarget && deleteChat.mutate(deleteTarget.id)}
               disabled={deleteChat.isPending}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(shareTarget)} onOpenChange={(open) => !open && setShareTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Share chat</DialogTitle>
+            <DialogDescription>
+              Anyone with this link can view a read-only copy of this conversation.
+            </DialogDescription>
+          </DialogHeader>
+          {shareTarget?.shareId ? (
+            <div className="flex items-center gap-2">
+              <Input readOnly value={shareUrlFor(shareTarget.shareId)} className="text-sm" />
+              <Button type="button" variant="outline" size="sm" onClick={copyShareLink}>
+                {linkCopied ? <Check className="size-4" /> : <Copy className="size-4" />}
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Generating link…</p>
+          )}
+          <DialogFooter showCloseButton>
+            <Button
+              variant="destructive"
+              onClick={() => shareTarget && unshareChat.mutate(shareTarget.id)}
+              disabled={unshareChat.isPending || !shareTarget?.shareId}
+            >
+              Stop sharing
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(projectDialog)}
+        onOpenChange={(open) => !open && setProjectDialog(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {projectDialog?.mode === "create" ? "New project" : "Rename project"}
+            </DialogTitle>
+            <DialogDescription>
+              Projects group related chats together in the sidebar.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={projectName}
+            onChange={(e) => setProjectName(e.target.value)}
+            placeholder="Project name"
+            maxLength={120}
+            onKeyDown={(e) => e.key === "Enter" && saveProject()}
+          />
+          <DialogFooter showCloseButton>
+            <Button
+              onClick={saveProject}
+              disabled={!projectName.trim() || createProject.isPending || renameProject.isPending}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(deleteProjectTarget)}
+        onOpenChange={(open) => !open && setDeleteProjectTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete project</DialogTitle>
+            <DialogDescription>
+              This deletes the "{deleteProjectTarget?.name}" project. Its chats are kept and simply
+              become unfiled.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter showCloseButton>
+            <Button
+              variant="destructive"
+              onClick={() => deleteProjectTarget && deleteProject.mutate(deleteProjectTarget.id)}
+              disabled={deleteProject.isPending}
             >
               Delete
             </Button>
