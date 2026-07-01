@@ -13,7 +13,7 @@ import { ChatTopBar } from "@/components/chat/chat-top-bar";
 import { WorkingDirectoryPicker } from "@/components/chat/working-directory-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { serializeChatMessageContent } from "@/lib/chat-message";
-import { trpcClient } from "@/lib/trpc";
+import { type ChatToolMode, trpcClient } from "@/lib/trpc";
 import { useInstallation } from "@/lib/use-installation";
 
 const QUICK_ACTIONS = [
@@ -94,6 +94,7 @@ export default function ChatLandingPage() {
 	const [toolSelection, setToolSelection] = useState<ChatToolSelection | null>(
 		null,
 	);
+	const [toolMode, setToolMode] = useState<ChatToolMode | null>(null);
 	const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
 	const [workingDirectory, setWorkingDirectory] = useState("");
 
@@ -157,6 +158,7 @@ export default function ChatLandingPage() {
 				modelId,
 				agentId,
 				projectId,
+				toolMode: toolMode ?? undefined,
 			});
 			return { chat, outgoing };
 		},
@@ -174,6 +176,8 @@ export default function ChatLandingPage() {
 	}
 
 	const name = ownerQuery.data?.name?.split(" ")[0];
+	const effectiveToolMode =
+		toolMode ?? workspaceQuery.data?.defaultToolPolicy.mode ?? "default";
 
 	return (
 		<div className="flex h-full flex-col">
@@ -232,6 +236,8 @@ export default function ChatLandingPage() {
 									modelId={modelId}
 									toolSelection={toolSelection}
 									onToolSelectionChange={setToolSelection}
+									toolMode={effectiveToolMode}
+									onToolModeChange={setToolMode}
 									attachedFile={attachedFile}
 									onAttachedFileChange={setAttachedFile}
 									onVoiceResult={(text) => {

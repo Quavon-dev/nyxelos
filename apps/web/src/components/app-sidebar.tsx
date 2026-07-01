@@ -11,17 +11,20 @@ import {
   LayoutDashboard,
   Library,
   MessageSquare,
-  NotebookPen,
   Plug,
   ScrollText,
+  Settings,
   Sparkles,
   Wrench,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -34,11 +37,13 @@ import {
 } from "@/components/ui/sidebar";
 import { trpcClient } from "@/lib/trpc";
 import { useInstallation } from "@/lib/use-installation";
+import { WorkspaceSettingsPanel } from "@/components/workspace-settings-panel";
 
 export function AppSidebar() {
   const pathname = usePathname();
   const installationQuery = useInstallation();
   const workspaceId = installationQuery.data?.record?.primaryWorkspaceId;
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // A live badge on "Approvals" — the one nav item where "something is
   // waiting on you" is worth surfacing without a click, same idea as the
@@ -58,14 +63,14 @@ export function AppSidebar() {
         { href: "/chat", label: "Chat", icon: MessageSquare },
         {
           href: `/workspace/${workspaceId}/settings`,
-          label: "Custom Instructions",
-          icon: NotebookPen,
+          label: "Settings",
+          icon: Settings,
         },
         { href: `/workspace/${workspaceId}/agents`, label: "Agents", icon: Bot },
         { href: `/workspace/${workspaceId}/tasks`, label: "Tasks", icon: CheckSquare },
         { href: `/workspace/${workspaceId}/skills`, label: "Skills", icon: Blocks },
         { href: `/workspace/${workspaceId}/tools`, label: "Tools", icon: Wrench },
-        { href: `/workspace/${workspaceId}/mcp-servers`, label: "MCP Servers", icon: Plug },
+        { href: `/workspace/${workspaceId}/mcp-servers`, label: "Connectors", icon: Plug },
         { href: `/workspace/${workspaceId}/automations`, label: "Automations", icon: Clock },
         {
           href: `/workspace/${workspaceId}/approvals`,
@@ -126,7 +131,31 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
+      {workspaceId && (
+        <SidebarFooter>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton tooltip="Settings" onClick={() => setSettingsOpen(true)}>
+                <Settings />
+                <span>Settings</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarFooter>
+      )}
+
       <SidebarRail />
+
+      {workspaceId && (
+        <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+          <DialogContent className="flex h-[640px] max-w-4xl flex-col p-6 sm:max-w-4xl">
+            <DialogHeader>
+              <DialogTitle>Workspace settings</DialogTitle>
+            </DialogHeader>
+            <WorkspaceSettingsPanel workspaceId={workspaceId} className="min-h-0" />
+          </DialogContent>
+        </Dialog>
+      )}
     </Sidebar>
   );
 }

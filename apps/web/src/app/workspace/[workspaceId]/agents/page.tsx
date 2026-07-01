@@ -11,6 +11,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -200,6 +208,7 @@ export default function AgentsPage() {
   });
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<AgentSummary | null>(null);
   const deleteAgent = useMutation({
     mutationFn: (id: string) => trpcClient.agents.delete.mutate({ id }),
     onMutate: (id) => setDeletingId(id),
@@ -385,11 +394,7 @@ export default function AgentsPage() {
                               variant="ghost"
                               size="sm"
                               className="text-destructive hover:text-destructive"
-                              onClick={() => {
-                                if (confirm(`Delete agent "${agent.name}"? This can't be undone.`)) {
-                                  deleteAgent.mutate(agent.id);
-                                }
-                              }}
+                              onClick={() => setDeleteConfirmTarget(agent)}
                               disabled={deletingId === agent.id}
                               title="Delete agent"
                             >
@@ -659,6 +664,35 @@ export default function AgentsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(deleteConfirmTarget)}
+        onOpenChange={(open) => !open && setDeleteConfirmTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete agent</DialogTitle>
+            <DialogDescription>
+              This permanently deletes &quot;{deleteConfirmTarget?.name}&quot;. This action cannot
+              be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter showCloseButton>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (deleteConfirmTarget) {
+                  deleteAgent.mutate(deleteConfirmTarget.id);
+                  setDeleteConfirmTarget(null);
+                }
+              }}
+              disabled={deleteAgent.isPending}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -184,6 +184,8 @@ export function registerChatStreamRoute(app: Hono) {
 				systemPrompt,
 				installedProviders,
 				tools,
+				cwd: chat.workingDirectory ?? undefined,
+				toolMode: chat.toolMode,
 				messages: modelMessages,
 				onFinish: ({ text }) => {
 					finalizedText = text;

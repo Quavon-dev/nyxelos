@@ -6,7 +6,12 @@ export type AgentAutonomyLevel =
 	| "autonomous"
 	| "super_agent";
 export type InstallationMode = "pc" | "server";
-export type ModelProviderKind = "anthropic" | "openai" | "openai_compatible";
+export type ModelProviderKind =
+	| "anthropic"
+	| "openai"
+	| "openai_compatible"
+	| "claude_cli"
+	| "codex_cli";
 
 export type McpTransport = "stdio" | "http";
 

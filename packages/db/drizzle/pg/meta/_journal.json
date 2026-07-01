@@ -141,6 +141,13 @@
       "when": 1783000007001,
       "tag": "0019_workspace_default_tool_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783000008001,
+      "tag": "0020_cli_model_providers",
+      "breakpoints": true
     }
   ]
 }

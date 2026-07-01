@@ -16,6 +16,12 @@ import { z } from "zod";
 import { resolveApprovalDecision } from "../approvals";
 import { auth } from "../auth";
 import {
+	checkCliAuthStatus,
+	type CliProviderKind,
+	getCliLoginOutput,
+	startCliLogin,
+} from "../cli-providers";
+import {
 	ensureAutoAssistantForWorkspaceModel,
 	getWorkspaceDefaultToolIds,
 } from "../auto-agent";
@@ -25,6 +31,7 @@ import {
 	listKnowledgeBaseDocuments,
 	runDocsAgentForWorkspace,
 } from "../knowledge-base";
+import { MCP_CONNECTOR_CATALOG } from "../mcp-connectors";
 import {
 	completeMcpServerAuthorization,
 	ensureMcpServerConnected,
@@ -66,7 +73,10 @@ const modelProviderKindSchema = z.enum([
 	"anthropic",
 	"openai",
 	"openai_compatible",
+	"claude_cli",
+	"codex_cli",
 ]);
+const cliProviderKindSchema: z.ZodType<CliProviderKind> = z.enum(["claude_cli", "codex_cli"]);
 const chatToolModeSchema = z.enum(["default", "automatic", "auto"]);
 const chatToolPolicySchema = z.object({
 	mode: chatToolModeSchema,
@@ -422,6 +432,49 @@ export const appRouter = router({
 		deleteInstallation: publicProcedure
 			.input(z.object({ id: z.string() }))
 			.mutation(({ input }) => getDb().deleteModelInstallation(input.id)),
+		// Local CLI providers (claude_cli/codex_cli) — see
+		// apps/server/src/cli-providers.ts. Auth state is host-wide, not
+		// per-workspace, so these three take no workspaceId.
+		cliStatus: publicProcedure
+			.input(z.object({ providerKind: cliProviderKindSchema }))
+			.query(({ input }) => checkCliAuthStatus(input.providerKind)),
+		cliLoginStart: publicProcedure
+			.input(
+				z.object({
+					providerKind: cliProviderKindSchema,
+					apiKey: z.string().min(1).optional(),
+				}),
+			)
+			.mutation(({ input }) => startCliLogin(input.providerKind, input.apiKey)),
+		cliLoginOutput: publicProcedure
+			.input(z.object({ execId: z.string() }))
+			.query(({ input }) => getCliLoginOutput(input.execId)),
+		installCli: publicProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					providerKind: cliProviderKindSchema,
+					label: z.string().min(1),
+					modelIds: z.array(z.string().min(1)).min(1),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				const status = await checkCliAuthStatus(input.providerKind);
+				if (!status.binaryPath) {
+					throw new Error(
+						`${input.providerKind} binary not found on this server host — install it and make sure it's on PATH.`,
+					);
+				}
+				return getDb().createModelInstallation({
+					workspaceId: input.workspaceId,
+					label: input.label,
+					providerKind: input.providerKind,
+					baseUrl: status.binaryPath,
+					apiKey: null,
+					modelIds: input.modelIds,
+					enabled: true,
+				});
+			}),
 		scanImportSources: publicProcedure.query(() => listProviderImportSources()),
 		importSource: publicProcedure
 			.input(z.object({ workspaceId: z.string(), sourceId: z.string() }))
@@ -1091,6 +1144,7 @@ export const appRouter = router({
 	}),
 
 	mcpServers: router({
+		catalog: publicProcedure.query(() => MCP_CONNECTOR_CATALOG),
 		list: publicProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) =>

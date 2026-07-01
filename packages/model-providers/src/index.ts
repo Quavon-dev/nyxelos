@@ -17,12 +17,14 @@ export type {
   CloudModelDefinition,
   InstalledModelProvider,
   ModelCapabilities,
+  ModelProviderKind,
   ModelSummary,
 } from "./providers";
 export {
   getModelCapabilities,
   getDefaultModelIdsForProviderKind,
   listAvailableModels,
+  parseInstalledModelId,
   resolveModel,
   toInstalledModelProvider,
 } from "./providers";
@@ -32,3 +34,4 @@ export type {
 	StreamChatInput,
 } from "./stream";
 export { streamChat } from "./stream";
+export type { ChatStreamPart, ChatStreamResult, CliPermissionMode } from "./cli";

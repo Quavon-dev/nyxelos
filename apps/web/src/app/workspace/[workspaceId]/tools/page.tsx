@@ -9,6 +9,14 @@ import { PageHeader, StatCard } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -374,6 +382,8 @@ export default function ToolsPage() {
     onSuccess: invalidate,
   });
 
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<ToolSummary | null>(null);
+
   const tools = toolsQuery.data ?? [];
   const builtinCount = tools.filter((t) => t.builtin).length;
   const kindMeta = TOOL_KINDS.find((k) => k.value === kind);
@@ -497,7 +507,7 @@ export default function ToolsPage() {
                                 title={
                                   toolItem.builtin ? "Built-in tools can't be deleted" : undefined
                                 }
-                                onClick={() => deleteTool.mutate(toolItem.id)}
+                                onClick={() => setDeleteConfirmTarget(toolItem)}
                               >
                                 Delete
                               </Button>
@@ -661,6 +671,35 @@ export default function ToolsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(deleteConfirmTarget)}
+        onOpenChange={(open) => !open && setDeleteConfirmTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete tool</DialogTitle>
+            <DialogDescription>
+              This permanently deletes &quot;{deleteConfirmTarget?.name}&quot;. Agents referencing
+              it will simply skip it. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter showCloseButton>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (deleteConfirmTarget) {
+                  deleteTool.mutate(deleteConfirmTarget.id);
+                  setDeleteConfirmTarget(null);
+                }
+              }}
+              disabled={deleteTool.isPending}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

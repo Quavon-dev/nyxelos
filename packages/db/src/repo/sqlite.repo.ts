@@ -597,6 +597,12 @@ export function createSqliteRepository(filePath: string): DbRepository {
 		},
 
 		async deleteProject(projectId) {
+			// Same drizzle/sqlite/0009 gap as chat.agent_id above: chat.project_id
+			// has no ON DELETE action in the real DB, so null it out manually.
+			db.update(schema.chat)
+				.set({ projectId: null })
+				.where(eq(schema.chat.projectId, projectId))
+				.run();
 			db.delete(schema.project).where(eq(schema.project.id, projectId)).run();
 		},
 
@@ -831,6 +837,17 @@ export function createSqliteRepository(filePath: string): DbRepository {
 		},
 
 		async deleteAgent(agentId) {
+			// chat.agent_id was added via a bare `ALTER TABLE ADD COLUMN
+			// REFERENCES` (see drizzle/sqlite/0001_fat_rockslide.sql), which
+			// SQLite defaults to ON DELETE NO ACTION — unlike the Postgres
+			// migration, it was never given the "set null" behavior the
+			// schema.ts declares. Null it out here so deleting an agent that's
+			// still referenced by a chat doesn't hit a FOREIGN KEY constraint
+			// failure.
+			db.update(schema.chat)
+				.set({ agentId: null })
+				.where(eq(schema.chat.agentId, agentId))
+				.run();
 			db.delete(schema.agent).where(eq(schema.agent.id, agentId)).run();
 		},
 

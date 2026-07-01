@@ -32,6 +32,8 @@ export const modelProviderKind = pgEnum("model_provider_kind", [
 	"anthropic",
 	"openai",
 	"openai_compatible",
+	"claude_cli",
+	"codex_cli",
 ]);
 
 /** See ADR-0009: pending approvals are resolved out-of-band, not by pausing

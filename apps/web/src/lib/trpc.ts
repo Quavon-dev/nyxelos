@@ -433,6 +433,14 @@ export type AuditLogSummary = {
 	createdAt: Date;
 };
 
+export type McpConnectorCatalogEntry = {
+	key: string;
+	name: string;
+	description: string;
+	category: string;
+	url: string;
+};
+
 export type McpServerSummary = {
 	id: string;
 	workspaceId: string;
@@ -509,7 +517,29 @@ export type KnowledgeBaseGraph = {
 	edges: { source: string; target: string }[];
 };
 
-export type ModelProviderKind = "anthropic" | "openai" | "openai_compatible";
+export type ModelProviderKind =
+	| "anthropic"
+	| "openai"
+	| "openai_compatible"
+	| "claude_cli"
+	| "codex_cli";
+
+/** claude_cli/codex_cli only — see apps/server/src/cli-providers.ts. Auth
+ * state is host-wide (the server's OS user login), not per-workspace. */
+export type CliProviderKind = "claude_cli" | "codex_cli";
+
+export type CliAuthStatus = {
+	status: "not_installed" | "needs_login" | "connected" | "error";
+	binaryPath: string | null;
+	message?: string;
+};
+
+export type CliLoginOutput = {
+	status: "running" | "exited";
+	exitCode: number | null;
+	output: string;
+	url: string | null;
+};
 
 export type ModelInstallationSummary = {
 	id: string;
@@ -604,6 +634,26 @@ type NyxelTrpcClient = {
 		};
 		deleteInstallation: {
 			mutate(input: { id: string }): Promise<void>;
+		};
+		cliStatus: {
+			query(input: { providerKind: CliProviderKind }): Promise<CliAuthStatus>;
+		};
+		cliLoginStart: {
+			mutate(input: {
+				providerKind: CliProviderKind;
+				apiKey?: string;
+			}): Promise<{ execId: string }>;
+		};
+		cliLoginOutput: {
+			query(input: { execId: string }): Promise<CliLoginOutput>;
+		};
+		installCli: {
+			mutate(input: {
+				workspaceId: string;
+				providerKind: CliProviderKind;
+				label: string;
+				modelIds: string[];
+			}): Promise<ModelInstallationSummary>;
 		};
 		scanImportSources: {
 			query(): Promise<ProviderImportSource[]>;
@@ -921,6 +971,9 @@ type NyxelTrpcClient = {
 		};
 	};
 	mcpServers: {
+		catalog: {
+			query(): Promise<McpConnectorCatalogEntry[]>;
+		};
 		list: {
 			query(input: { workspaceId: string }): Promise<McpServerSummary[]>;
 		};

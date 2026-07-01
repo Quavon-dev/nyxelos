@@ -1,8 +1,9 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Search } from "lucide-react";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageHeaderSkeleton, TableSkeleton } from "@/components/loading";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -27,13 +28,179 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { type McpServerSummary, type McpTransportKind, trpcClient } from "@/lib/trpc";
+import { CONNECTOR_ICONS } from "@/components/connector-icons";
+import {
+  type McpConnectorCatalogEntry,
+  type McpServerSummary,
+  type McpTransportKind,
+  trpcClient,
+} from "@/lib/trpc";
 
 function openAuthorizationWindow(authorizationUrl: string) {
   const popup = window.open(authorizationUrl, "_blank", "noopener,noreferrer");
   if (!popup) {
     window.location.href = authorizationUrl;
   }
+}
+
+function connectorInitial(name: string) {
+  return name.slice(0, 1).toUpperCase();
+}
+
+type ConnectorFilter = "all" | "connected" | "not_connected";
+
+function ConnectorCatalog({
+  workspaceId,
+  servers,
+  onConnected,
+}: {
+  workspaceId: string;
+  servers: McpServerSummary[];
+  onConnected: (id: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<ConnectorFilter>("all");
+
+  const catalogQuery = useQuery({
+    queryKey: ["mcpConnectorCatalog"],
+    queryFn: () => trpcClient.mcpServers.catalog.query(),
+  });
+
+  const connectedByUrl = useMemo(() => {
+    const map = new Map<string, McpServerSummary>();
+    for (const server of servers) {
+      if (server.url) map.set(server.url, server);
+    }
+    return map;
+  }, [servers]);
+
+  const connectMutation = useMutation({
+    mutationFn: (entry: McpConnectorCatalogEntry) =>
+      trpcClient.mcpServers.create.mutate({
+        workspaceId,
+        name: entry.name,
+        transport: "http",
+        url: entry.url,
+      }),
+    onSuccess: (server) => {
+      queryClient.invalidateQueries({ queryKey: ["mcpServers", workspaceId] });
+      onConnected(server.id);
+    },
+  });
+
+  const catalog = catalogQuery.data ?? [];
+  const filtered = catalog.filter((entry) => {
+    const connected = connectedByUrl.has(entry.url);
+    if (filter === "connected" && !connected) return false;
+    if (filter === "not_connected" && connected) return false;
+    if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    return entry.name.toLowerCase().includes(q) || entry.category.toLowerCase().includes(q);
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Connectors</CardTitle>
+        <CardDescription>
+          One-click connections to popular services. Each connector is a remote MCP server —
+          connecting one adds it to the configured servers below, and any agent can use its tools.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-8"
+              placeholder="Search connectors"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-1 rounded-lg border p-1">
+            {(
+              [
+                { value: "all", label: "All" },
+                { value: "connected", label: "Connected" },
+                { value: "not_connected", label: "Not connected" },
+              ] as const
+            ).map((tab) => (
+              <Button
+                key={tab.value}
+                type="button"
+                size="sm"
+                variant={filter === tab.value ? "secondary" : "ghost"}
+                onClick={() => setFilter(tab.value)}
+              >
+                {tab.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {catalogQuery.isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading connectors…</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No connectors match.</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {filtered.map((entry) => {
+              const existing = connectedByUrl.get(entry.url);
+              const isConnecting = connectMutation.isPending && connectMutation.variables?.key === entry.key;
+              const Logo = CONNECTOR_ICONS[entry.key];
+              return (
+                <div
+                  key={entry.key}
+                  className="flex items-start justify-between gap-3 rounded-lg border p-3"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white p-1.5 shadow-sm ring-1 ring-black/5">
+                      {Logo ? (
+                        <Logo className="h-full w-full" />
+                      ) : (
+                        <span className="text-sm font-semibold text-foreground">
+                          {connectorInitial(entry.name)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium">{entry.name}</p>
+                        <Badge variant="outline" className="text-[10px]">
+                          {entry.category}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{entry.description}</p>
+                    </div>
+                  </div>
+                  {existing ? (
+                    <Badge variant="secondary" className="shrink-0">
+                      Connected
+                    </Badge>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => connectMutation.mutate(entry)}
+                      disabled={isConnecting}
+                    >
+                      {isConnecting ? "Connecting…" : "Connect"}
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {connectMutation.isError && (
+          <p className="text-sm text-destructive">{(connectMutation.error as Error).message}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function McpServersPage() {
@@ -115,8 +282,14 @@ export default function McpServersPage() {
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
       <PageHeader
-        title="MCP servers"
+        title="Connectors"
         description="Connected tool servers, reachable by any agent that lists them. Nyxel connects on demand — nothing here is kept running until an agent actually needs it."
+      />
+
+      <ConnectorCatalog
+        workspaceId={workspaceId}
+        servers={servers}
+        onConnected={(id) => testConnection.mutate(id)}
       />
 
       <Card>
@@ -234,10 +407,10 @@ export default function McpServersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Add server</CardTitle>
+          <CardTitle>Add custom connector</CardTitle>
           <CardDescription>
-            Register a new stdio or HTTP MCP server. For remote servers, use the actual MCP endpoint
-            URL, not the provider's documentation page.
+            Not in the catalog above? Register any stdio or HTTP MCP server directly. For remote
+            servers, use the actual MCP endpoint URL, not the provider's documentation page.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

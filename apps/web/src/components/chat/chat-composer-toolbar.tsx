@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
 	Blocks,
+	Bot,
 	Check,
 	ChevronDown,
 	ChevronRight,
@@ -15,7 +16,9 @@ import {
 	MicOff,
 	Paperclip,
 	Plug,
+	Rocket,
 	Settings2,
+	ShieldCheck,
 	Sparkles,
 	X,
 } from "lucide-react";
@@ -36,9 +39,42 @@ import {
 	PopoverTrigger,
 } from "@/components/ui/popover";
 import type { ChatAttachment } from "@/lib/chat-message";
-import { type McpToolListResult, trpcClient } from "@/lib/trpc";
+import {
+	type ChatToolMode,
+	type McpToolListResult,
+	trpcClient,
+} from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { ToolsAndSkillsPicker } from "./tools-and-skills-picker";
+
+const CHAT_MODES = ["default", "automatic", "auto"] as const;
+
+const CHAT_MODE_LABEL: Record<ChatToolMode, string> = {
+	default: "Default",
+	automatic: "Auto Tools",
+	auto: "AUTO",
+};
+
+const CHAT_MODE_COPY: Record<
+	ChatToolMode,
+	{ title: string; description: string; icon: typeof Bot }
+> = {
+	default: {
+		title: "Default",
+		description: "Sensitive tools wait for approval before running.",
+		icon: ShieldCheck,
+	},
+	automatic: {
+		title: "Automatic Tool Usage",
+		description: "Plans and uses tools directly, unless a guardrail applies.",
+		icon: Bot,
+	},
+	auto: {
+		title: "AUTO",
+		description: "Fully autonomous — acts immediately, no guardrails.",
+		icon: Rocket,
+	},
+};
 
 export interface ChatToolSelection {
 	/** Explicit per-item selection — see ToolsAndSkillsPicker. Replaced the
@@ -147,6 +183,8 @@ export function ChatComposerToolbar({
 	mode,
 	toolSelection,
 	onToolSelectionChange,
+	toolMode,
+	onToolModeChange,
 	attachedFile,
 	onAttachedFileChange,
 	onVoiceResult,
@@ -161,6 +199,8 @@ export function ChatComposerToolbar({
 	mode: "full" | "compact";
 	toolSelection: ChatToolSelection | null;
 	onToolSelectionChange: (next: ChatToolSelection | null) => void;
+	toolMode: ChatToolMode;
+	onToolModeChange: (next: ChatToolMode) => void;
 	attachedFile: AttachedFile | null;
 	onAttachedFileChange: (file: AttachedFile | null) => void;
 	onVoiceResult: (text: string) => void;
@@ -193,6 +233,7 @@ export function ChatComposerToolbar({
 			: "Converted to extracted text before sending";
 	})();
 
+	const [modeOpen, setModeOpen] = useState(false);
 	const [mcpOpen, setMcpOpen] = useState(false);
 	const [artifactsOpen, setArtifactsOpen] = useState(false);
 	const [contextOpen, setContextOpen] = useState(false);
@@ -266,6 +307,25 @@ export function ChatComposerToolbar({
 	function commit(patch: Partial<ChatToolSelection>) {
 		onToolSelectionChange({ ...effective, ...patch });
 	}
+
+	// Lets the mode popover be driven like a numbered menu: while it's open,
+	// pressing 1/2/3 picks the matching mode and closes it — mirrors the
+	// Claude Code CLI's own permission-mode switcher.
+	useEffect(() => {
+		if (!modeOpen) return;
+		function handleKeyDown(event: KeyboardEvent) {
+			const index = Number(event.key) - 1;
+			if (!Number.isInteger(index) || index < 0 || index >= CHAT_MODES.length)
+				return;
+			const modeValue = CHAT_MODES[index];
+			if (!modeValue) return;
+			event.preventDefault();
+			onToolModeChange(modeValue);
+			setModeOpen(false);
+		}
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [modeOpen, onToolModeChange]);
 
 	function toggleServer(serverId: string) {
 		const next = effective.mcpServerIds.includes(serverId)
@@ -593,6 +653,81 @@ export function ChatComposerToolbar({
 					</>
 				)}
 			</div>
+
+			{/* Rendered outside the overflow-x-auto pill row (above) on purpose: that
+			 * row scrolls its contents off-screen once the other pills (File search,
+			 * Skills, Artifacts) don't fit, which was silently hiding this selector
+			 * with no visible affordance that it still existed. Keeping it in its
+			 * own shrink-0 slot guarantees it's always reachable. Guardrail switches
+			 * live in workspace settings — this picks only which mode this chat
+			 * uses; the guardrail values underneath come from the workspace default. */}
+			<Popover open={modeOpen} onOpenChange={setModeOpen}>
+				<PopoverTrigger asChild>
+					<button
+						type="button"
+						className={cn(pillClass(toolMode !== "default"), "shrink-0")}
+					>
+						{(() => {
+							const ModeIcon = CHAT_MODE_COPY[toolMode].icon;
+							return <ModeIcon className="size-3.5" />;
+						})()}
+						{CHAT_MODE_LABEL[toolMode]}
+						<ChevronDown className="size-3 opacity-60" />
+					</button>
+				</PopoverTrigger>
+				<PopoverContent align="start" className="w-80">
+					<p className="px-1 pb-2 text-xs font-medium text-muted-foreground">
+						Mode
+					</p>
+					<div className="space-y-1">
+						{CHAT_MODES.map((modeValue) => {
+							const selected = toolMode === modeValue;
+							const option = CHAT_MODE_COPY[modeValue];
+							return (
+								<button
+									key={modeValue}
+									type="button"
+									onClick={() => {
+										onToolModeChange(modeValue);
+										setModeOpen(false);
+									}}
+									className={cn(
+										"flex w-full items-start gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors",
+										selected ? "bg-primary/10" : "hover:bg-muted/60",
+									)}
+								>
+									<div
+										className={cn(
+											"flex size-7 shrink-0 items-center justify-center rounded-md",
+											selected
+												? "bg-primary/15 text-primary"
+												: "bg-muted text-muted-foreground",
+										)}
+									>
+										<option.icon className="size-3.5" />
+									</div>
+									<div className="min-w-0 flex-1 pt-0.5">
+										<p className="text-sm font-medium">{option.title}</p>
+										<p className="mt-0.5 text-xs text-muted-foreground">
+											{option.description}
+										</p>
+									</div>
+									{selected && (
+										<Check className="mt-1.5 size-3.5 shrink-0 text-primary" />
+									)}
+								</button>
+							);
+						})}
+					</div>
+					<p className="mt-3 border-t px-1 pt-3 text-xs text-muted-foreground">
+						Approval guardrails for this workspace are set in{" "}
+						<strong className="text-foreground">
+							Workspace settings → Approvals
+						</strong>
+						.
+					</p>
+				</PopoverContent>
+			</Popover>
 
 			<Popover open={toolsPickerOpen} onOpenChange={setToolsPickerOpen}>
 				<PopoverTrigger asChild>

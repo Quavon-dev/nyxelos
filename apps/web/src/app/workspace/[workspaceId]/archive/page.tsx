@@ -4,10 +4,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArchiveRestore, MessageSquare, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useState } from "react";
 import { CardListSkeleton, PageHeaderSkeleton, StatCardsSkeleton } from "@/components/loading";
 import { PageHeader, StatCard } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -16,7 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { trpcClient } from "@/lib/trpc";
+import { type ChatSummary, trpcClient } from "@/lib/trpc";
 
 function formatDate(value: Date) {
   return new Intl.DateTimeFormat(undefined, {
@@ -51,6 +60,8 @@ export default function ArchivePage() {
     mutationFn: (chatId: string) => trpcClient.chats.delete.mutate({ chatId }),
     onSuccess: invalidateChats,
   });
+
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<ChatSummary | null>(null);
 
   const archivedChats = [...(archivedChatsQuery.data ?? [])].sort(
     (a, b) => +new Date(b.archivedAt ?? b.createdAt) - +new Date(a.archivedAt ?? a.createdAt),
@@ -136,7 +147,7 @@ export default function ArchivePage() {
                           <Button
                             variant="destructive"
                             size="sm"
-                            onClick={() => deleteChat.mutate(chat.id)}
+                            onClick={() => setDeleteConfirmTarget(chat)}
                             disabled={deleteChat.isPending}
                           >
                             <Trash2 className="size-4" />
@@ -152,6 +163,35 @@ export default function ArchivePage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(deleteConfirmTarget)}
+        onOpenChange={(open) => !open && setDeleteConfirmTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete chat</DialogTitle>
+            <DialogDescription>
+              This permanently deletes &quot;{deleteConfirmTarget?.title || "Untitled chat"}&quot;
+              and its messages. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter showCloseButton>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (deleteConfirmTarget) {
+                  deleteChat.mutate(deleteConfirmTarget.id);
+                  setDeleteConfirmTarget(null);
+                }
+              }}
+              disabled={deleteChat.isPending}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

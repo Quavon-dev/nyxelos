@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -123,6 +124,8 @@ export default function AutomationsPage() {
     mutationFn: (id: string) => trpcClient.automations.delete.mutate({ id }),
     onSuccess: invalidate,
   });
+
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<AutomationSummary | null>(null);
 
   const [runningId, setRunningId] = useState<string | null>(null);
   const runNow = useMutation({
@@ -311,7 +314,7 @@ export default function AutomationsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => deleteAutomation.mutate(automation.id)}
+                            onClick={() => setDeleteConfirmTarget(automation)}
                           >
                             Delete
                           </Button>
@@ -552,6 +555,35 @@ export default function AutomationsPage() {
               }
             >
               {updateAutomation.isPending ? "Saving…" : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(deleteConfirmTarget)}
+        onOpenChange={(open) => !open && setDeleteConfirmTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete automation</DialogTitle>
+            <DialogDescription>
+              This permanently deletes &quot;{deleteConfirmTarget?.name}&quot;. This action cannot
+              be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter showCloseButton>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (deleteConfirmTarget) {
+                  deleteAutomation.mutate(deleteConfirmTarget.id);
+                  setDeleteConfirmTarget(null);
+                }
+              }}
+              disabled={deleteAutomation.isPending}
+            >
+              Delete
             </Button>
           </DialogFooter>
         </DialogContent>

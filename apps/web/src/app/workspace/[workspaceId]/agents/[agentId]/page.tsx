@@ -9,6 +9,14 @@ import { PageHeaderSkeleton } from "@/components/loading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import type { AgentRunStatus, AutonomyLevel, TaskStatus } from "@/lib/trpc";
@@ -92,6 +100,7 @@ export default function AgentDetailPage() {
   });
 
   const [instruction, setInstruction] = useState("");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["agent", agentId] });
@@ -200,11 +209,7 @@ export default function AgentDetailPage() {
               variant="outline"
               size="sm"
               className="text-destructive hover:text-destructive"
-              onClick={() => {
-                if (confirm(`Delete agent "${agent.name}"? This can't be undone.`)) {
-                  deleteAgent.mutate();
-                }
-              }}
+              onClick={() => setDeleteConfirmOpen(true)}
               disabled={deleteAgent.isPending}
             >
               <Trash2 className="size-3.5" />
@@ -408,6 +413,29 @@ export default function AgentDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete agent</DialogTitle>
+            <DialogDescription>
+              This permanently deletes &quot;{agent.name}&quot;. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter showCloseButton>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setDeleteConfirmOpen(false);
+                deleteAgent.mutate();
+              }}
+              disabled={deleteAgent.isPending}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

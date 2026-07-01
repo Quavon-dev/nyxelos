@@ -11,10 +11,17 @@ export interface CloudModelDefinition {
   modelName: string;
 }
 
+export type ModelProviderKind =
+  | "anthropic"
+  | "openai"
+  | "openai_compatible"
+  | "claude_cli"
+  | "codex_cli";
+
 export interface InstalledModelProvider {
   id: string;
   label: string;
-  providerKind: "anthropic" | "openai" | "openai_compatible";
+  providerKind: ModelProviderKind;
   baseUrl: string;
   apiKey: string | null;
   modelIds: string[];
@@ -58,7 +65,7 @@ export interface ModelCapabilities {
 export function toInstalledModelProvider(installation: {
   id: string;
   label: string;
-  providerKind: "anthropic" | "openai" | "openai_compatible";
+  providerKind: ModelProviderKind;
   baseUrl: string;
   apiKey: string | null;
   modelIds: string[];
@@ -95,7 +102,11 @@ export async function listAvailableModels(
         id: `custom:${provider.id}/${modelId}`,
         label: `${modelId} (${provider.label})`,
         kind:
-          provider.providerKind === "openai_compatible" ? ("custom" as const) : ("cloud" as const),
+          provider.providerKind === "claude_cli" || provider.providerKind === "codex_cli"
+            ? ("local" as const)
+            : provider.providerKind === "openai_compatible"
+              ? ("custom" as const)
+              : ("cloud" as const),
         provider: provider.providerKind,
         providerLabel: provider.label,
       })),
@@ -114,7 +125,12 @@ export async function listAvailableModels(
   ];
 }
 
-function resolveInstalledProvider(
+/** Parses the `custom:{installationId}/{nativeModelId}` model id scheme
+ * shared by every installed-provider kind (remote HTTP providers and local
+ * CLI providers alike) and looks up the matching installation. Exported so
+ * `stream.ts` doesn't need its own copy of this parsing to decide whether a
+ * model id should be routed to a CLI adapter instead of `resolveModel()`. */
+export function parseInstalledModelId(
   modelId: string,
   installedProviders: InstalledModelProvider[],
 ): { provider: InstalledModelProvider; nativeModelId: string } | null {
@@ -138,7 +154,7 @@ export function resolveModel(
   modelId: string,
   installedProviders: InstalledModelProvider[] = [],
 ): LanguageModel {
-  const installed = resolveInstalledProvider(modelId, installedProviders);
+  const installed = parseInstalledModelId(modelId, installedProviders);
   if (installed) {
     if (!installed.provider.enabled) {
       throw new Error(`Installed model provider "${installed.provider.label}" is disabled.`);
@@ -146,6 +162,19 @@ export function resolveModel(
 
     if (!installed.provider.modelIds.includes(installed.nativeModelId)) {
       throw new Error(`Unknown installed model "${installed.nativeModelId}" for ${modelId}.`);
+    }
+
+    if (
+      installed.provider.providerKind === "claude_cli" ||
+      installed.provider.providerKind === "codex_cli"
+    ) {
+      // CLI-based providers don't produce an AI SDK LanguageModel — stream.ts
+      // dispatches these to streamClaudeCli/streamCodexCli before ever
+      // calling resolveModel(). Reaching here means that dispatch was
+      // skipped somewhere.
+      throw new Error(
+        `${installed.provider.providerKind} models must be streamed via the CLI adapter, not resolveModel().`,
+      );
     }
 
     if (installed.provider.providerKind === "anthropic") {
@@ -220,11 +249,19 @@ function inferOpenAiCompatibleApiKey(prefix: string): string | undefined {
   return undefined;
 }
 
+/** Best-effort presets shown as checkboxes in the CLI provider install form —
+ * both CLIs accept any model string via `--model`, so these aren't
+ * exhaustive, just sane starting points. */
+const CLAUDE_CLI_DEFAULT_MODELS = ["claude-sonnet-5", "claude-opus-4-8"];
+const CODEX_CLI_DEFAULT_MODELS = ["gpt-5-codex", "o4-mini"];
+
 export function getDefaultModelIdsForProviderKind(
   providerKind: InstalledModelProvider["providerKind"],
 ): string[] {
   if (providerKind === "anthropic") return CLOUD_MODELS.map((model) => model.modelName);
   if (providerKind === "openai") return OPENAI_DEFAULT_MODELS.map((model) => model.id);
+  if (providerKind === "claude_cli") return CLAUDE_CLI_DEFAULT_MODELS;
+  if (providerKind === "codex_cli") return CODEX_CLI_DEFAULT_MODELS;
   return [];
 }
 
@@ -232,7 +269,7 @@ export function getModelCapabilities(
   modelId: string,
   installedProviders: InstalledModelProvider[] = [],
 ): ModelCapabilities {
-  const installed = resolveInstalledProvider(modelId, installedProviders);
+  const installed = parseInstalledModelId(modelId, installedProviders);
   if (installed) {
     if (installed.provider.providerKind === "anthropic") {
       return { nativeImageInput: true, nativeDocumentInput: true };
@@ -240,6 +277,10 @@ export function getModelCapabilities(
     if (installed.provider.providerKind === "openai") {
       return { nativeImageInput: true, nativeDocumentInput: true };
     }
+    // claude_cli/codex_cli: MVP is text-only passthrough over stdin — no
+    // native image/document upload to the CLI process, so these fall through
+    // to the default { false, false } below (attachments still work via the
+    // existing text-extraction fallback in attachment-processing.ts).
     return { nativeImageInput: false, nativeDocumentInput: false };
   }
 
