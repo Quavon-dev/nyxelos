@@ -201,6 +201,14 @@ export default function ChatPage() {
 		null,
 	);
 	const initializedToolsRef = useRef(false);
+	// Id of the one-off "Chat — custom tools" agent this chat already owns, if
+	// any — once forked, every later toolbar tweak updates that same agent in
+	// place instead of forking a new one, otherwise every checkbox click in
+	// the toolbar (chat-composer-toolbar.tsx fires onChange per click) left
+	// behind an abandoned agent row forever. Safe to mutate in place because
+	// chats.setAgent always points a chat at a freshly forked agent no other
+	// chat shares — see updateChatAgent's doc comment in packages/db.
+	const forkedAgentIdRef = useRef<string | null>(null);
 
 	// "Edit" on a past user turn (message-actions.tsx) just repopulates the
 	// composer with that text — there's no backend support for rewriting
@@ -235,6 +243,9 @@ export default function ChatPage() {
 		if (agent.name.startsWith("Auto assistant ")) {
 			setToolSelection(null);
 		} else {
+			if (agent.name === "Chat — custom tools") {
+				forkedAgentIdRef.current = agent.id;
+			}
 			setToolSelection({
 				skillIds: agent.skillIds,
 				toolIds: agent.toolIds,
@@ -264,6 +275,18 @@ export default function ChatPage() {
 			modelId: string;
 		}) => {
 			if (!workspaceId || !chat) throw new Error("Chat isn't loaded yet.");
+
+			if (forkedAgentIdRef.current) {
+				return trpcClient.agents.update.mutate({
+					id: forkedAgentIdRef.current,
+					modelId,
+					skillIds: next.skillIds,
+					toolIds: next.toolIds,
+					mcpServerIds: next.mcpServerIds,
+					mcpToolFilter: next.mcpToolFilter,
+				});
+			}
+
 			const agent = await trpcClient.agents.create.mutate({
 				workspaceId,
 				name: "Chat — custom tools",
@@ -276,6 +299,7 @@ export default function ChatPage() {
 				autoAttachWorkspaceTools: false,
 			});
 			await trpcClient.chats.setAgent.mutate({ chatId, agentId: agent.id });
+			forkedAgentIdRef.current = agent.id;
 			return agent;
 		},
 		onSuccess: (agent) => {
