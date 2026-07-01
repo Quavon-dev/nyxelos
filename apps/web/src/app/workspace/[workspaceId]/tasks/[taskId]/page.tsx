@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 import type { AgentRunStatus, TaskPriority, TaskStatus } from "@/lib/trpc";
 import { trpcClient } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -89,6 +90,28 @@ export default function TaskDetailPage() {
   const startTask = useMutation({
     mutationFn: () => trpcClient.tasks.start.mutate({ taskId }),
     onSuccess: invalidate,
+  });
+  const [followUpInstruction, setFollowUpInstruction] = useState("");
+  const followUpTask = useMutation({
+    mutationFn: () => {
+      const assignee = task?.assignedAgentId ?? task?.createdByAgentId ?? null;
+      if (!task || !assignee) {
+        throw new Error("No agent is available for a follow-up task.");
+      }
+      return trpcClient.tasks.create.mutate({
+        workspaceId,
+        parentTaskId: task.id,
+        sourceChatId: task.sourceChatId ?? null,
+        createdByAgentId: assignee,
+        assignedAgentId: assignee,
+        title: `${task.title} · follow-up`,
+        instruction: followUpInstruction,
+      });
+    },
+    onSuccess: () => {
+      setFollowUpInstruction("");
+      invalidate();
+    },
   });
 
   const [actingApprovalId, setActingApprovalId] = useState<string | null>(null);
@@ -252,6 +275,35 @@ export default function TaskDetailPage() {
             <span>Created {formatDate(task.createdAt)}</span>
             <span>Started {formatDate(task.startedAt)}</span>
             <span>Completed {formatDate(task.completedAt)}</span>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Continue with agent</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Give the same agent a new instruction. A child task is created and starts
+            automatically when an assignee is available.
+          </p>
+          <Textarea
+            value={followUpInstruction}
+            onChange={(e) => setFollowUpInstruction(e.target.value)}
+            placeholder="Add the next instruction for this agent..."
+            rows={4}
+          />
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => followUpTask.mutate()}
+              disabled={followUpTask.isPending || followUpInstruction.trim().length === 0}
+            >
+              {followUpTask.isPending ? "Starting…" : "Create follow-up task"}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              This keeps the agent session going without leaving this page.
+            </p>
           </div>
         </CardContent>
       </Card>
