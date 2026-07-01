@@ -103,7 +103,10 @@ export function ChatToolsPopover({
     if (!effective.mcpToolFilter) return true;
     const forServer = effective.mcpToolFilter.filter((e) => e.startsWith(`${serverId}::`));
     // No explicit entries for this server yet = every tool still allowed.
-    if (forServer.length === 0 && !effective.mcpToolFilter.some((e) => e.startsWith(`${serverId}::`))) {
+    if (
+      forServer.length === 0 &&
+      !effective.mcpToolFilter.some((e) => e.startsWith(`${serverId}::`))
+    ) {
       return true;
     }
     return forServer.includes(`${serverId}::${toolName}`);
@@ -118,7 +121,10 @@ export function ChatToolsPopover({
         >
           <Wrench className="size-3.5" />
           Tools
-          <Badge variant={isCustomized ? "secondary" : "outline"} className="h-4 px-1.5 text-[10px]">
+          <Badge
+            variant={isCustomized ? "secondary" : "outline"}
+            className="h-4 px-1.5 text-[10px]"
+          >
             {summary}
           </Badge>
         </button>
@@ -147,7 +153,9 @@ export function ChatToolsPopover({
               <Sparkles className="size-3.5" />
               Skills
             </div>
-            {skills.length === 0 && <p className="text-xs text-muted-foreground">None available.</p>}
+            {skills.length === 0 && (
+              <p className="text-xs text-muted-foreground">None available.</p>
+            )}
             {skills.map((skill) => (
               <div key={skill.id} className="flex items-center gap-2">
                 <Checkbox

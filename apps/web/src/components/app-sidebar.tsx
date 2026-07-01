@@ -2,11 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import {
+  Archive,
   Bot,
   ClipboardCheck,
   Clock,
   LayoutDashboard,
   Library,
+  MessageSquare,
   NotebookPen,
   Plug,
   ScrollText,
@@ -50,6 +52,7 @@ export function AppSidebar() {
   const navItems = workspaceId
     ? [
         { href: "/", label: "Overview", icon: LayoutDashboard },
+        { href: "/chat", label: "Chat", icon: MessageSquare },
         {
           href: `/workspace/${workspaceId}/settings`,
           label: "Custom Instructions",
@@ -65,6 +68,7 @@ export function AppSidebar() {
           badge: pendingCount > 0 ? pendingCount : undefined,
         },
         { href: `/workspace/${workspaceId}/audit-log`, label: "Audit Log", icon: ScrollText },
+        { href: `/workspace/${workspaceId}/archive`, label: "Archive", icon: Archive },
         {
           href: `/workspace/${workspaceId}/knowledge-base`,
           label: "Knowledge Base",

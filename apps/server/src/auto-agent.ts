@@ -41,7 +41,9 @@ export async function ensureAutoAssistantForWorkspaceModel(
 ): Promise<AgentRecord> {
   const db = getDb();
   const name = autoAssistantName(modelId);
-  const existing = (await db.listAgentsByWorkspace(workspaceId)).find((agent) => agent.name === name);
+  const existing = (await db.listAgentsByWorkspace(workspaceId)).find(
+    (agent) => agent.name === name,
+  );
   if (existing) return existing;
 
   const { skillIds, mcpServerIds } = await getWorkspaceDefaultToolIds(workspaceId);

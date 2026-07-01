@@ -1,10 +1,14 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowUp, Code2, FileText, Globe, Mic, Palette, Paperclip, Search } from "lucide-react";
+import { ArrowUp, Code2, FileText, Globe, Palette, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ChatToolsPopover, type ChatToolSelection } from "@/components/chat/chat-tools-popover";
+import {
+  type AttachedFile,
+  ChatComposerToolbar,
+  type ChatToolSelection,
+} from "@/components/chat/chat-composer-toolbar";
 import {
   Select,
   SelectContent,
@@ -72,10 +76,15 @@ export default function ChatLandingPage() {
     queryFn: () => trpcClient.models.list.query({ workspaceId }),
     enabled: Boolean(workspaceId),
   });
+  const skillsQuery = useQuery({
+    queryKey: ["skills", "list"],
+    queryFn: () => trpcClient.skills.list.query(),
+  });
 
   const [message, setMessage] = useState("");
   const [modelId, setModelId] = useState("");
   const [toolSelection, setToolSelection] = useState<ChatToolSelection | null>(null);
+  const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
 
   useEffect(() => {
     if (!modelId && modelsQuery.data?.[0]) setModelId(modelsQuery.data[0].id);
@@ -89,8 +98,8 @@ export default function ChatLandingPage() {
       // A plain chat (toolSelection === null) gets the workspace's default
       // agent — every skill, every enabled MCP server — provisioned
       // automatically server-side (see chats.create / auto-agent.ts). Only
-      // when the Tools popover was actually touched do we create a
-      // narrower, one-off agent here and pin the chat to it.
+      // when the toolbar was actually touched do we create a narrower,
+      // one-off agent here and pin the chat to it.
       let agentId: string | undefined;
       if (toolSelection) {
         const agent = await trpcClient.agents.create.mutate({
@@ -98,7 +107,7 @@ export default function ChatLandingPage() {
           name: "Chat — custom tools",
           modelId,
           autonomyLevel: "assisted",
-          skillIds: toolSelection.skillIds,
+          skillIds: toolSelection.skillsEnabled ? (skillsQuery.data ?? []).map((s) => s.id) : [],
           mcpServerIds: toolSelection.mcpServerIds,
           mcpToolFilter: toolSelection.mcpToolFilter,
           autoAttachWorkspaceTools: false,
@@ -106,16 +115,23 @@ export default function ChatLandingPage() {
         agentId = agent.id;
       }
 
+      // A file attached via the "File search" pill isn't uploaded anywhere —
+      // its text content is read client-side and folded straight into the
+      // first message so the model sees it as context.
+      const outgoing = attachedFile
+        ? `${message.trim()}\n\n---\nAttached file: ${attachedFile.name}\n\`\`\`\n${attachedFile.content}\n\`\`\``
+        : message.trim();
+
       const chat = await trpcClient.chats.create.mutate({
         workspaceId,
         title: message.trim().slice(0, 60) || "New chat",
         modelId,
         agentId,
       });
-      return chat;
+      return { chat, outgoing };
     },
-    onSuccess: (chat) => {
-      router.push(`/chat/${chat.id}?draft=${encodeURIComponent(message.trim())}`);
+    onSuccess: ({ chat, outgoing }) => {
+      router.push(`/chat/${chat.id}?draft=${encodeURIComponent(outgoing)}`);
     },
   });
 
@@ -158,51 +174,41 @@ export default function ChatLandingPage() {
             rows={2}
             className="resize-none border-0 p-1 text-base shadow-none focus-visible:ring-0"
           />
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                aria-label="Attach a file"
+          <div className="flex items-center gap-2">
+            <Select value={modelId} onValueChange={setModelId}>
+              <SelectTrigger
+                size="sm"
+                className="shrink-0 gap-1.5 rounded-full border-none bg-muted"
               >
-                <Paperclip className="size-4" />
-              </button>
-              <Select value={modelId} onValueChange={setModelId}>
-                <SelectTrigger size="sm" className="gap-1.5 rounded-full border-none bg-muted">
-                  <Globe className="size-3.5 text-muted-foreground" />
-                  <SelectValue placeholder="Model" />
-                </SelectTrigger>
-                <SelectContent>
-                  {modelsQuery.data?.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <ChatToolsPopover
+                <Globe className="size-3.5 text-muted-foreground" />
+                <SelectValue placeholder="Model" />
+              </SelectTrigger>
+              <SelectContent>
+                {modelsQuery.data?.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="min-w-0 flex-1">
+              <ChatComposerToolbar
+                mode="full"
                 workspaceId={workspaceId}
-                value={toolSelection}
-                onChange={setToolSelection}
+                toolSelection={toolSelection}
+                onToolSelectionChange={setToolSelection}
+                attachedFile={attachedFile}
+                onAttachedFileChange={setAttachedFile}
+                onVoiceResult={(text) => setMessage((prev) => (prev ? `${prev} ${text}` : text))}
               />
             </div>
-
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                aria-label="Voice input"
-              >
-                <Mic className="size-4" />
-              </button>
-              <button
-                type="submit"
-                disabled={!message.trim() || !modelId || createChat.isPending}
-                className="flex size-8 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
-              >
-                <ArrowUp className="size-4" />
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={!message.trim() || !modelId || createChat.isPending}
+              className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
+            >
+              <ArrowUp className="size-4" />
+            </button>
           </div>
         </div>
 

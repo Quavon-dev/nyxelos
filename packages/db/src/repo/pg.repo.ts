@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, lte } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "../schema/pg";
@@ -182,6 +182,7 @@ export function createPgRepository(connectionString: string): DbRepository {
         agentId: row.agentId,
         title: row.title,
         modelId: row.modelId,
+        archivedAt: row.archivedAt,
         createdAt: row.createdAt,
       };
     },
@@ -190,13 +191,30 @@ export function createPgRepository(connectionString: string): DbRepository {
       const rows = await db
         .select()
         .from(schema.chat)
-        .where(eq(schema.chat.workspaceId, workspaceId));
+        .where(and(eq(schema.chat.workspaceId, workspaceId), isNull(schema.chat.archivedAt)));
       return rows.map((r) => ({
         id: r.id,
         workspaceId: r.workspaceId,
         agentId: r.agentId,
         title: r.title,
         modelId: r.modelId,
+        archivedAt: r.archivedAt,
+        createdAt: r.createdAt,
+      }));
+    },
+
+    async listArchivedChatsByWorkspace(workspaceId) {
+      const rows = await db
+        .select()
+        .from(schema.chat)
+        .where(and(eq(schema.chat.workspaceId, workspaceId), isNotNull(schema.chat.archivedAt)));
+      return rows.map((r) => ({
+        id: r.id,
+        workspaceId: r.workspaceId,
+        agentId: r.agentId,
+        title: r.title,
+        modelId: r.modelId,
+        archivedAt: r.archivedAt,
         createdAt: r.createdAt,
       }));
     },
@@ -210,6 +228,65 @@ export function createPgRepository(connectionString: string): DbRepository {
         agentId: row.agentId,
         title: row.title,
         modelId: row.modelId,
+        archivedAt: row.archivedAt,
+        createdAt: row.createdAt,
+      };
+    },
+
+    async renameChat(chatId, title) {
+      const [row] = await db
+        .update(schema.chat)
+        .set({ title })
+        .where(eq(schema.chat.id, chatId))
+        .returning();
+      if (!row) throw new Error(`Chat not found: ${chatId}`);
+      return {
+        id: row.id,
+        workspaceId: row.workspaceId,
+        agentId: row.agentId,
+        title: row.title,
+        modelId: row.modelId,
+        archivedAt: row.archivedAt,
+        createdAt: row.createdAt,
+      };
+    },
+
+    async setChatArchived(chatId, archived) {
+      const [row] = await db
+        .update(schema.chat)
+        .set({ archivedAt: archived ? new Date() : null })
+        .where(eq(schema.chat.id, chatId))
+        .returning();
+      if (!row) throw new Error(`Chat not found: ${chatId}`);
+      return {
+        id: row.id,
+        workspaceId: row.workspaceId,
+        agentId: row.agentId,
+        title: row.title,
+        modelId: row.modelId,
+        archivedAt: row.archivedAt,
+        createdAt: row.createdAt,
+      };
+    },
+
+    async deleteChat(chatId) {
+      await db.delete(schema.chat).where(eq(schema.chat.id, chatId));
+    },
+
+    async updateChatAgent(chatId, agentId) {
+      const [row] = await db
+        .update(schema.chat)
+        .set({ agentId })
+        .where(eq(schema.chat.id, chatId))
+        .returning();
+      if (!row) throw new Error(`Chat not found: ${chatId}`);
+      return {
+        id: row.id,
+        workspaceId: row.workspaceId,
+        agentId: row.agentId,
+        title: row.title,
+        modelId: row.modelId,
+        archivedAt: row.archivedAt,
         createdAt: row.createdAt,
       };
     },

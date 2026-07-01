@@ -2,8 +2,8 @@ import { getDb } from "@nyxel/db";
 import { listAvailableModels, probeOpenAiCompatibleEndpoint } from "@nyxel/model-providers";
 import { z } from "zod";
 import { resolveApprovalDecision } from "../approvals";
-import { ensureAutoAssistantForWorkspaceModel, getWorkspaceDefaultToolIds } from "../auto-agent";
 import { auth } from "../auth";
+import { ensureAutoAssistantForWorkspaceModel, getWorkspaceDefaultToolIds } from "../auto-agent";
 import {
   buildKnowledgeBaseGraph,
   getKnowledgeBaseOverview,
@@ -204,6 +204,9 @@ export const appRouter = router({
     list: publicProcedure
       .input(z.object({ workspaceId: z.string() }))
       .query(({ input }) => getDb().listChatsByWorkspace(input.workspaceId)),
+    listArchived: publicProcedure
+      .input(z.object({ workspaceId: z.string() }))
+      .query(({ input }) => getDb().listArchivedChatsByWorkspace(input.workspaceId)),
     create: publicProcedure
       .input(
         z.object({
@@ -229,15 +232,32 @@ export const appRouter = router({
         }
         return db.createChat({ ...input, modelId, agentId });
       }),
+    rename: publicProcedure
+      .input(z.object({ chatId: z.string(), title: z.string().min(1).max(120) }))
+      .mutation(({ input }) => getDb().renameChat(input.chatId, input.title.trim())),
+    setArchived: publicProcedure
+      .input(z.object({ chatId: z.string(), archived: z.boolean() }))
+      .mutation(({ input }) => getDb().setChatArchived(input.chatId, input.archived)),
+    delete: publicProcedure
+      .input(z.object({ chatId: z.string() }))
+      .mutation(({ input }) => getDb().deleteChat(input.chatId)),
     messages: publicProcedure
       .input(z.object({ chatId: z.string() }))
       .query(({ input }) => getDb().listMessages(input.chatId)),
+    // Re-points a chat at a different (usually freshly forked) agent — see
+    // updateChatAgent's doc comment in packages/db/src/repo/types.ts.
+    setAgent: publicProcedure
+      .input(z.object({ chatId: z.string(), agentId: z.string().nullable() }))
+      .mutation(({ input }) => getDb().updateChatAgent(input.chatId, input.agentId)),
   }),
 
   agents: router({
     list: publicProcedure
       .input(z.object({ workspaceId: z.string() }))
       .query(({ input }) => getDb().listAgentsByWorkspace(input.workspaceId)),
+    get: publicProcedure
+      .input(z.object({ id: z.string() }))
+      .query(({ input }) => getDb().getAgent(input.id)),
     create: publicProcedure
       .input(
         z.object({

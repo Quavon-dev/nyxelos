@@ -110,6 +110,7 @@ export const chat = sqliteTable("chat", {
   agentId: text("agent_id").references(() => agent.id, { onDelete: "set null" }),
   title: text("title").notNull().default("New chat"),
   modelId: text("model_id").notNull(),
+  archivedAt: integer("archived_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

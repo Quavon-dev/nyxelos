@@ -137,6 +137,7 @@ export const chat = pgTable("chat", {
   agentId: text("agent_id").references(() => agent.id, { onDelete: "set null" }),
   title: text("title").notNull().default("New chat"),
   modelId: text("model_id").notNull(),
+  archivedAt: timestamp("archived_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

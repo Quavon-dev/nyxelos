@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, lte } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../schema/sqlite";
 import type { DbRepository } from "./types";
@@ -9,6 +9,20 @@ export function createSqliteRepository(filePath: string): DbRepository {
   const sqlite = new Database(filePath, { create: true });
   sqlite.exec("PRAGMA journal_mode = WAL;");
   sqlite.exec("PRAGMA foreign_keys = ON;");
+
+  // Older local databases created before chat archiving existed may still be
+  // missing the archived_at column. Add it in place so chat creation and
+  // list/restore flows keep working without forcing a manual reset.
+  const chatTable = sqlite
+    .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get("chat") as { name: string } | null;
+  if (chatTable) {
+    const chatColumns = sqlite.query("PRAGMA table_info(chat)").all() as { name: string }[];
+    if (!chatColumns.some((column) => column.name === "archived_at")) {
+      sqlite.exec("ALTER TABLE chat ADD COLUMN archived_at integer;");
+    }
+  }
+
   const db = drizzle(sqlite, { schema });
 
   return {
@@ -208,6 +222,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
         agentId: row.agentId,
         title: row.title,
         modelId: row.modelId,
+        archivedAt: row.archivedAt,
         createdAt: row.createdAt,
       };
     },
@@ -216,7 +231,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
       const rows = db
         .select()
         .from(schema.chat)
-        .where(eq(schema.chat.workspaceId, workspaceId))
+        .where(and(eq(schema.chat.workspaceId, workspaceId), isNull(schema.chat.archivedAt)))
         .all();
       return rows.map((r) => ({
         id: r.id,
@@ -224,6 +239,24 @@ export function createSqliteRepository(filePath: string): DbRepository {
         agentId: r.agentId,
         title: r.title,
         modelId: r.modelId,
+        archivedAt: r.archivedAt,
+        createdAt: r.createdAt,
+      }));
+    },
+
+    async listArchivedChatsByWorkspace(workspaceId) {
+      const rows = db
+        .select()
+        .from(schema.chat)
+        .where(and(eq(schema.chat.workspaceId, workspaceId), isNotNull(schema.chat.archivedAt)))
+        .all();
+      return rows.map((r) => ({
+        id: r.id,
+        workspaceId: r.workspaceId,
+        agentId: r.agentId,
+        title: r.title,
+        modelId: r.modelId,
+        archivedAt: r.archivedAt,
         createdAt: r.createdAt,
       }));
     },
@@ -237,6 +270,68 @@ export function createSqliteRepository(filePath: string): DbRepository {
         agentId: row.agentId,
         title: row.title,
         modelId: row.modelId,
+        archivedAt: row.archivedAt,
+        createdAt: row.createdAt,
+      };
+    },
+
+    async renameChat(chatId, title) {
+      const row = db
+        .update(schema.chat)
+        .set({ title })
+        .where(eq(schema.chat.id, chatId))
+        .returning()
+        .get();
+      if (!row) throw new Error(`Chat not found: ${chatId}`);
+      return {
+        id: row.id,
+        workspaceId: row.workspaceId,
+        agentId: row.agentId,
+        title: row.title,
+        modelId: row.modelId,
+        archivedAt: row.archivedAt,
+        createdAt: row.createdAt,
+      };
+    },
+
+    async setChatArchived(chatId, archived) {
+      const row = db
+        .update(schema.chat)
+        .set({ archivedAt: archived ? new Date() : null })
+        .where(eq(schema.chat.id, chatId))
+        .returning()
+        .get();
+      if (!row) throw new Error(`Chat not found: ${chatId}`);
+      return {
+        id: row.id,
+        workspaceId: row.workspaceId,
+        agentId: row.agentId,
+        title: row.title,
+        modelId: row.modelId,
+        archivedAt: row.archivedAt,
+        createdAt: row.createdAt,
+      };
+    },
+
+    async deleteChat(chatId) {
+      db.delete(schema.chat).where(eq(schema.chat.id, chatId)).run();
+    },
+
+    async updateChatAgent(chatId, agentId) {
+      const row = db
+        .update(schema.chat)
+        .set({ agentId })
+        .where(eq(schema.chat.id, chatId))
+        .returning()
+        .get();
+      if (!row) throw new Error(`Chat not found: ${chatId}`);
+      return {
+        id: row.id,
+        workspaceId: row.workspaceId,
+        agentId: row.agentId,
+        title: row.title,
+        modelId: row.modelId,
+        archivedAt: row.archivedAt,
         createdAt: row.createdAt,
       };
     },

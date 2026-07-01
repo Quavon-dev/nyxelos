@@ -1,10 +1,43 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { Compass, History, LibraryBig, Plus, Search } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Archive,
+  Compass,
+  Ellipsis,
+  History,
+  LibraryBig,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { type ChatSummary, trpcClient } from "@/lib/trpc";
 import { useInstallation } from "@/lib/use-installation";
@@ -41,7 +74,11 @@ export function ChatSidebar() {
   const pathname = usePathname();
   const installationQuery = useInstallation();
   const workspaceId = installationQuery.data?.record?.primaryWorkspaceId;
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [renameTarget, setRenameTarget] = useState<ChatSummary | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<ChatSummary | null>(null);
 
   const chatsQuery = useQuery({
     queryKey: ["chats", workspaceId],
@@ -74,73 +111,225 @@ export function ChatSidebar() {
     },
   ];
 
+  function invalidateChats() {
+    queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] });
+    queryClient.invalidateQueries({ queryKey: ["chats", "list", workspaceId] });
+    queryClient.invalidateQueries({ queryKey: ["chats", "archived", workspaceId] });
+  }
+
+  const renameChat = useMutation({
+    mutationFn: ({ chatId, title }: { chatId: string; title: string }) =>
+      trpcClient.chats.rename.mutate({ chatId, title }),
+    onSuccess: () => {
+      invalidateChats();
+      setRenameTarget(null);
+      setRenameTitle("");
+    },
+  });
+
+  const archiveChat = useMutation({
+    mutationFn: (chatId: string) => trpcClient.chats.setArchived.mutate({ chatId, archived: true }),
+    onSuccess: (chat) => {
+      invalidateChats();
+      if (pathname === `/chat/${chat.id}`) {
+        router.push(workspaceId ? `/workspace/${workspaceId}/archive` : "/chat");
+      }
+    },
+  });
+
+  const deleteChat = useMutation({
+    mutationFn: (chatId: string) => trpcClient.chats.delete.mutate({ chatId }),
+    onSuccess: (_, chatId) => {
+      invalidateChats();
+      if (pathname === `/chat/${chatId}`) router.push("/chat");
+      setDeleteTarget(null);
+    },
+  });
+
+  function openRename(chat: ChatSummary) {
+    setRenameTarget(chat);
+    setRenameTitle(chat.title);
+  }
+
   return (
-    <aside className="flex h-full w-72 shrink-0 flex-col border-r bg-background">
-      <div className="p-3">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search chats…"
-            className="h-9 border-none bg-muted pl-8 text-sm shadow-none focus-visible:ring-1"
-          />
-        </div>
-      </div>
-
-      <div className="flex-1 space-y-4 overflow-y-auto px-3 pb-3">
-        {groups.length === 0 && (
-          <p className="px-1 text-sm text-muted-foreground">
-            {chats.length === 0 ? "No chats yet — start one below." : "No chats match your search."}
-          </p>
-        )}
-        {groups.map((group) => (
-          <div key={group.label} className="space-y-1">
-            <p className="px-1 text-xs text-muted-foreground">{group.label}</p>
-            {group.chats.map((chat) => {
-              const isActive = pathname === `/chat/${chat.id}`;
-              return (
-                <Link
-                  key={chat.id}
-                  href={`/chat/${chat.id}`}
-                  className={cn(
-                    "block truncate rounded-md px-2 py-1.5 text-sm transition-colors",
-                    isActive
-                      ? "bg-muted font-medium text-foreground"
-                      : "text-foreground/80 hover:bg-muted/60 hover:text-foreground",
-                  )}
-                >
-                  {chat.title || "Untitled chat"}
-                </Link>
-              );
-            })}
+    <>
+      <aside className="flex h-full w-72 shrink-0 flex-col border-r bg-background">
+        <div className="p-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search chats…"
+              className="h-9 border-none bg-muted pl-8 text-sm shadow-none focus-visible:ring-1"
+            />
           </div>
-        ))}
-      </div>
+        </div>
 
-      <div className="space-y-3 border-t p-3">
-        <nav className="space-y-0.5">
-          {bottomNav.map((item) => (
-            <Link
-              key={item.label}
-              href={item.href}
-              className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-            >
-              <item.icon className="size-4" />
-              {item.label}
-            </Link>
+        <div className="flex-1 space-y-4 overflow-y-auto px-3 pb-3">
+          {groups.length === 0 && (
+            <p className="px-1 text-sm text-muted-foreground">
+              {chats.length === 0
+                ? "No chats yet — start one below."
+                : "No chats match your search."}
+            </p>
+          )}
+          {groups.map((group) => (
+            <div key={group.label} className="space-y-1">
+              <p className="px-1 text-xs text-muted-foreground">{group.label}</p>
+              {group.chats.map((chat) => {
+                const isActive = pathname === `/chat/${chat.id}`;
+                return (
+                  <ContextMenu key={chat.id}>
+                    <ContextMenuTrigger asChild>
+                      <div
+                        className={cn(
+                          "group flex items-center gap-1 rounded-md transition-colors",
+                          isActive ? "bg-muted" : "hover:bg-muted/60",
+                        )}
+                      >
+                        <Link
+                          href={`/chat/${chat.id}`}
+                          className={cn(
+                            "min-w-0 flex-1 truncate px-2 py-1.5 text-sm",
+                            isActive
+                              ? "font-medium text-foreground"
+                              : "text-foreground/80 group-hover:text-foreground",
+                          )}
+                        >
+                          {chat.title || "Untitled chat"}
+                        </Link>
+
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              className={cn(
+                                "mr-1 flex size-7 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition hover:bg-background/80 hover:text-foreground group-hover:opacity-100",
+                                isActive && "opacity-100",
+                              )}
+                              aria-label={`Open actions for ${chat.title || "chat"}`}
+                            >
+                              <Ellipsis className="size-4" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-40 min-w-40">
+                            <DropdownMenuItem onClick={() => openRename(chat)}>
+                              <Pencil className="size-4" />
+                              Rename
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => archiveChat.mutate(chat.id)}>
+                              <Archive className="size-4" />
+                              Archive
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={() => setDeleteTarget(chat)}
+                            >
+                              <Trash2 className="size-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem onClick={() => openRename(chat)}>
+                        <Pencil className="size-4" />
+                        Rename
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => archiveChat.mutate(chat.id)}>
+                        <Archive className="size-4" />
+                        Archive
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem variant="destructive" onClick={() => setDeleteTarget(chat)}>
+                        <Trash2 className="size-4" />
+                        Delete
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                );
+              })}
+            </div>
           ))}
-        </nav>
+        </div>
 
-        <button
-          type="button"
-          onClick={() => router.push("/chat")}
-          className="flex w-full items-center justify-center gap-2 rounded-full bg-foreground py-2.5 text-sm font-medium text-background transition-opacity hover:opacity-90"
-        >
-          <Plus className="size-4" />
-          New Chat
-        </button>
-      </div>
-    </aside>
+        <div className="space-y-3 border-t p-3">
+          <nav className="space-y-0.5">
+            {bottomNav.map((item) => (
+              <Button
+                key={item.label}
+                asChild
+                variant="ghost"
+                className="h-10 w-full justify-start gap-2.5 rounded-lg px-3 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Link href={item.href}>
+                  <item.icon className="size-4" />
+                  {item.label}
+                </Link>
+              </Button>
+            ))}
+          </nav>
+
+          <button
+            type="button"
+            onClick={() => router.push("/chat")}
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-foreground py-2.5 text-sm font-medium text-background transition-opacity hover:opacity-90"
+          >
+            <Plus className="size-4" />
+            New Chat
+          </button>
+        </div>
+      </aside>
+
+      <Dialog open={Boolean(renameTarget)} onOpenChange={(open) => !open && setRenameTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename chat</DialogTitle>
+            <DialogDescription>Give this chat a clearer title for the sidebar.</DialogDescription>
+          </DialogHeader>
+          <Input
+            value={renameTitle}
+            onChange={(e) => setRenameTitle(e.target.value)}
+            placeholder="Chat title"
+            maxLength={120}
+          />
+          <DialogFooter showCloseButton>
+            <Button
+              onClick={() =>
+                renameTarget &&
+                renameTitle.trim() &&
+                renameChat.mutate({ chatId: renameTarget.id, title: renameTitle.trim() })
+              }
+              disabled={!renameTitle.trim() || renameChat.isPending}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete chat</DialogTitle>
+            <DialogDescription>
+              This permanently deletes the chat and its messages. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter showCloseButton>
+            <Button
+              variant="destructive"
+              onClick={() => deleteTarget && deleteChat.mutate(deleteTarget.id)}
+              disabled={deleteChat.isPending}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

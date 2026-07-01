@@ -50,6 +50,7 @@ export type ChatSummary = {
   agentId: string | null;
   title: string;
   modelId: string;
+  archivedAt: Date | null;
   createdAt: Date;
 };
 
@@ -323,6 +324,9 @@ type NyxelTrpcClient = {
     list: {
       query(input: { workspaceId: string }): Promise<ChatSummary[]>;
     };
+    listArchived: {
+      query(input: { workspaceId: string }): Promise<ChatSummary[]>;
+    };
     create: {
       mutate(input: {
         workspaceId: string;
@@ -331,13 +335,28 @@ type NyxelTrpcClient = {
         agentId?: string;
       }): Promise<ChatSummary>;
     };
+    rename: {
+      mutate(input: { chatId: string; title: string }): Promise<ChatSummary>;
+    };
+    setArchived: {
+      mutate(input: { chatId: string; archived: boolean }): Promise<ChatSummary>;
+    };
+    delete: {
+      mutate(input: { chatId: string }): Promise<void>;
+    };
     messages: {
       query(input: { chatId: string }): Promise<MessageSummary[]>;
+    };
+    setAgent: {
+      mutate(input: { chatId: string; agentId: string | null }): Promise<ChatSummary>;
     };
   };
   agents: {
     list: {
       query(input: { workspaceId: string }): Promise<AgentSummary[]>;
+    };
+    get: {
+      query(input: { id: string }): Promise<AgentSummary | null>;
     };
     create: {
       mutate(input: {

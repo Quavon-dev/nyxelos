@@ -33,6 +33,7 @@ export interface ChatRecord {
   agentId: string | null;
   title: string;
   modelId: string;
+  archivedAt: Date | null;
   createdAt: Date;
 }
 
@@ -198,7 +199,16 @@ export interface DbRepository {
     agentId?: string | null;
   }): Promise<ChatRecord>;
   listChatsByWorkspace(workspaceId: string): Promise<ChatRecord[]>;
+  listArchivedChatsByWorkspace(workspaceId: string): Promise<ChatRecord[]>;
   getChat(chatId: string): Promise<ChatRecord | null>;
+  renameChat(chatId: string, title: string): Promise<ChatRecord>;
+  setChatArchived(chatId: string, archived: boolean): Promise<ChatRecord>;
+  deleteChat(chatId: string): Promise<void>;
+  /** Re-points a chat at a different agent — used when a chat's skill/MCP
+   * selection is edited mid-conversation: rather than mutating a shared
+   * agent (which could be reused by other chats), the caller forks a new
+   * one-off agent and calls this to bind the chat to it going forward. */
+  updateChatAgent(chatId: string, agentId: string | null): Promise<ChatRecord>;
 
   addMessage(input: { chatId: string; role: MessageRole; content: string }): Promise<MessageRecord>;
   listMessages(chatId: string): Promise<MessageRecord[]>;
