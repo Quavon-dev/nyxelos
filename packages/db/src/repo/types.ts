@@ -119,6 +119,7 @@ export type AutomationRunStatus = "success" | "error" | "pending_approval";
 
 export interface WorkspaceRecord {
 	id: string;
+	userId: string;
 	name: string;
 	customInstructions: string | null;
 	icon: string | null;
@@ -361,6 +362,16 @@ export interface ModelInstallationRecord {
 	updatedAt: Date;
 }
 
+export interface PushSubscriptionRecord {
+	id: string;
+	userId: string;
+	endpoint: string;
+	p256dh: string;
+	auth: string;
+	userAgent: string | null;
+	createdAt: Date;
+}
+
 /**
  * A dialect-agnostic data access interface. `packages/db` ships one
  * implementation per SQL dialect (pg.repo.ts, sqlite.repo.ts) so the rest of
@@ -413,6 +424,16 @@ export interface DbRepository {
 	): Promise<ModelInstallationRecord[]>;
 	getModelInstallation(id: string): Promise<ModelInstallationRecord | null>;
 	deleteModelInstallation(id: string): Promise<void>;
+
+	createPushSubscription(input: {
+		userId: string;
+		endpoint: string;
+		p256dh: string;
+		auth: string;
+		userAgent?: string | null;
+	}): Promise<PushSubscriptionRecord>;
+	listPushSubscriptionsByUser(userId: string): Promise<PushSubscriptionRecord[]>;
+	deletePushSubscriptionByEndpoint(endpoint: string): Promise<void>;
 
 	createChat(input: {
 		workspaceId: string;

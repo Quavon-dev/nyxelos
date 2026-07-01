@@ -509,3 +509,18 @@ export const auditLog = sqliteTable("audit_log", {
 	status: text("status").notNull().$type<AuditStatus>(),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
+
+/** One browser/device Web Push subscription (VAPID) — lets the server push
+ * notifications (approval needed, task done, automation failed) to a
+ * user's installed PWA even when the tab is closed. */
+export const pushSubscription = sqliteTable("push_subscription", {
+	id: text("id").primaryKey(),
+	userId: text("user_id")
+		.notNull()
+		.references(() => user.id, { onDelete: "cascade" }),
+	endpoint: text("endpoint").notNull().unique(),
+	p256dh: text("p256dh").notNull(),
+	auth: text("auth").notNull(),
+	userAgent: text("user_agent"),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});

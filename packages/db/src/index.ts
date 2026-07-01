@@ -34,6 +34,7 @@ export type {
 	ModelInstallationRecord,
 	ModelProviderKind,
 	ProjectRecord,
+	PushSubscriptionRecord,
 	ToolKind,
 	ToolRecord,
 	TaskEventKind,
