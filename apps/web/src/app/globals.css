@@ -127,3 +127,37 @@
     @apply font-sans;
   }
 }
+
+@keyframes orb-spin {
+  from {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.05);
+  }
+  to {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+@keyframes orb-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 32px oklch(0.841 0.238 128.85 / 30%);
+  }
+  50% {
+    box-shadow: 0 0 44px oklch(0.841 0.238 128.85 / 48%);
+  }
+}
+
+@keyframes orb-twinkle {
+  0%,
+  100% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.6);
+  }
+}

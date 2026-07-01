@@ -49,11 +49,18 @@ function GreetingOrb() {
 					"radial-gradient(circle at 68% 65%, var(--primary) 0%, transparent 60%)," +
 					"radial-gradient(circle at 45% 80%, var(--chart-3) 0%, transparent 55%)," +
 					"radial-gradient(circle at 60% 30%, var(--chart-5) 0%, transparent 50%)",
-				boxShadow: "0 0 32px oklch(0.841 0.238 128.85 / 30%)",
+				animation:
+					"orb-spin 10s ease-in-out infinite, orb-glow 4s ease-in-out infinite",
 			}}
 		>
-			<span className="absolute left-[38%] top-[30%] size-1 rounded-full bg-white/90" />
-			<span className="absolute left-[58%] top-[55%] size-0.5 rounded-full bg-white/70" />
+			<span
+				className="absolute left-[38%] top-[30%] size-1 rounded-full bg-white/90"
+				style={{ animation: "orb-twinkle 2.4s ease-in-out infinite" }}
+			/>
+			<span
+				className="absolute left-[58%] top-[55%] size-0.5 rounded-full bg-white/70"
+				style={{ animation: "orb-twinkle 3.1s ease-in-out infinite 0.6s" }}
+			/>
 		</div>
 	);
 }
