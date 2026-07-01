@@ -9,6 +9,13 @@ import { PageHeader, StatCard } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -27,7 +34,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { type AutomationTriggerType, trpcClient } from "@/lib/trpc";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  type AutomationSummary,
+  type AutomationTriggerType,
+  trpcClient,
+} from "@/lib/trpc";
 
 const TRIGGER_TYPES: { value: AutomationTriggerType; label: string }[] = [
   { value: "cron", label: "Schedule (cron)" },
@@ -116,6 +132,43 @@ export default function AutomationsPage() {
     onSettled: () => setRunningId(null),
   });
 
+  const [editing, setEditing] = useState<AutomationSummary | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editAgentId, setEditAgentId] = useState("");
+  const [editSchedule, setEditSchedule] = useState("");
+  const [editPrompt, setEditPrompt] = useState("");
+
+  const openEdit = (automation: AutomationSummary) => {
+    setEditing(automation);
+    setEditName(automation.name);
+    setEditAgentId(automation.agentId);
+    setEditSchedule(
+      automation.triggerType === "file_watch"
+        ? automation.watchPath ?? ""
+        : automation.cronExpression,
+    );
+    setEditPrompt(automation.prompt);
+  };
+
+  const updateAutomation = useMutation({
+    mutationFn: () => {
+      if (!editing) throw new Error("No automation selected");
+      return trpcClient.automations.update.mutate({
+        id: editing.id,
+        name: editName,
+        agentId: editAgentId,
+        prompt: editPrompt,
+        ...(editing.triggerType === "file_watch"
+          ? { watchPath: editSchedule }
+          : { cronExpression: editSchedule }),
+      });
+    },
+    onSuccess: () => {
+      invalidate();
+      setEditing(null);
+    },
+  });
+
   const automations = automationsQuery.data ?? [];
   const enabledCount = automations.filter((a) => a.enabled).length;
 
@@ -186,16 +239,40 @@ export default function AutomationsPage() {
                           : automation.cronExpression}
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={
-                            automation.enabled
-                              ? "border-0 bg-green-500/15 text-green-700 dark:bg-green-500/10 dark:text-green-400"
-                              : "border-0 bg-muted text-muted-foreground"
-                          }
-                        >
-                          {automation.enabled ? "Enabled" : "Disabled"}
-                        </Badge>
+                        <div className="flex flex-wrap gap-1.5">
+                          <Badge
+                            variant="outline"
+                            className={
+                              automation.enabled
+                                ? "border-0 bg-green-500/15 text-green-700 dark:bg-green-500/10 dark:text-green-400"
+                                : "border-0 bg-muted text-muted-foreground"
+                            }
+                          >
+                            {automation.enabled ? "Enabled" : "Disabled"}
+                          </Badge>
+                          {automation.lastRunStatus === "error" ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="outline"
+                                  className="cursor-default border-0 bg-red-500/15 text-red-700 dark:bg-red-500/10 dark:text-red-400"
+                                >
+                                  Last run failed
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {automation.lastErrorMessage ?? "Unknown error"}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : automation.lastRunStatus === "pending_approval" ? (
+                            <Badge
+                              variant="outline"
+                              className="border-0 bg-amber-500/15 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
+                            >
+                              Awaiting approval
+                            </Badge>
+                          ) : null}
+                        </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {formatDate(automation.lastRunAt)} → {formatDate(automation.nextRunAt)}
@@ -223,6 +300,13 @@ export default function AutomationsPage() {
                             }
                           >
                             {automation.enabled ? "Disable" : "Enable"}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openEdit(automation)}
+                          >
+                            Edit
                           </Button>
                           <Button
                             variant="ghost"
@@ -393,6 +477,85 @@ export default function AutomationsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit automation</DialogTitle>
+          </DialogHeader>
+          {editing && (
+            <div className="space-y-4">
+              <div className="grid gap-2">
+                <Label htmlFor="edit-automation-name">Name</Label>
+                <Input
+                  id="edit-automation-name"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Agent</Label>
+                <Select value={editAgentId} onValueChange={setEditAgentId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select an agent…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {schedulableAgents.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name} ({a.autonomyLevel})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="edit-automation-schedule">
+                  {editing.triggerType === "file_watch"
+                    ? "Directory to watch"
+                    : "Cron expression"}
+                </Label>
+                <Input
+                  id="edit-automation-schedule"
+                  value={editSchedule}
+                  onChange={(e) => setEditSchedule(e.target.value)}
+                  className="font-mono"
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="edit-automation-prompt">Prompt</Label>
+                <Textarea
+                  id="edit-automation-prompt"
+                  value={editPrompt}
+                  onChange={(e) => setEditPrompt(e.target.value)}
+                  rows={3}
+                />
+              </div>
+
+              {updateAutomation.isError && (
+                <p className="text-sm text-destructive">
+                  {(updateAutomation.error as Error).message}
+                </p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => updateAutomation.mutate()}
+              disabled={
+                updateAutomation.isPending || !editName || !editAgentId || !editPrompt || !editSchedule
+              }
+            >
+              {updateAutomation.isPending ? "Saving…" : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

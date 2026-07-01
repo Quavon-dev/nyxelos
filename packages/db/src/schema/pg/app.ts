@@ -111,22 +111,15 @@ export const agentRunStatus = pgEnum("agent_run_status", [
 	"cancelled",
 ]);
 
-/** See ../sqlite/app.ts and packages/skills-sdk — DB-backed tools built from
- * a declarative `kind` + JSON `config` instead of hand-written TypeScript, so
- * the workspace tools section can create them at runtime. */
-export const toolKind = pgEnum("tool_kind", [
-	"http_fetch",
-	"file_read",
-	"file_write",
-	"file_list",
-	"file_delete",
-	"kb_search",
-	"custom_code",
-]);
-
 export const automationTriggerType = pgEnum("automation_trigger_type", [
 	"cron",
 	"file_watch",
+]);
+
+export const automationRunStatus = pgEnum("automation_run_status", [
+	"success",
+	"error",
+	"pending_approval",
 ]);
 
 /** A workspace is the top-level category a user sorts chats, agents, and
@@ -149,7 +142,15 @@ export const workspace = pgTable("workspace", {
 		.notNull()
 		.references(() => user.id, { onDelete: "cascade" }),
 	name: text("name").notNull(),
+	// Prepended to every agent/chat system prompt in this workspace — see
+	// apps/server/src/workspace-prompt.ts, the single place this is read from.
 	customInstructions: text("custom_instructions"),
+	icon: text("icon"),
+	color: text("color"),
+	defaultModelId: text("default_model_id"),
+	defaultAutonomyLevel: agentAutonomyLevel("default_autonomy_level")
+		.notNull()
+		.default("assisted"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -232,6 +233,53 @@ export const knowledgeBaseConfig = pgTable("knowledge_base_config", {
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+/** See ../sqlite/app.ts — kept as plain text (not a pg enum) rather than an
+ * enum column: adding one of Nyxel's ~30 built-in tool kinds would otherwise
+ * need a dedicated `ALTER TYPE ... ADD VALUE` migration each time, which
+ * Postgres restricts inside transactions. Validated by the router's Zod
+ * schema instead of the DB. */
+export type ToolKind =
+	| "http_fetch"
+	| "file_read"
+	| "file_write"
+	| "file_list"
+	| "file_delete"
+	| "kb_search"
+	| "custom_code"
+	| "file_create"
+	| "file_patch"
+	| "file_move"
+	| "directory_create"
+	| "notebook_edit"
+	| "file_stat"
+	| "file_view_image"
+	| "notebook_summary"
+	| "notebook_cell_output"
+	| "terminal_last_command"
+	| "terminal_output"
+	| "problems"
+	| "file_search"
+	| "text_search"
+	| "usages"
+	| "codebase_search"
+	| "changes"
+	| "terminal_run"
+	| "terminal_send_input"
+	| "terminal_kill"
+	| "task_run"
+	| "test_run"
+	| "browser_navigate"
+	| "browser_click"
+	| "browser_drag"
+	| "browser_hover"
+	| "browser_type"
+	| "browser_handle_dialog"
+	| "browser_screenshot"
+	| "browser_read_page"
+	| "browser_run_playwright_code"
+	| "github_repo_fetch"
+	| "github_code_search";
+
 /** A user-defined tool, built from a declarative `kind` instead of
  * hand-written TypeScript. Complements the process-wide hardcoded skills in
  * apps/server/src/skills-registry.ts — both are merged at tool-build time,
@@ -243,14 +291,18 @@ export const tool = pgTable("tool", {
 		.references(() => workspace.id, { onDelete: "cascade" }),
 	name: text("name").notNull(),
 	description: text("description").notNull(),
-	kind: toolKind("kind").notNull(),
-	// Shape depends on `kind` — see apps/server/src/tools-dynamic.ts.
+	kind: text("kind").notNull().$type<ToolKind>(),
+	// Shape depends on `kind` — see apps/server/src/tools-dynamic.ts and
+	// apps/server/src/tools-builtin/*.
 	config: jsonb("config")
 		.notNull()
 		.default({})
 		.$type<Record<string, unknown>>(),
 	sensitive: boolean("sensitive").notNull().default(true),
 	enabled: boolean("enabled").notNull().default(true),
+	// Seeded per workspace (apps/server/src/tools-builtin-seed.ts), can be
+	// disabled but not deleted — see deleteTool()'s guard in both repos.
+	builtin: boolean("builtin").notNull().default(false),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -347,6 +399,10 @@ export const automation = pgTable("automation", {
 	enabled: boolean("enabled").notNull().default(true),
 	lastRunAt: timestamp("last_run_at"),
 	nextRunAt: timestamp("next_run_at"),
+	// Outcome of the most recent run, surfaced in the automations list so a
+	// failing automation doesn't silently keep retrying unnoticed.
+	lastRunStatus: automationRunStatus("last_run_status"),
+	lastErrorMessage: text("last_error_message"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

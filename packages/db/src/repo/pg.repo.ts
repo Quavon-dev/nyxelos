@@ -1086,10 +1086,21 @@ export function createPgRepository(connectionString: string): DbRepository {
 			return row ?? null;
 		},
 
-		async updateAutomationRun({ id, lastRunAt, nextRunAt }) {
+		async updateAutomationRun({
+			id,
+			lastRunAt,
+			nextRunAt,
+			lastRunStatus,
+			lastErrorMessage,
+		}) {
 			const [row] = await db
 				.update(schema.automation)
-				.set({ lastRunAt, nextRunAt })
+				.set({
+					lastRunAt,
+					nextRunAt,
+					...(lastRunStatus !== undefined ? { lastRunStatus } : {}),
+					...(lastErrorMessage !== undefined ? { lastErrorMessage } : {}),
+				})
 				.where(eq(schema.automation.id, id))
 				.returning();
 			if (!row) throw new Error(`Automation not found: ${id}`);
@@ -1126,6 +1137,16 @@ export function createPgRepository(connectionString: string): DbRepository {
 			return row;
 		},
 
+		async updateAutomation(id, patch) {
+			const [row] = await db
+				.update(schema.automation)
+				.set(patch)
+				.where(eq(schema.automation.id, id))
+				.returning();
+			if (!row) throw new Error(`Automation not found: ${id}`);
+			return row;
+		},
+
 		async deleteAutomation(id) {
 			await db.delete(schema.automation).where(eq(schema.automation.id, id));
 		},
@@ -1138,6 +1159,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 			config,
 			sensitive,
 			enabled,
+			builtin,
 		}) {
 			const [row] = await db
 				.insert(schema.tool)
@@ -1150,6 +1172,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 					config,
 					sensitive: sensitive ?? true,
 					enabled: enabled ?? true,
+					builtin: builtin ?? false,
 				})
 				.returning();
 			if (!row) throw new Error("Failed to create tool");
@@ -1181,6 +1204,12 @@ export function createPgRepository(connectionString: string): DbRepository {
 		},
 
 		async deleteTool(id) {
+			const row = await db.query.tool.findFirst({
+				where: eq(schema.tool.id, id),
+			});
+			if (row?.builtin) {
+				throw new Error(`Tool "${row.name}" is built-in and can't be deleted.`);
+			}
 			await db.delete(schema.tool).where(eq(schema.tool.id, id));
 		},
 

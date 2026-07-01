@@ -229,10 +229,92 @@ export type ToolKind =
 	| "file_list"
 	| "file_delete"
 	| "kb_search"
-	| "custom_code";
+	| "custom_code"
+	| "file_create"
+	| "file_patch"
+	| "file_move"
+	| "directory_create"
+	| "notebook_edit"
+	| "file_stat"
+	| "file_view_image"
+	| "notebook_summary"
+	| "notebook_cell_output"
+	| "terminal_last_command"
+	| "terminal_output"
+	| "problems"
+	| "file_search"
+	| "text_search"
+	| "usages"
+	| "codebase_search"
+	| "changes"
+	| "terminal_run"
+	| "terminal_send_input"
+	| "terminal_kill"
+	| "task_run"
+	| "test_run"
+	| "browser_navigate"
+	| "browser_click"
+	| "browser_drag"
+	| "browser_hover"
+	| "browser_type"
+	| "browser_handle_dialog"
+	| "browser_screenshot"
+	| "browser_read_page"
+	| "browser_run_playwright_code"
+	| "github_repo_fetch"
+	| "github_code_search";
+
+export type ToolCategory = "edit" | "read" | "search" | "execute" | "browser" | "web";
+
+/** Mirrors apps/server/src/tools-dynamic.ts's TOOL_KIND_CATEGORY — the
+ * single source of truth is the backend; this copy is for client-side
+ * grouping/rendering only. */
+export const TOOL_KIND_CATEGORY: Record<ToolKind, ToolCategory> = {
+	http_fetch: "web",
+	file_read: "read",
+	file_write: "edit",
+	file_list: "search",
+	file_delete: "edit",
+	kb_search: "search",
+	custom_code: "execute",
+	file_create: "edit",
+	file_patch: "edit",
+	file_move: "edit",
+	directory_create: "edit",
+	notebook_edit: "edit",
+	file_stat: "read",
+	file_view_image: "read",
+	notebook_summary: "read",
+	notebook_cell_output: "read",
+	terminal_last_command: "read",
+	terminal_output: "read",
+	problems: "read",
+	file_search: "search",
+	text_search: "search",
+	usages: "search",
+	codebase_search: "search",
+	changes: "search",
+	terminal_run: "execute",
+	terminal_send_input: "execute",
+	terminal_kill: "execute",
+	task_run: "execute",
+	test_run: "execute",
+	browser_navigate: "browser",
+	browser_click: "browser",
+	browser_drag: "browser",
+	browser_hover: "browser",
+	browser_type: "browser",
+	browser_handle_dialog: "browser",
+	browser_screenshot: "browser",
+	browser_read_page: "browser",
+	browser_run_playwright_code: "browser",
+	github_repo_fetch: "web",
+	github_code_search: "web",
+};
 
 /** A DB-backed, workspace-configurable tool (the old "Skills" tab concept —
- * see docs/frontend-migration-tools-vs-skills.md). */
+ * see docs/frontend-migration-tools-vs-skills.md). `builtin` tools are
+ * seeded per workspace and can be disabled but not deleted. */
 export type ToolSummary = {
 	id: string;
 	name: string;
@@ -242,21 +324,29 @@ export type ToolSummary = {
 	enabled: boolean;
 	source: "workspace";
 	kind: ToolKind;
+	builtin: boolean;
 };
 
-/** A real runtime skill from packages/skills-sdk — process-wide, read-only,
- * can't be created/edited/deleted from the UI. */
+/** A real skill — either process-wide/hand-written (source: "builtin",
+ * read-only) or a workspace's own file-based skill (source: "file",
+ * created/edited/deleted from the Skills page — a real markdown file with
+ * frontmatter, matching Anthropic's Agent Skills format). */
 export type SkillSummary = {
 	id: string;
 	name: string;
 	description: string;
 	permissions: { network: string[]; filesystem: string[] };
 	sensitive: boolean;
-	enabled: true;
-	source: "builtin";
+	enabled: boolean;
+	source: "builtin" | "file";
+	/** Only set for source: "file". */
+	slug?: string;
+	/** Only set for source: "file" — the skill's markdown body. */
+	body?: string;
 };
 
 export type AutomationTriggerType = "cron" | "file_watch";
+export type AutomationRunStatus = "success" | "error" | "pending_approval";
 
 export type AutomationSummary = {
 	id: string;
@@ -272,6 +362,8 @@ export type AutomationSummary = {
 	enabled: boolean;
 	lastRunAt: Date | null;
 	nextRunAt: Date | null;
+	lastRunStatus: AutomationRunStatus | null;
+	lastErrorMessage: string | null;
 	createdAt: Date;
 };
 
@@ -500,9 +592,28 @@ type NyxelTrpcClient = {
 		};
 	};
 	skills: {
-		/** Read-only runtime skill catalog — process-wide, no workspace CRUD. */
 		list: {
-			query(): Promise<SkillSummary[]>;
+			query(input: { workspaceId: string }): Promise<SkillSummary[]>;
+		};
+		create: {
+			mutate(input: {
+				workspaceId: string;
+				name: string;
+				description: string;
+				body: string;
+			}): Promise<SkillSummary>;
+		};
+		update: {
+			mutate(input: {
+				workspaceId: string;
+				slug: string;
+				name: string;
+				description: string;
+				body: string;
+			}): Promise<SkillSummary>;
+		};
+		delete: {
+			mutate(input: { workspaceId: string; slug: string }): Promise<void>;
 		};
 	};
 	tools: {
@@ -781,6 +892,17 @@ type NyxelTrpcClient = {
 				watchGlob?: string;
 				prompt: string;
 				enabled?: boolean;
+			}): Promise<AutomationSummary>;
+		};
+		update: {
+			mutate(input: {
+				id: string;
+				name?: string;
+				agentId?: string;
+				cronExpression?: string;
+				watchPath?: string;
+				watchGlob?: string;
+				prompt?: string;
 			}): Promise<AutomationSummary>;
 		};
 		setEnabled: {

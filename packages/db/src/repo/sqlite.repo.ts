@@ -1244,10 +1244,21 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			return row ?? null;
 		},
 
-		async updateAutomationRun({ id, lastRunAt, nextRunAt }) {
+		async updateAutomationRun({
+			id,
+			lastRunAt,
+			nextRunAt,
+			lastRunStatus,
+			lastErrorMessage,
+		}) {
 			const row = db
 				.update(schema.automation)
-				.set({ lastRunAt, nextRunAt })
+				.set({
+					lastRunAt,
+					nextRunAt,
+					...(lastRunStatus !== undefined ? { lastRunStatus } : {}),
+					...(lastErrorMessage !== undefined ? { lastErrorMessage } : {}),
+				})
 				.where(eq(schema.automation.id, id))
 				.returning()
 				.get();
@@ -1288,6 +1299,17 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			return row;
 		},
 
+		async updateAutomation(id, patch) {
+			const row = db
+				.update(schema.automation)
+				.set(patch)
+				.where(eq(schema.automation.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Automation not found: ${id}`);
+			return row;
+		},
+
 		async deleteAutomation(id) {
 			db.delete(schema.automation).where(eq(schema.automation.id, id)).run();
 		},
@@ -1300,6 +1322,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			config,
 			sensitive,
 			enabled,
+			builtin,
 		}) {
 			const row = db
 				.insert(schema.tool)
@@ -1312,6 +1335,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					config,
 					sensitive: sensitive ?? true,
 					enabled: enabled ?? true,
+					builtin: builtin ?? false,
 					createdAt: new Date(),
 				})
 				.returning()
@@ -1343,11 +1367,19 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.where(eq(schema.tool.id, id))
 				.returning()
 				.get();
-			if (!row) throw new Error(`Skill not found: ${id}`);
+			if (!row) throw new Error(`Tool not found: ${id}`);
 			return row;
 		},
 
 		async deleteTool(id) {
+			const row = db
+				.select()
+				.from(schema.tool)
+				.where(eq(schema.tool.id, id))
+				.get();
+			if (row?.builtin) {
+				throw new Error(`Tool "${row.name}" is built-in and can't be deleted.`);
+			}
 			db.delete(schema.tool).where(eq(schema.tool.id, id)).run();
 		},
 

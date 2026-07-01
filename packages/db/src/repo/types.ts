@@ -72,14 +72,52 @@ export type ToolKind =
 	| "file_list"
 	| "file_delete"
 	| "kb_search"
-	| "custom_code";
+	| "custom_code"
+	| "file_create"
+	| "file_patch"
+	| "file_move"
+	| "directory_create"
+	| "notebook_edit"
+	| "file_stat"
+	| "file_view_image"
+	| "notebook_summary"
+	| "notebook_cell_output"
+	| "terminal_last_command"
+	| "terminal_output"
+	| "problems"
+	| "file_search"
+	| "text_search"
+	| "usages"
+	| "codebase_search"
+	| "changes"
+	| "terminal_run"
+	| "terminal_send_input"
+	| "terminal_kill"
+	| "task_run"
+	| "test_run"
+	| "browser_navigate"
+	| "browser_click"
+	| "browser_drag"
+	| "browser_hover"
+	| "browser_type"
+	| "browser_handle_dialog"
+	| "browser_screenshot"
+	| "browser_read_page"
+	| "browser_run_playwright_code"
+	| "github_repo_fetch"
+	| "github_code_search";
 
 export type AutomationTriggerType = "cron" | "file_watch";
+export type AutomationRunStatus = "success" | "error" | "pending_approval";
 
 export interface WorkspaceRecord {
 	id: string;
 	name: string;
 	customInstructions: string | null;
+	icon: string | null;
+	color: string | null;
+	defaultModelId: string | null;
+	defaultAutonomyLevel: AgentAutonomyLevel;
 }
 
 export interface InstallationRecord {
@@ -217,6 +255,8 @@ export interface AutomationRecord {
 	enabled: boolean;
 	lastRunAt: Date | null;
 	nextRunAt: Date | null;
+	lastRunStatus: AutomationRunStatus | null;
+	lastErrorMessage: string | null;
 	createdAt: Date;
 }
 
@@ -229,6 +269,8 @@ export interface ToolRecord {
 	config: Record<string, unknown>;
 	sensitive: boolean;
 	enabled: boolean;
+	/** Seeded per workspace, can be disabled but not deleted. */
+	builtin: boolean;
 	createdAt: Date;
 }
 
@@ -581,6 +623,8 @@ export interface DbRepository {
 		id: string;
 		lastRunAt: Date;
 		nextRunAt: Date | null;
+		lastRunStatus?: AutomationRunStatus;
+		lastErrorMessage?: string | null;
 	}): Promise<AutomationRecord>;
 	setAutomationNextRun(
 		id: string,
@@ -590,6 +634,21 @@ export interface DbRepository {
 	setAutomationWatchCheckedAt(
 		id: string,
 		lastWatchCheckAt: Date,
+	): Promise<AutomationRecord>;
+	/** Edits an existing automation's config without touching its run history
+	 * (lastRunAt/lastRunStatus/etc). Callers recompute nextRunAt themselves
+	 * when the cron expression changes. */
+	updateAutomation(
+		id: string,
+		patch: {
+			name?: string;
+			agentId?: string;
+			cronExpression?: string;
+			watchPath?: string | null;
+			watchGlob?: string | null;
+			prompt?: string;
+			nextRunAt?: Date | null;
+		},
 	): Promise<AutomationRecord>;
 	deleteAutomation(id: string): Promise<void>;
 
@@ -601,10 +660,14 @@ export interface DbRepository {
 		config: Record<string, unknown>;
 		sensitive?: boolean;
 		enabled?: boolean;
+		/** Only ever passed by tools-builtin-seed.ts — never user-settable. */
+		builtin?: boolean;
 	}): Promise<ToolRecord>;
 	listToolsByWorkspace(workspaceId: string): Promise<ToolRecord[]>;
 	getTool(id: string): Promise<ToolRecord | null>;
 	setToolEnabled(id: string, enabled: boolean): Promise<ToolRecord>;
+	/** Throws if the tool is builtin (seeded, non-deletable) — see
+	 * tools-builtin-seed.ts. */
 	deleteTool(id: string): Promise<void>;
 
 	createApprovalRequest(input: {

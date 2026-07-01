@@ -89,7 +89,13 @@ export async function runAutomation(
   // poll loop below, not by nextRunAt.
   const nextRunAt =
     automation.triggerType === "cron" ? computeNextRunAt(automation.cronExpression, now) : null;
-  await db.updateAutomationRun({ id: automation.id, lastRunAt: now, nextRunAt });
+  await db.updateAutomationRun({
+    id: automation.id,
+    lastRunAt: now,
+    nextRunAt,
+    lastRunStatus: status,
+    lastErrorMessage: status === "error" ? outputText : null,
+  });
   return { taskId: task.id, runId: runId ?? "", output: outputText };
 }
 

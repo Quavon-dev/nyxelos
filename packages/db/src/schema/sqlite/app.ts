@@ -71,9 +71,43 @@ export type ToolKind =
 	| "file_list"
 	| "file_delete"
 	| "kb_search"
-	| "custom_code";
+	| "custom_code"
+	| "file_create"
+	| "file_patch"
+	| "file_move"
+	| "directory_create"
+	| "notebook_edit"
+	| "file_stat"
+	| "file_view_image"
+	| "notebook_summary"
+	| "notebook_cell_output"
+	| "terminal_last_command"
+	| "terminal_output"
+	| "problems"
+	| "file_search"
+	| "text_search"
+	| "usages"
+	| "codebase_search"
+	| "changes"
+	| "terminal_run"
+	| "terminal_send_input"
+	| "terminal_kill"
+	| "task_run"
+	| "test_run"
+	| "browser_navigate"
+	| "browser_click"
+	| "browser_drag"
+	| "browser_hover"
+	| "browser_type"
+	| "browser_handle_dialog"
+	| "browser_screenshot"
+	| "browser_read_page"
+	| "browser_run_playwright_code"
+	| "github_repo_fetch"
+	| "github_code_search";
 
 export type AutomationTriggerType = "cron" | "file_watch";
+export type AutomationRunStatus = "success" | "error" | "pending_approval";
 
 /** Mirrors ../pg/app.ts. See ARCHITECTURE.md section 5 for the domain model. */
 export const installation = sqliteTable("installation", {
@@ -94,7 +128,16 @@ export const workspace = sqliteTable("workspace", {
 		.notNull()
 		.references(() => user.id, { onDelete: "cascade" }),
 	name: text("name").notNull(),
+	// Prepended to every agent/chat system prompt in this workspace — see
+	// apps/server/src/workspace-prompt.ts, the single place this is read from.
 	customInstructions: text("custom_instructions"),
+	icon: text("icon"),
+	color: text("color"),
+	defaultModelId: text("default_model_id"),
+	defaultAutonomyLevel: text("default_autonomy_level")
+		.notNull()
+		.default("assisted")
+		.$type<AgentAutonomyLevel>(),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -215,6 +258,9 @@ export const tool = sqliteTable("tool", {
 		.$type<Record<string, unknown>>(),
 	sensitive: integer("sensitive", { mode: "boolean" }).notNull().default(true),
 	enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+	// Seeded per workspace (apps/server/src/tools-builtin-seed.ts), can be
+	// disabled but not deleted — see deleteTool()'s guard in both repos.
+	builtin: integer("builtin", { mode: "boolean" }).notNull().default(false),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -300,6 +346,10 @@ export const automation = sqliteTable("automation", {
 	enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
 	lastRunAt: integer("last_run_at", { mode: "timestamp" }),
 	nextRunAt: integer("next_run_at", { mode: "timestamp" }),
+	// Outcome of the most recent run, surfaced in the automations list so a
+	// failing automation doesn't silently keep retrying unnoticed.
+	lastRunStatus: text("last_run_status").$type<AutomationRunStatus>(),
+	lastErrorMessage: text("last_error_message"),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

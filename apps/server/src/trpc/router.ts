@@ -37,7 +37,13 @@ import {
 } from "../provider-imports";
 import { computeNextRunAt, runAutomation } from "../scheduler";
 import { executeManagedTask, startTaskExecutionIfIdle } from "../agent-runtime";
-import { listSkillCatalog } from "../skills-resolve";
+import {
+	createFileSkill,
+	deleteFileSkill,
+	listSkillCatalog,
+	updateFileSkill,
+} from "../skills-resolve";
+import { seedBuiltinToolsForWorkspace } from "../tools-builtin-seed";
 import { listToolCatalogForWorkspace } from "../tools-resolve";
 import { publicProcedure, router } from "./trpc";
 
@@ -71,6 +77,65 @@ const toolKindSchema = z.enum([
 	"file_delete",
 	"kb_search",
 	"custom_code",
+	"file_create",
+	"file_patch",
+	"file_move",
+	"directory_create",
+	"notebook_edit",
+	"file_stat",
+	"file_view_image",
+	"notebook_summary",
+	"notebook_cell_output",
+	"terminal_last_command",
+	"terminal_output",
+	"problems",
+	"file_search",
+	"text_search",
+	"usages",
+	"codebase_search",
+	"changes",
+	"terminal_run",
+	"terminal_send_input",
+	"terminal_kill",
+	"task_run",
+	"test_run",
+	"browser_navigate",
+	"browser_click",
+	"browser_drag",
+	"browser_hover",
+	"browser_type",
+	"browser_handle_dialog",
+	"browser_screenshot",
+	"browser_read_page",
+	"browser_run_playwright_code",
+	"github_repo_fetch",
+	"github_code_search",
+]);
+/** Kinds that default to `sensitive: false` (pure reads/lookups) when a
+ * caller doesn't explicitly pass `sensitive` — mirrors the read-vs-write
+ * split already used for file_read vs file_write. Everything else defaults
+ * to sensitive: true (the safer default for anything with a side effect). */
+const NON_SENSITIVE_DEFAULT_TOOL_KINDS = new Set([
+	"http_fetch",
+	"file_read",
+	"file_list",
+	"kb_search",
+	"file_stat",
+	"file_view_image",
+	"notebook_summary",
+	"notebook_cell_output",
+	"terminal_last_command",
+	"terminal_output",
+	"problems",
+	"file_search",
+	"text_search",
+	"usages",
+	"codebase_search",
+	"changes",
+	"browser_read_page",
+	"browser_screenshot",
+	"github_repo_fetch",
+	"github_code_search",
 ]);
 const automationTriggerTypeSchema = z.enum(["cron", "file_watch"]);
 const taskStatusSchema = z.enum([
@@ -250,6 +315,7 @@ export const appRouter = router({
 					userId: signUpResult.user.id,
 					name: input.workspaceName,
 				});
+				await seedBuiltinToolsForWorkspace(workspace.id);
 
 				return db.completeInstallation({
 					mode: input.mode,
@@ -355,10 +421,36 @@ export const appRouter = router({
 	}),
 
 	skills: router({
-		// Read-only runtime skill catalog. Skills are process-wide and
-		// hand-written in packages/skills-sdk.
+		// Merges the process-wide hand-written skills (packages/skills-sdk)
+		// with this workspace's own real, file-based skills (.md files under
+		// NYXEL_SKILLS_DIR/<workspaceId>/ — see skills-resolve.ts).
 		list: publicProcedure
-			.query(() => listSkillCatalog()),
+			.input(z.object({ workspaceId: z.string() }))
+			.query(({ input }) => listSkillCatalog(input.workspaceId)),
+		create: publicProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					name: z.string().min(1),
+					description: z.string().min(1),
+					body: z.string().min(1),
+				}),
+			)
+			.mutation(({ input }) => createFileSkill(input)),
+		update: publicProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					slug: z.string(),
+					name: z.string().min(1),
+					description: z.string().min(1),
+					body: z.string().min(1),
+				}),
+			)
+			.mutation(({ input }) => updateFileSkill(input)),
+		delete: publicProcedure
+			.input(z.object({ workspaceId: z.string(), slug: z.string() }))
+			.mutation(({ input }) => deleteFileSkill(input)),
 	}),
 
 	tools: router({
@@ -383,12 +475,11 @@ export const appRouter = router({
 			)
 			.mutation(({ input }) => {
 				// Read-only kinds default to not needing approval; anything that can
-				// write or run arbitrary code defaults to sensitive. Callers can still
-				// override explicitly via `sensitive`.
-				const defaultSensitive =
-					input.kind === "file_write" ||
-					input.kind === "file_delete" ||
-					input.kind === "custom_code";
+				// write, execute, or control a browser defaults to sensitive. Callers
+				// can still override explicitly via `sensitive`.
+				const defaultSensitive = !NON_SENSITIVE_DEFAULT_TOOL_KINDS.has(
+					input.kind,
+				);
 				return getDb().createTool({
 					...input,
 					sensitive: input.sensitive ?? defaultSensitive,
@@ -410,7 +501,11 @@ export const appRouter = router({
 			.query(({ input }) => getDb().listWorkspacesByUser(input.userId)),
 		create: publicProcedure
 			.input(z.object({ userId: z.string(), name: z.string().min(1) }))
-			.mutation(({ input }) => getDb().createWorkspace(input)),
+			.mutation(async ({ input }) => {
+				const workspace = await getDb().createWorkspace(input);
+				await seedBuiltinToolsForWorkspace(workspace.id);
+				return workspace;
+			}),
 		get: publicProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => getDb().getWorkspace(input.workspaceId)),
@@ -979,6 +1074,46 @@ export const appRouter = router({
 					}
 				}
 				return db.setAutomationEnabled(input.id, input.enabled);
+			}),
+		update: publicProcedure
+			.input(
+				z.object({
+					id: z.string(),
+					name: z.string().min(1).optional(),
+					agentId: z.string().optional(),
+					cronExpression: z.string().optional(),
+					watchPath: z.string().optional(),
+					watchGlob: z.string().optional(),
+					prompt: z.string().min(1).optional(),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				const db = getDb();
+				const { id, ...patch } = input;
+				const automation = await db.getAutomation(id);
+				if (!automation) throw new Error(`Unknown automation: ${id}`);
+
+				if (patch.agentId) {
+					const agent = await db.getAgent(patch.agentId);
+					if (!agent) throw new Error(`Unknown agent: ${patch.agentId}`);
+					if (!AUTOMATABLE_LEVELS.has(agent.autonomyLevel)) {
+						throw new Error(
+							`Agent "${agent.name}" has autonomy level "${agent.autonomyLevel}" — only "autonomous" or "super_agent" agents can be scheduled.`,
+						);
+					}
+				}
+
+				const recomputedNextRun: { nextRunAt?: Date | null } = {};
+				if (automation.triggerType === "cron" && patch.cronExpression) {
+					const nextRunAt = computeNextRunAt(patch.cronExpression, new Date());
+					if (!nextRunAt)
+						throw new Error(
+							`"${patch.cronExpression}" is not a valid cron expression.`,
+						);
+					recomputedNextRun.nextRunAt = nextRunAt;
+				}
+
+				return db.updateAutomation(id, { ...patch, ...recomputedNextRun });
 			}),
 		delete: publicProcedure
 			.input(z.object({ id: z.string() }))
