@@ -46,6 +46,9 @@ export interface StreamChatInput {
 	 * failure after the first token would otherwise vanish silently from the
 	 * caller's perspective (the HTTP response is already streaming). */
 	onError?: (event: { error: unknown }) => void;
+	/** Lets a caller cancel an in-flight generation (e.g. a "Stop agent"
+	 * action) — forwarded straight to the AI SDK's own abortSignal support. */
+	abortSignal?: AbortSignal;
 }
 
 const INLINE_SYSTEM_PROMPT_MODEL_PREFIXES = new Set([
@@ -128,6 +131,7 @@ export function streamChat({
 	tools,
 	onFinish,
 	onError,
+	abortSignal,
 }: StreamChatInput) {
 	const resolvedInstalledProviders = installedProviders ?? [];
 	const model = resolveModel(modelId, resolvedInstalledProviders);
@@ -145,6 +149,7 @@ export function streamChat({
 		system: inlineSystemPrompt ? undefined : systemPrompt,
 		messages: preparedMessages,
 		tools,
+		abortSignal,
 		// Without this, streamText stops right after a tool call instead of
 		// continuing on to produce a final answer from the tool's result.
 		...(tools ? { stopWhen: stepCountIs(5) } : {}),

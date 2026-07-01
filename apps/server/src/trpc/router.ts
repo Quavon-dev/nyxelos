@@ -802,6 +802,9 @@ export const appRouter = router({
 					assignedAgentId: z.string().nullable().optional(),
 					title: z.string().min(1),
 					instruction: z.string().min(1),
+					// Overrides the assigned agent's default model for this task only —
+					// lets the same agent run different tasks against different models.
+					modelId: z.string().nullable().optional(),
 					priority: taskPrioritySchema.optional(),
 					input: z.record(z.string(), z.unknown()).optional(),
 				}),
@@ -813,6 +816,7 @@ export const appRouter = router({
 					sourceChatId: input.sourceChatId ?? null,
 					createdByAgentId: input.createdByAgentId ?? null,
 					assignedAgentId: input.assignedAgentId ?? null,
+					modelId: input.modelId ?? null,
 					priority: input.priority ?? "normal",
 					status: input.assignedAgentId ? "ready" : "pending",
 					input: input.input ?? {},
@@ -869,6 +873,28 @@ export const appRouter = router({
 						trigger: "task",
 					});
 				}
+				return task;
+			}),
+		setModel: publicProcedure
+			.input(
+				z.object({
+					taskId: z.string(),
+					modelId: z.string().nullable(),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				const task = await getDb().updateTask(input.taskId, {
+					modelId: input.modelId,
+				});
+				await getDb().createTaskEvent({
+					taskId: task.id,
+					workspaceId: task.workspaceId,
+					kind: "comment",
+					message: input.modelId
+						? `Model override set to ${input.modelId}.`
+						: "Model override cleared — using the agent's default model.",
+					payload: { modelId: input.modelId },
+				});
 				return task;
 			}),
 		complete: publicProcedure
@@ -939,6 +965,7 @@ export const appRouter = router({
 				if (!agent) {
 					throw new Error(`Unknown agent: ${agentId}`);
 				}
+				const wasBlockedOnQuestion = task.status === "blocked";
 				await db.updateTask(task.id, {
 					status: "ready",
 					startedAt: new Date(),
@@ -949,8 +976,10 @@ export const appRouter = router({
 					taskId: task.id,
 					workspaceId: task.workspaceId,
 					agentId,
-					kind: "comment",
-					message: "Follow-up instruction added.",
+					kind: wasBlockedOnQuestion ? "question_answered" : "comment",
+					message: wasBlockedOnQuestion
+						? "User answered the pending question."
+						: "Follow-up instruction added.",
 					payload: { instruction: input.instruction },
 				});
 				await db.createTaskEvent({

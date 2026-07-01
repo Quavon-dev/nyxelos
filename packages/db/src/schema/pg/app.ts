@@ -93,6 +93,8 @@ export const taskEventKind = pgEnum("task_event_kind", [
 	"run_started",
 	"run_finished",
 	"comment",
+	"question",
+	"question_answered",
 	"completed",
 	"failed",
 ]);
@@ -428,6 +430,10 @@ export const task = pgTable("task", {
 	}),
 	title: text("title").notNull(),
 	instruction: text("instruction").notNull(),
+	// Overrides the assigned agent's default model for this task only — lets
+	// the same agent run different tasks on different models without needing
+	// a separate agent per model. Null means "use agent.modelId".
+	modelId: text("model_id"),
 	status: taskStatus("status").notNull().default("pending"),
 	priority: taskPriority("priority").notNull().default("normal"),
 	requiresApproval: boolean("requires_approval").notNull().default(false),
@@ -459,6 +465,9 @@ export const agentRun = pgTable("agent_run", {
 		onDelete: "set null",
 	}),
 	trigger: agentRunTrigger("trigger").notNull(),
+	// The model actually used for this run — may differ from the agent's
+	// current default (task override, or the agent's model changed since).
+	modelId: text("model_id"),
 	stepCount: integer("step_count").notNull().default(0),
 	status: agentRunStatus("status").notNull().default("pending"),
 	finalOutput: text("final_output"),

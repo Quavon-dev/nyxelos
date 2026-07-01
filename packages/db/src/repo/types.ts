@@ -38,6 +38,8 @@ export type TaskEventKind =
 	| "run_started"
 	| "run_finished"
 	| "comment"
+	| "question"
+	| "question_answered"
 	| "completed"
 	| "failed";
 export type AgentRunTrigger = "chat" | "task" | "automation" | "delegate";
@@ -193,6 +195,8 @@ export interface TaskRecord {
 	assignedAgentId: string | null;
 	title: string;
 	instruction: string;
+	/** Overrides the assigned agent's default model for this task only. */
+	modelId: string | null;
 	status: TaskStatus;
 	priority: TaskPriority;
 	requiresApproval: boolean;
@@ -227,6 +231,8 @@ export interface AgentRunRecord {
 	chatId: string | null;
 	automationId: string | null;
 	trigger: AgentRunTrigger;
+	/** The model actually used for this run. */
+	modelId: string | null;
 	stepCount: number;
 	status: AgentRunStatus;
 	finalOutput: string | null;
@@ -498,6 +504,16 @@ export interface DbRepository {
 			delegateAgentIds?: string[];
 		},
 	): Promise<AgentRecord>;
+	/** Cascades to the agent's own runs/approvals/task-links per the schema's
+	 * onDelete rules; callers must check for referencing automations
+	 * themselves first (see agents.delete in the router — automations require
+	 * a non-null agentId, so a cascade there would silently destroy them). */
+	deleteAgent(agentId: string): Promise<void>;
+	/** Bulk-removes one-off agents forked for a single chat's tool selection
+	 * (name "Chat — custom tools") that no chat currently points at — cleans
+	 * up the pile that builds up from repeatedly tweaking a chat's tool
+	 * toolbar. Returns the number deleted. */
+	deleteUnusedChatAgents(workspaceId: string): Promise<number>;
 
 	createTask(input: {
 		workspaceId: string;
@@ -507,6 +523,7 @@ export interface DbRepository {
 		assignedAgentId?: string | null;
 		title: string;
 		instruction: string;
+		modelId?: string | null;
 		status?: TaskStatus;
 		priority?: TaskPriority;
 		requiresApproval?: boolean;
@@ -528,6 +545,7 @@ export interface DbRepository {
 		taskId: string,
 		input: {
 			assignedAgentId?: string | null;
+			modelId?: string | null;
 			status?: TaskStatus;
 			priority?: TaskPriority;
 			requiresApproval?: boolean;
@@ -562,6 +580,7 @@ export interface DbRepository {
 		chatId?: string | null;
 		automationId?: string | null;
 		trigger: AgentRunTrigger;
+		modelId?: string | null;
 		stepCount?: number;
 		status?: AgentRunStatus;
 		finalOutput?: string | null;
@@ -571,6 +590,11 @@ export interface DbRepository {
 	}): Promise<AgentRunRecord>;
 	getAgentRun(id: string): Promise<AgentRunRecord | null>;
 	listAgentRunsByTask(taskId: string): Promise<AgentRunRecord[]>;
+	/** Most recent first — powers the agent detail page's run history. */
+	listAgentRunsByAgent(agentId: string): Promise<AgentRunRecord[]>;
+	/** Runs with status "pending" | "running" | "waiting_approval" — powers
+	 * the "currently running" indicator on the agents list page. */
+	listActiveAgentRunsByWorkspace(workspaceId: string): Promise<AgentRunRecord[]>;
 	updateAgentRun(
 		id: string,
 		input: {

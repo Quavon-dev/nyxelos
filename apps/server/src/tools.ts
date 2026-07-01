@@ -13,6 +13,7 @@ import {
 	createWorkspaceFileWriteSkill,
 } from "@nyxel/skills-sdk";
 import { dynamicTool, jsonSchema, type ToolSet, tool } from "ai";
+import { z } from "zod";
 import { isAutoAssistant } from "./auto-agent";
 import { logAudit } from "./audit";
 import { buildDelegateToAgentTool } from "./delegation";
@@ -535,6 +536,43 @@ export async function buildToolsForAgent(
 				},
 			});
 		}
+	}
+
+	// Only available on durable task runs — a live chat turn already lets the
+	// user answer immediately, so there's nothing to block on. Deliberately
+	// narrow: the system prompt tells the agent to reach for this only when
+	// truly blocked on an urgent, unassumable gap, and to otherwise pick the
+	// most sensible interpretation itself and note the assumption in its
+	// final answer instead of stopping to ask.
+	if (ctx.taskId) {
+		const taskId = ctx.taskId;
+		const agentRunId = ctx.agentRunId;
+		tools.ask_user_question = tool({
+			description:
+				"Pause this task and ask the user a single clarifying question. Use this ONLY when you are genuinely blocked by a critical, urgent gap you cannot safely resolve on your own (e.g. a destructive/irreversible choice, a missing credential, directly conflicting instructions). For anything else — including ordinary ambiguity — do not call this tool: make the most reasonable assumption yourself, state it plainly in your final answer, and keep going.",
+			inputSchema: z.object({
+				question: z.string().describe("The single question to ask the user."),
+				reason: z
+					.string()
+					.describe("Why this is urgent enough that it can't be safely assumed."),
+			}),
+			execute: async ({ question, reason }) => {
+				await db.updateTask(taskId, { status: "blocked" });
+				await db.createTaskEvent({
+					taskId,
+					workspaceId: agent.workspaceId,
+					agentRunId,
+					agentId: agent.id,
+					kind: "question",
+					message: question,
+					payload: { question, reason },
+				});
+				return {
+					status: "pending_question" as const,
+					message: `Task paused: waiting for the user to answer "${question}". Do not proceed further or assume an answer.`,
+				};
+			},
+		});
 	}
 
 	if (

@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, isNotNull, isNull, lte, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { DEFAULT_CHAT_TOOL_POLICY } from "./types";
 import { normalizeChatWorkingDirectory } from "../working-directory";
@@ -793,6 +793,38 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			return row;
 		},
 
+		async deleteAgent(agentId) {
+			db.delete(schema.agent).where(eq(schema.agent.id, agentId)).run();
+		},
+
+		async deleteUnusedChatAgents(workspaceId) {
+			const usedAgentIds = new Set(
+				db
+					.select({ agentId: schema.chat.agentId })
+					.from(schema.chat)
+					.where(eq(schema.chat.workspaceId, workspaceId))
+					.all()
+					.map((row) => row.agentId)
+					.filter((id): id is string => id !== null),
+			);
+			const candidates = db
+				.select({ id: schema.agent.id })
+				.from(schema.agent)
+				.where(
+					and(
+						eq(schema.agent.workspaceId, workspaceId),
+						eq(schema.agent.name, "Chat — custom tools"),
+					),
+				)
+				.all();
+			const idsToDelete = candidates
+				.map((row) => row.id)
+				.filter((id) => !usedAgentIds.has(id));
+			if (idsToDelete.length === 0) return 0;
+			db.delete(schema.agent).where(inArray(schema.agent.id, idsToDelete)).run();
+			return idsToDelete.length;
+		},
+
 		async createTask({
 			workspaceId,
 			parentTaskId,
@@ -801,6 +833,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			assignedAgentId,
 			title,
 			instruction,
+			modelId,
 			status,
 			priority,
 			requiresApproval,
@@ -824,6 +857,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					assignedAgentId: assignedAgentId ?? null,
 					title,
 					instruction,
+					modelId: modelId ?? null,
 					status: status ?? "pending",
 					priority: priority ?? "normal",
 					requiresApproval: requiresApproval ?? false,
@@ -887,6 +921,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					...(input.assignedAgentId !== undefined
 						? { assignedAgentId: input.assignedAgentId }
 						: {}),
+					...(input.modelId !== undefined ? { modelId: input.modelId } : {}),
 					...(input.status !== undefined ? { status: input.status } : {}),
 					...(input.priority !== undefined ? { priority: input.priority } : {}),
 					...(input.requiresApproval !== undefined
@@ -978,6 +1013,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			chatId,
 			automationId,
 			trigger,
+			modelId,
 			stepCount,
 			status,
 			finalOutput,
@@ -996,6 +1032,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					chatId: chatId ?? null,
 					automationId: automationId ?? null,
 					trigger,
+					modelId: modelId ?? null,
 					stepCount: stepCount ?? 0,
 					status: status ?? "pending",
 					finalOutput: finalOutput ?? null,
@@ -1025,6 +1062,35 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.from(schema.agentRun)
 				.where(eq(schema.agentRun.taskId, taskId))
 				.orderBy(schema.agentRun.createdAt)
+				.all();
+			return rows.map(mapAgentRun);
+		},
+
+		async listAgentRunsByAgent(agentId) {
+			const rows = db
+				.select()
+				.from(schema.agentRun)
+				.where(eq(schema.agentRun.agentId, agentId))
+				.orderBy(desc(schema.agentRun.createdAt))
+				.all();
+			return rows.map(mapAgentRun);
+		},
+
+		async listActiveAgentRunsByWorkspace(workspaceId) {
+			const rows = db
+				.select()
+				.from(schema.agentRun)
+				.where(
+					and(
+						eq(schema.agentRun.workspaceId, workspaceId),
+						inArray(schema.agentRun.status, [
+							"pending",
+							"running",
+							"waiting_approval",
+						]),
+					),
+				)
+				.orderBy(desc(schema.agentRun.createdAt))
 				.all();
 			return rows.map(mapAgentRun);
 		},

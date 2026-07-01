@@ -42,6 +42,8 @@ export type TaskEventKind =
 	| "run_started"
 	| "run_finished"
 	| "comment"
+	| "question"
+	| "question_answered"
 	| "completed"
 	| "failed";
 export type AgentRunTrigger = "chat" | "task" | "automation" | "delegate";
@@ -375,6 +377,10 @@ export const task = sqliteTable("task", {
 	}),
 	title: text("title").notNull(),
 	instruction: text("instruction").notNull(),
+	// Overrides the assigned agent's default model for this task only — lets
+	// the same agent run different tasks on different models without needing
+	// a separate agent per model. Null means "use agent.modelId".
+	modelId: text("model_id"),
 	status: text("status").notNull().default("pending").$type<TaskStatus>(),
 	priority: text("priority").notNull().default("normal").$type<TaskPriority>(),
 	requiresApproval: integer("requires_approval", { mode: "boolean" })
@@ -410,6 +416,9 @@ export const agentRun = sqliteTable("agent_run", {
 		onDelete: "set null",
 	}),
 	trigger: text("trigger").notNull().$type<AgentRunTrigger>(),
+	// The model actually used for this run — may differ from the agent's
+	// current default (task override, or the agent's model changed since).
+	modelId: text("model_id"),
 	stepCount: integer("step_count").notNull().default(0),
 	status: text("status").notNull().default("pending").$type<AgentRunStatus>(),
 	finalOutput: text("final_output"),

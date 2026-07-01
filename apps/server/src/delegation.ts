@@ -40,12 +40,18 @@ export async function buildDelegateToAgentTool(
       .map((a) => `"${a.name}" (id: ${a.id})`)
       .join(
         ", ",
-      )}. Use this to break a complex request into subtasks handled by specialized agents.`,
+      )}. Use this to break a complex request into subtasks handled by specialized agents. Independent delegations run concurrently, not one after another.`,
     inputSchema: z.object({
       agentId: z.enum(idEnum).describe("Which agent to delegate to."),
       task: z.string().describe("The subtask instruction for that agent."),
+      modelId: z
+        .string()
+        .optional()
+        .describe(
+          "Optional — run this subtask on a specific model instead of the delegate agent's default (e.g. a cheaper/faster model for a simple subtask, or a stronger one for a hard one).",
+        ),
     }),
-    execute: async ({ agentId, task }) => {
+    execute: async ({ agentId, task, modelId }) => {
       const subAgent = candidates.find((a) => a.id === agentId);
       if (!subAgent) throw new Error(`"${agentId}" is not in this agent's delegate whitelist.`);
 
@@ -57,6 +63,7 @@ export async function buildDelegateToAgentTool(
           assignedAgentId: subAgent.id,
           title: `Delegated task · ${subAgent.name}`,
           instruction: task,
+          modelId: modelId ?? null,
           status: "ready",
           input: { delegatedBy: parent.id },
         });

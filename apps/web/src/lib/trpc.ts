@@ -146,6 +146,8 @@ export type TaskEventKind =
 	| "run_started"
 	| "run_finished"
 	| "comment"
+	| "question"
+	| "question_answered"
 	| "completed"
 	| "failed";
 export type AgentRunTrigger = "chat" | "task" | "automation" | "delegate";
@@ -166,6 +168,8 @@ export type TaskSummary = {
 	assignedAgentId: string | null;
 	title: string;
 	instruction: string;
+	/** Overrides the assigned agent's default model for this task only. */
+	modelId: string | null;
 	status: TaskStatus;
 	priority: TaskPriority;
 	requiresApproval: boolean;
@@ -200,6 +204,8 @@ export type AgentRunSummary = {
 	chatId: string | null;
 	automationId: string | null;
 	trigger: AgentRunTrigger;
+	/** The model actually used for this run. */
+	modelId: string | null;
 	stepCount: number;
 	status: AgentRunStatus;
 	finalOutput: string | null;

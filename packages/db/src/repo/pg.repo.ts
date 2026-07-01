@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, isNotNull, isNull, lte, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { DEFAULT_CHAT_TOOL_POLICY } from "./types";
@@ -665,6 +665,38 @@ export function createPgRepository(connectionString: string): DbRepository {
 			return row;
 		},
 
+		async deleteAgent(agentId) {
+			await db.delete(schema.agent).where(eq(schema.agent.id, agentId));
+		},
+
+		async deleteUnusedChatAgents(workspaceId) {
+			const usedAgentIds = new Set(
+				(
+					await db
+						.select({ agentId: schema.chat.agentId })
+						.from(schema.chat)
+						.where(eq(schema.chat.workspaceId, workspaceId))
+				)
+					.map((row) => row.agentId)
+					.filter((id): id is string => id !== null),
+			);
+			const candidates = await db
+				.select({ id: schema.agent.id })
+				.from(schema.agent)
+				.where(
+					and(
+						eq(schema.agent.workspaceId, workspaceId),
+						eq(schema.agent.name, "Chat — custom tools"),
+					),
+				);
+			const idsToDelete = candidates
+				.map((row) => row.id)
+				.filter((id) => !usedAgentIds.has(id));
+			if (idsToDelete.length === 0) return 0;
+			await db.delete(schema.agent).where(inArray(schema.agent.id, idsToDelete));
+			return idsToDelete.length;
+		},
+
 		async createTask({
 			workspaceId,
 			parentTaskId,
@@ -673,6 +705,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 			assignedAgentId,
 			title,
 			instruction,
+			modelId,
 			status,
 			priority,
 			requiresApproval,
@@ -695,6 +728,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 					assignedAgentId: assignedAgentId ?? null,
 					title,
 					instruction,
+					modelId: modelId ?? null,
 					status: status ?? "pending",
 					priority: priority ?? "normal",
 					requiresApproval: requiresApproval ?? false,
@@ -753,6 +787,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 					...(input.assignedAgentId !== undefined
 						? { assignedAgentId: input.assignedAgentId }
 						: {}),
+					...(input.modelId !== undefined ? { modelId: input.modelId } : {}),
 					...(input.status !== undefined ? { status: input.status } : {}),
 					...(input.priority !== undefined ? { priority: input.priority } : {}),
 					...(input.requiresApproval !== undefined
@@ -841,6 +876,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 			chatId,
 			automationId,
 			trigger,
+			modelId,
 			stepCount,
 			status,
 			finalOutput,
@@ -858,6 +894,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 					chatId: chatId ?? null,
 					automationId: automationId ?? null,
 					trigger,
+					modelId: modelId ?? null,
 					stepCount: stepCount ?? 0,
 					status: status ?? "pending",
 					finalOutput: finalOutput ?? null,
@@ -884,6 +921,33 @@ export function createPgRepository(connectionString: string): DbRepository {
 				.from(schema.agentRun)
 				.where(eq(schema.agentRun.taskId, taskId))
 				.orderBy(schema.agentRun.createdAt);
+			return rows.map(mapAgentRun);
+		},
+
+		async listAgentRunsByAgent(agentId) {
+			const rows = await db
+				.select()
+				.from(schema.agentRun)
+				.where(eq(schema.agentRun.agentId, agentId))
+				.orderBy(desc(schema.agentRun.createdAt));
+			return rows.map(mapAgentRun);
+		},
+
+		async listActiveAgentRunsByWorkspace(workspaceId) {
+			const rows = await db
+				.select()
+				.from(schema.agentRun)
+				.where(
+					and(
+						eq(schema.agentRun.workspaceId, workspaceId),
+						inArray(schema.agentRun.status, [
+							"pending",
+							"running",
+							"waiting_approval",
+						]),
+					),
+				)
+				.orderBy(desc(schema.agentRun.createdAt));
 			return rows.map(mapAgentRun);
 		},
 

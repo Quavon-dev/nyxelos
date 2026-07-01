@@ -127,6 +127,13 @@
       "when": 1783000005001,
       "tag": "0017_project_appearance",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1783000006001,
+      "tag": "0018_task_model_override",
+      "breakpoints": true
     }
   ]
 }

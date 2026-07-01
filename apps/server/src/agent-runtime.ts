@@ -59,7 +59,10 @@ function toExecutionPlan(task: TaskRecord, raw: string): ExecutionPlan {
 	};
 }
 
-async function buildSystemPrompt(agent: AgentRecord) {
+const TASK_QUESTION_POLICY_PROMPT =
+	"You are running as a durable, mostly-unattended task. Only call ask_user_question when you are genuinely blocked by a critical, urgent gap — something destructive/irreversible, a missing credential, or directly conflicting instructions. For any ordinary ambiguity, decide yourself: pick the most reasonable interpretation, state the assumption plainly in your final answer, and keep working instead of stopping to ask.";
+
+async function buildSystemPrompt(agent: AgentRecord, forTask = false) {
 	const db = getDb();
 	const [workspace, knowledgeBaseContext] = await Promise.all([
 		db.getWorkspace(agent.workspaceId),
@@ -69,7 +72,15 @@ async function buildSystemPrompt(agent: AgentRecord) {
 		workspace,
 		agent.systemPrompt,
 		knowledgeBaseContext,
+		forTask ? TASK_QUESTION_POLICY_PROMPT : undefined,
 	);
+}
+
+/** The model actually used for a task run — a task-level override takes
+ * precedence over the assigned agent's default, so the same agent can run
+ * different tasks against different models. */
+function effectiveModelId(agent: AgentRecord, task: TaskRecord): string {
+	return task.modelId ?? agent.modelId;
 }
 
 async function planTask(
@@ -78,7 +89,7 @@ async function planTask(
 	instructionOverride?: string,
 ): Promise<ExecutionPlan> {
 	const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
-	const systemPrompt = await buildSystemPrompt(agent);
+	const systemPrompt = await buildSystemPrompt(agent, true);
 	const planningPrompt = [
 		"Create a compact JSON execution plan for this task.",
 		"Return JSON only with keys: goal, successCriteria, steps, neededCapabilities, delegationCandidates, completionCheck.",
@@ -89,7 +100,7 @@ async function planTask(
 			: "Delegate candidates available: none",
 	].join("\n");
 	const result = streamChat({
-		modelId: agent.modelId,
+		modelId: effectiveModelId(agent, task),
 		systemPrompt,
 		installedProviders,
 		messages: [{ role: "user", content: planningPrompt }],
@@ -111,6 +122,31 @@ function buildTaskPrompt(task: TaskRecord, instructionOverride?: string): string
 	].join("\n");
 }
 
+/** Streams a chat completion while progressively persisting the growing
+ * output onto the given agent run — so a task's "Agent runs" panel (which
+ * just polls the row) shows the answer taking shape live instead of only
+ * appearing once the whole run finishes. Throttled to avoid hammering the
+ * DB on every token. */
+async function streamWithLiveUpdates(
+	input: Parameters<typeof streamChat>[0],
+	runId: string,
+): Promise<string> {
+	const db = getDb();
+	const result = streamChat(input);
+	let acc = "";
+	let lastFlush = 0;
+	const FLUSH_INTERVAL_MS = 400;
+	for await (const delta of result.textStream) {
+		acc += delta;
+		const now = Date.now();
+		if (now - lastFlush >= FLUSH_INTERVAL_MS) {
+			lastFlush = now;
+			await db.updateAgentRun(runId, { finalOutput: acc }).catch(() => {});
+		}
+	}
+	return acc;
+}
+
 async function runDirectExecution(
 	agent: AgentRecord,
 	task: TaskRecord,
@@ -118,21 +154,23 @@ async function runDirectExecution(
 	instructionOverride?: string,
 ): Promise<string> {
 	const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
-	const systemPrompt = await buildSystemPrompt(agent);
+	const systemPrompt = await buildSystemPrompt(agent, true);
 	const tools = await buildToolsForAgent(agent, {
 		taskId: task.id,
 		agentRunId: run.id,
 	});
-	const result = streamChat({
-		modelId: agent.modelId,
-		systemPrompt,
-		installedProviders,
-		tools,
-		messages: [
-			{ role: "user", content: buildTaskPrompt(task, instructionOverride) },
-		],
-	});
-	return result.text;
+	return streamWithLiveUpdates(
+		{
+			modelId: effectiveModelId(agent, task),
+			systemPrompt,
+			installedProviders,
+			tools,
+			messages: [
+				{ role: "user", content: buildTaskPrompt(task, instructionOverride) },
+			],
+		},
+		run.id,
+	);
 }
 
 export async function executeManagedTask(input: {
@@ -154,6 +192,7 @@ export async function executeManagedTask(input: {
 		chatId: input.chatId ?? null,
 		automationId: input.automationId ?? null,
 		trigger: input.trigger,
+		modelId: effectiveModelId(input.agent, task),
 		status: "running",
 		startedAt: new Date(),
 	});
@@ -205,39 +244,64 @@ export async function executeManagedTask(input: {
 		input.agent.delegateAgentIds.length > 0 &&
 		plan.delegationCandidates.length > 0
 	) {
+		// Every delegate candidate the planner picked gets its own child task
+		// and runs concurrently instead of one after another — they're
+		// independent sub-agents working on independent sub-tasks, so there's
+		// no reason to serialize them. A failure in one delegate doesn't stop
+		// the others; it just shows up as a shorter/failed contribution to the
+		// synthesis step below.
+		const candidateAgentIds = plan.delegationCandidates.filter((id) =>
+			input.agent.delegateAgentIds.includes(id),
+		);
+		const settled = await Promise.allSettled(
+			candidateAgentIds.map(async (delegateAgentId) => {
+				const delegateAgent = await db.getAgent(delegateAgentId);
+				if (!delegateAgent) return null;
+				const childTask = await db.createTask({
+					workspaceId: task.workspaceId,
+					parentTaskId: task.id,
+					createdByAgentId: input.agent.id,
+					assignedAgentId: delegateAgent.id,
+					title: `${task.title} · ${delegateAgent.name}`,
+					instruction: task.instruction,
+					status: "ready",
+					priority: task.priority,
+					input: { delegatedBy: input.agent.id, parentTaskId: task.id },
+				});
+				await db.createTaskEvent({
+					taskId: task.id,
+					workspaceId: task.workspaceId,
+					agentRunId: run.id,
+					agentId: input.agent.id,
+					kind: "delegated",
+					message: `Delegated child task to ${delegateAgent.name}.`,
+					payload: { childTaskId: childTask.id, delegateAgentId: delegateAgent.id },
+				});
+				const childResult = await executeManagedTask({
+					taskId: childTask.id,
+					agent: delegateAgent,
+					trigger: "delegate",
+				});
+				return { agentId: delegateAgent.id, resultSummary: childResult.output };
+			}),
+		);
 		const children: { agentId: string; resultSummary: string }[] = [];
-		for (const delegateAgentId of plan.delegationCandidates) {
-			if (!input.agent.delegateAgentIds.includes(delegateAgentId)) continue;
-			const delegateAgent = await db.getAgent(delegateAgentId);
-			if (!delegateAgent) continue;
-			const childTask = await db.createTask({
-				workspaceId: task.workspaceId,
-				parentTaskId: task.id,
-				createdByAgentId: input.agent.id,
-				assignedAgentId: delegateAgent.id,
-				title: `${task.title} · ${delegateAgent.name}`,
-				instruction: task.instruction,
-				status: "ready",
-				priority: task.priority,
-				input: { delegatedBy: input.agent.id, parentTaskId: task.id },
-			});
+		for (const [index, outcome] of settled.entries()) {
+			if (outcome.status === "fulfilled") {
+				if (outcome.value) children.push(outcome.value);
+				continue;
+			}
+			const failedAgentId = candidateAgentIds[index];
+			const message =
+				outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
 			await db.createTaskEvent({
 				taskId: task.id,
 				workspaceId: task.workspaceId,
 				agentRunId: run.id,
 				agentId: input.agent.id,
-				kind: "delegated",
-				message: `Delegated child task to ${delegateAgent.name}.`,
-				payload: { childTaskId: childTask.id, delegateAgentId: delegateAgent.id },
-			});
-			const childResult = await executeManagedTask({
-				taskId: childTask.id,
-				agent: delegateAgent,
-				trigger: "delegate",
-			});
-			children.push({
-				agentId: delegateAgent.id,
-				resultSummary: childResult.output,
+				kind: "failed",
+				message: `Delegated task failed: ${message}`,
+				payload: { delegateAgentId: failedAgentId, error: message },
 			});
 		}
 
@@ -252,14 +316,16 @@ export async function executeManagedTask(input: {
 		const installedProviders = await getInstalledProvidersForWorkspace(
 			input.agent.workspaceId,
 		);
-		const systemPrompt = await buildSystemPrompt(input.agent);
-		const synthesis = streamChat({
-			modelId: input.agent.modelId,
-			systemPrompt,
-			installedProviders,
-			messages: [{ role: "user", content: synthesisPrompt }],
-		});
-		output = await synthesis.text;
+		const systemPrompt = await buildSystemPrompt(input.agent, true);
+		output = await streamWithLiveUpdates(
+			{
+				modelId: effectiveModelId(input.agent, task),
+				systemPrompt,
+				installedProviders,
+				messages: [{ role: "user", content: synthesisPrompt }],
+			},
+			run.id,
+		);
 	} else {
 		output = await runDirectExecution(
 			input.agent,
@@ -269,30 +335,45 @@ export async function executeManagedTask(input: {
 		);
 	}
 
+	const pausedOnQuestion = output.includes("pending_question");
+	const pausedOnApproval = !pausedOnQuestion && output.includes("pending_approval");
+	const isPaused = pausedOnQuestion || pausedOnApproval;
+	// AgentRunStatus has no "blocked" state (a question-pause is still an
+	// agent run that's technically waiting on the human) — only TaskStatus
+	// distinguishes "blocked" (question) from "waiting_approval" (tool
+	// approval).
+	const taskStatus = pausedOnQuestion
+		? ("blocked" as const)
+		: pausedOnApproval
+			? ("waiting_approval" as const)
+			: ("completed" as const);
+
 	run = await db.updateAgentRun(run.id, {
-		status: output.includes("pending_approval")
-			? "waiting_approval"
-			: "completed",
+		status: isPaused ? "waiting_approval" : "completed",
 		finalOutput: output,
-		completedAt: output.includes("pending_approval") ? null : new Date(),
+		completedAt: isPaused ? null : new Date(),
 		stepCount: Math.max(1, plan.steps.length),
 	});
 	const finalTask = await db.updateTask(task.id, {
-		status: output.includes("pending_approval")
-			? "waiting_approval"
-			: "completed",
+		status: taskStatus,
 		resultSummary: output,
-		completedAt: output.includes("pending_approval") ? null : new Date(),
+		completedAt: isPaused ? null : new Date(),
 	});
 	await db.createTaskEvent({
 		taskId: task.id,
 		workspaceId: task.workspaceId,
 		agentRunId: run.id,
 		agentId: input.agent.id,
-		kind: output.includes("pending_approval") ? "approval_waiting" : "completed",
-		message: output.includes("pending_approval")
-			? "Run paused pending approval."
-			: "Run completed.",
+		kind: pausedOnQuestion
+			? "status_changed"
+			: pausedOnApproval
+				? "approval_waiting"
+				: "completed",
+		message: pausedOnQuestion
+			? "Run paused pending the user's answer."
+			: pausedOnApproval
+				? "Run paused pending approval."
+				: "Run completed.",
 	});
 
 	return { task: finalTask, run, output };
