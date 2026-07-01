@@ -12,6 +12,11 @@ const bodySchema = z.object({
   message: z.string().min(1),
 });
 
+const CHAT_FOLLOW_UP_GUIDANCE = [
+  "When the request is underspecified or you need a missing detail to respond correctly, ask one concise follow-up question instead of guessing.",
+  "Keep the question short and specific so the user can answer it directly in the next message.",
+].join(" ");
+
 /**
  * POST /api/chat/stream — persists the user message, resolves the system
  * prompt and tool set for this chat (workspace custom instructions, plus —
@@ -44,7 +49,12 @@ export function registerChatStreamRoute(app: Hono) {
     const knowledgeBaseContext = await getKnowledgeBaseContextForPrompt(chat.workspaceId);
 
     const systemPrompt =
-      [workspace?.customInstructions, agent?.systemPrompt, knowledgeBaseContext]
+      [
+        workspace?.customInstructions,
+        agent?.systemPrompt,
+        CHAT_FOLLOW_UP_GUIDANCE,
+        knowledgeBaseContext,
+      ]
         .filter(Boolean)
         .join("\n\n") || undefined;
     const tools = agent ? await buildToolsForAgent(agent, { chatId }) : undefined;

@@ -23,6 +23,7 @@ export function ChatInput({
   attachedFile,
   onAttachedFileChange,
   messages,
+  assistantQuestion,
 }: {
   onSend: (message: string) => void;
   disabled?: boolean;
@@ -32,6 +33,7 @@ export function ChatInput({
   attachedFile: AttachedFile | null;
   onAttachedFileChange: (file: AttachedFile | null) => void;
   messages: MessageLike[];
+  assistantQuestion: string | null;
 }) {
   const [value, setValue] = useState("");
 
@@ -50,9 +52,16 @@ export function ChatInput({
     onAttachedFileChange(null);
   }
 
+  const placeholder = assistantQuestion ? "Answer the question…" : "Message Nyxel…";
+
   return (
     <form onSubmit={handleSubmit} className="pt-4">
       <div className="space-y-1 rounded-2xl border bg-card p-2 shadow-sm">
+        {assistantQuestion && (
+          <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+            Nyxel asked: <span className="text-foreground">{assistantQuestion}</span>
+          </div>
+        )}
         <Textarea
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -62,7 +71,7 @@ export function ChatInput({
               handleSubmit(e);
             }
           }}
-          placeholder="Message Nyxel…"
+          placeholder={placeholder}
           disabled={disabled}
           rows={1}
           className="max-h-40 min-h-9 resize-none border-0 p-1.5 shadow-none focus-visible:ring-0"

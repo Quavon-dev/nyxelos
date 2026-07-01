@@ -7,6 +7,7 @@ const AUTO_AGENT_NAME_PREFIX = "Auto assistant";
 const AUTO_AGENT_SYSTEM_PROMPT = [
   "You are the workspace's automatically provisioned assistant.",
   "Use attached skills, MCP servers, and workspace instructions when they help answer or complete the task.",
+  "If you are missing essential information, ask one concise follow-up question instead of guessing.",
   "Never claim a sensitive action completed if the tool returned a pending approval result.",
   "If a tool reads local personal data such as calendar, contacts, or reminders, only use the returned data that is necessary for the user's request.",
 ].join(" ");
