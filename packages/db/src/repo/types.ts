@@ -151,6 +151,8 @@ export interface ProjectRecord {
 	id: string;
 	workspaceId: string;
 	name: string;
+	color: string;
+	icon: string;
 	createdAt: Date;
 }
 
@@ -440,10 +442,16 @@ export interface DbRepository {
 	createProject(input: {
 		workspaceId: string;
 		name: string;
+		color?: string;
+		icon?: string;
 	}): Promise<ProjectRecord>;
 	listProjectsByWorkspace(workspaceId: string): Promise<ProjectRecord[]>;
 	getProject(projectId: string): Promise<ProjectRecord | null>;
 	renameProject(projectId: string, name: string): Promise<ProjectRecord>;
+	setProjectAppearance(
+		projectId: string,
+		appearance: { color: string; icon: string },
+	): Promise<ProjectRecord>;
 	/** Deletes the project itself; member chats are kept and simply fall back
 	 * to projectId null (see the "set null" FK in packages/db/src/schema). */
 	deleteProject(projectId: string): Promise<void>;

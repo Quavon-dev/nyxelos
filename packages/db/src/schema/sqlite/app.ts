@@ -272,6 +272,11 @@ export const project = sqliteTable("project", {
 		.notNull()
 		.references(() => workspace.id, { onDelete: "cascade" }),
 	name: text("name").notNull(),
+	// Sidebar/detail-page appearance — a fixed token name (see
+	// PROJECT_COLORS/PROJECT_ICONS on the web client), not a raw hex/svg, so
+	// the palette can be restyled without touching stored data.
+	color: text("color").notNull().default("gray"),
+	icon: text("icon").notNull().default("folder"),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

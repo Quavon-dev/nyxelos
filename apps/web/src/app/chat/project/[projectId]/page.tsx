@@ -1,10 +1,11 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, Folder, MessagesSquare, Pencil, Plus, Trash2 } from "lucide-react";
+import { CalendarDays, MessagesSquare, Pencil, Plus, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { ChatListItem } from "@/components/chat/chat-list-item";
+import { ProjectAppearancePicker } from "@/components/chat/project-appearance-picker";
 import { PageHeaderSkeleton, StatCardsSkeleton } from "@/components/loading";
 import { PageHeader, StatCard } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  type ProjectColor,
+  type ProjectIcon,
+  projectColorClasses,
+  projectIconComponent,
+} from "@/lib/project-appearance";
 import { type ChatSummary, trpcClient } from "@/lib/trpc";
 import { useInstallation } from "@/lib/use-installation";
 
@@ -31,6 +38,8 @@ export default function ProjectPage() {
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [name, setName] = useState("");
+  const [color, setColor] = useState<ProjectColor>("gray");
+  const [icon, setIcon] = useState<ProjectIcon>("folder");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [renameChatTarget, setRenameChatTarget] = useState<ChatSummary | null>(null);
   const [renameChatTitle, setRenameChatTitle] = useState("");
@@ -73,8 +82,20 @@ export default function ProjectPage() {
   }
 
   const renameProject = useMutation({
-    mutationFn: (newName: string) =>
-      trpcClient.projects.rename.mutate({ projectId, name: newName }),
+    mutationFn: ({
+      name: newName,
+      color: newColor,
+      icon: newIcon,
+    }: {
+      name: string;
+      color: ProjectColor;
+      icon: ProjectIcon;
+    }) =>
+      trpcClient.projects.rename
+        .mutate({ projectId, name: newName })
+        .then(() =>
+          trpcClient.projects.setAppearance.mutate({ projectId, color: newColor, icon: newIcon }),
+        ),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["projects", "get", projectId],
@@ -169,12 +190,18 @@ export default function ProjectPage() {
     );
   }
 
+  const HeaderIcon = projectIconComponent(project?.icon ?? "folder");
+
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
       <PageHeader
         title={
           <span className="flex items-center gap-2">
-            <Folder className="size-5 text-muted-foreground" />
+            <span
+              className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${projectColorClasses(project?.color ?? "gray")}`}
+            >
+              <HeaderIcon className="size-4" />
+            </span>
             {project?.name ?? "Project"}
           </span>
         }
@@ -185,6 +212,8 @@ export default function ProjectPage() {
               size="sm"
               onClick={() => {
                 setName(project?.name ?? "");
+                setColor((project?.color as ProjectColor) || "gray");
+                setIcon((project?.icon as ProjectIcon) || "folder");
                 setRenameOpen(true);
               }}
             >
@@ -208,11 +237,7 @@ export default function ProjectPage() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <StatCard
-          label="Chats"
-          value={chats.length}
-          icon={<MessagesSquare className="size-4" />}
-        />
+        <StatCard label="Chats" value={chats.length} icon={<MessagesSquare className="size-4" />} />
         <StatCard
           label="Created"
           value={
@@ -269,15 +294,29 @@ export default function ProjectPage() {
           <DialogHeader>
             <DialogTitle>Rename project</DialogTitle>
           </DialogHeader>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={120}
-            onKeyDown={(e) => e.key === "Enter" && name.trim() && renameProject.mutate(name.trim())}
-          />
+          <div className="space-y-4">
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={120}
+              onKeyDown={(e) =>
+                e.key === "Enter" &&
+                name.trim() &&
+                renameProject.mutate({ name: name.trim(), color, icon })
+              }
+            />
+            <ProjectAppearancePicker
+              color={color}
+              icon={icon}
+              onColorChange={setColor}
+              onIconChange={setIcon}
+            />
+          </div>
           <DialogFooter showCloseButton>
             <Button
-              onClick={() => name.trim() && renameProject.mutate(name.trim())}
+              onClick={() =>
+                name.trim() && renameProject.mutate({ name: name.trim(), color, icon })
+              }
               disabled={!name.trim() || renameProject.isPending}
             >
               Save

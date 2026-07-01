@@ -661,7 +661,12 @@ export const appRouter = router({
 			.query(({ input }) => getDb().getProject(input.projectId)),
 		create: publicProcedure
 			.input(
-				z.object({ workspaceId: z.string(), name: z.string().min(1).max(120) }),
+				z.object({
+					workspaceId: z.string(),
+					name: z.string().min(1).max(120),
+					color: z.string().max(40).optional(),
+					icon: z.string().max(40).optional(),
+				}),
 			)
 			.mutation(({ input }) =>
 				getDb().createProject({ ...input, name: input.name.trim() }),
@@ -672,6 +677,20 @@ export const appRouter = router({
 			)
 			.mutation(({ input }) =>
 				getDb().renameProject(input.projectId, input.name.trim()),
+			),
+		setAppearance: publicProcedure
+			.input(
+				z.object({
+					projectId: z.string(),
+					color: z.string().max(40),
+					icon: z.string().max(40),
+				}),
+			)
+			.mutation(({ input }) =>
+				getDb().setProjectAppearance(input.projectId, {
+					color: input.color,
+					icon: input.icon,
+				}),
 			),
 		duplicate: publicProcedure
 			.input(z.object({ projectId: z.string() }))

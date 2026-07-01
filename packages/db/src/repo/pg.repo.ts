@@ -47,6 +47,8 @@ export function createPgRepository(connectionString: string): DbRepository {
 			id: row.id,
 			workspaceId: row.workspaceId,
 			name: row.name,
+			color: row.color,
+			icon: row.icon,
 			createdAt: row.createdAt,
 		};
 	}
@@ -432,10 +434,16 @@ export function createPgRepository(connectionString: string): DbRepository {
 			return mapChat(row);
 		},
 
-		async createProject({ workspaceId, name }) {
+		async createProject({ workspaceId, name, color, icon }) {
 			const [row] = await db
 				.insert(schema.project)
-				.values({ id: randomUUID(), workspaceId, name })
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					name,
+					...(color ? { color } : {}),
+					...(icon ? { icon } : {}),
+				})
 				.returning();
 			if (!row) throw new Error("Failed to create project");
 			return mapProject(row);
@@ -467,6 +475,16 @@ export function createPgRepository(connectionString: string): DbRepository {
 			return mapProject(row);
 		},
 
+		async setProjectAppearance(projectId, { color, icon }) {
+			const [row] = await db
+				.update(schema.project)
+				.set({ color, icon })
+				.where(eq(schema.project.id, projectId))
+				.returning();
+			if (!row) throw new Error(`Project not found: ${projectId}`);
+			return mapProject(row);
+		},
+
 		async deleteProject(projectId) {
 			await db.delete(schema.project).where(eq(schema.project.id, projectId));
 		},
@@ -483,6 +501,8 @@ export function createPgRepository(connectionString: string): DbRepository {
 					id: randomUUID(),
 					workspaceId: source.workspaceId,
 					name: `${source.name} (copy)`,
+					color: source.color,
+					icon: source.icon,
 				})
 				.returning();
 			if (!copy) throw new Error("Failed to duplicate project");

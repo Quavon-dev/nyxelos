@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Ellipsis, Folder, Pencil, Trash2 } from "lucide-react";
+import { Copy, Ellipsis, Pencil, Trash2 } from "lucide-react";
 import Link from "next/link";
 import {
   ContextMenu,
@@ -16,6 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { projectColorClasses, projectIconComponent } from "@/lib/project-appearance";
 import type { ProjectSummary } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +33,8 @@ export function ProjectListItem({
   onDuplicate: (project: ProjectSummary) => void;
   onDelete: (project: ProjectSummary) => void;
 }) {
+  const Icon = projectIconComponent(project.icon);
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -50,7 +53,14 @@ export function ProjectListItem({
                 : "text-foreground/80 group-hover:text-foreground",
             )}
           >
-            <Folder className="size-4 shrink-0 text-muted-foreground" />
+            <span
+              className={cn(
+                "flex size-5 shrink-0 items-center justify-center rounded-md",
+                projectColorClasses(project.color),
+              )}
+            >
+              <Icon className="size-3" />
+            </span>
             <span className="truncate">{project.name}</span>
           </Link>
 

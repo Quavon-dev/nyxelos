@@ -16,6 +16,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ChatListItem } from "@/components/chat/chat-list-item";
+import { ProjectAppearancePicker } from "@/components/chat/project-appearance-picker";
 import { ProjectListItem } from "@/components/chat/project-list-item";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import type { ProjectColor, ProjectIcon } from "@/lib/project-appearance";
 import { type ChatSummary, type ProjectSummary, trpcClient } from "@/lib/trpc";
 import { useInstallation } from "@/lib/use-installation";
 import { cn } from "@/lib/utils";
@@ -91,6 +93,8 @@ export function ChatSidebar() {
     { mode: "create" } | { mode: "rename"; project: ProjectSummary } | null
   >(null);
   const [projectName, setProjectName] = useState("");
+  const [projectColor, setProjectColor] = useState<ProjectColor>("gray");
+  const [projectIcon, setProjectIcon] = useState<ProjectIcon>("folder");
   const [deleteProjectTarget, setDeleteProjectTarget] = useState<ProjectSummary | null>(null);
 
   const chatsQuery = useQuery({
@@ -220,8 +224,8 @@ export function ChatSidebar() {
   });
 
   const createProject = useMutation({
-    mutationFn: (name: string) =>
-      trpcClient.projects.create.mutate({ workspaceId: workspaceId!, name }),
+    mutationFn: ({ name, color, icon }: { name: string; color: string; icon: string }) =>
+      trpcClient.projects.create.mutate({ workspaceId: workspaceId!, name, color, icon }),
     onSuccess: (project) => {
       invalidateProjects();
       setProjectDialog(null);
@@ -231,8 +235,20 @@ export function ChatSidebar() {
   });
 
   const renameProject = useMutation({
-    mutationFn: ({ projectId, name }: { projectId: string; name: string }) =>
-      trpcClient.projects.rename.mutate({ projectId, name }),
+    mutationFn: ({
+      projectId,
+      name,
+      color,
+      icon,
+    }: {
+      projectId: string;
+      name: string;
+      color: string;
+      icon: string;
+    }) =>
+      trpcClient.projects.rename
+        .mutate({ projectId, name })
+        .then(() => trpcClient.projects.setAppearance.mutate({ projectId, color, icon })),
     onSuccess: () => {
       invalidateProjects();
       setProjectDialog(null);
@@ -285,18 +301,30 @@ export function ChatSidebar() {
   function openCreateProject() {
     setProjectDialog({ mode: "create" });
     setProjectName("");
+    setProjectColor("gray");
+    setProjectIcon("folder");
   }
 
   function openRenameProject(project: ProjectSummary) {
     setProjectDialog({ mode: "rename", project });
     setProjectName(project.name);
+    setProjectColor((project.color as ProjectColor) || "gray");
+    setProjectIcon((project.icon as ProjectIcon) || "folder");
   }
 
   function saveProject() {
     const name = projectName.trim();
     if (!name || !projectDialog) return;
-    if (projectDialog.mode === "create") createProject.mutate(name);
-    else renameProject.mutate({ projectId: projectDialog.project.id, name });
+    if (projectDialog.mode === "create") {
+      createProject.mutate({ name, color: projectColor, icon: projectIcon });
+    } else {
+      renameProject.mutate({
+        projectId: projectDialog.project.id,
+        name,
+        color: projectColor,
+        icon: projectIcon,
+      });
+    }
   }
 
   const chatActions = {
@@ -562,13 +590,21 @@ export function ChatSidebar() {
               Projects group related chats together in the sidebar.
             </DialogDescription>
           </DialogHeader>
-          <Input
-            value={projectName}
-            onChange={(e) => setProjectName(e.target.value)}
-            placeholder="Project name"
-            maxLength={120}
-            onKeyDown={(e) => e.key === "Enter" && saveProject()}
-          />
+          <div className="space-y-4">
+            <Input
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+              placeholder="Project name"
+              maxLength={120}
+              onKeyDown={(e) => e.key === "Enter" && saveProject()}
+            />
+            <ProjectAppearancePicker
+              color={projectColor}
+              icon={projectIcon}
+              onColorChange={setProjectColor}
+              onIconChange={setProjectIcon}
+            />
+          </div>
           <DialogFooter showCloseButton>
             <Button
               onClick={saveProject}

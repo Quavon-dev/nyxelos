@@ -89,6 +89,8 @@ export type ProjectSummary = {
 	id: string;
 	workspaceId: string;
 	name: string;
+	color: string;
+	icon: string;
 	createdAt: Date;
 };
 
@@ -752,12 +754,21 @@ type NyxelTrpcClient = {
 			mutate(input: {
 				workspaceId: string;
 				name: string;
+				color?: string;
+				icon?: string;
 			}): Promise<ProjectSummary>;
 		};
 		rename: {
 			mutate(input: {
 				projectId: string;
 				name: string;
+			}): Promise<ProjectSummary>;
+		};
+		setAppearance: {
+			mutate(input: {
+				projectId: string;
+				color: string;
+				icon: string;
 			}): Promise<ProjectSummary>;
 		};
 		duplicate: {

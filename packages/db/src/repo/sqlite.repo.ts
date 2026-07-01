@@ -104,6 +104,8 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			id: row.id,
 			workspaceId: row.workspaceId,
 			name: row.name,
+			color: row.color,
+			icon: row.icon,
 			createdAt: row.createdAt,
 		};
 	}
@@ -536,10 +538,17 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			return mapChat(row);
 		},
 
-		async createProject({ workspaceId, name }) {
+		async createProject({ workspaceId, name, color, icon }) {
 			const row = db
 				.insert(schema.project)
-				.values({ id: randomUUID(), workspaceId, name, createdAt: new Date() })
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					name,
+					...(color ? { color } : {}),
+					...(icon ? { icon } : {}),
+					createdAt: new Date(),
+				})
 				.returning()
 				.get();
 			return mapProject(row);
@@ -575,6 +584,17 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			return mapProject(row);
 		},
 
+		async setProjectAppearance(projectId, { color, icon }) {
+			const row = db
+				.update(schema.project)
+				.set({ color, icon })
+				.where(eq(schema.project.id, projectId))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Project not found: ${projectId}`);
+			return mapProject(row);
+		},
+
 		async deleteProject(projectId) {
 			db.delete(schema.project).where(eq(schema.project.id, projectId)).run();
 		},
@@ -593,6 +613,8 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					id: randomUUID(),
 					workspaceId: source.workspaceId,
 					name: `${source.name} (copy)`,
+					color: source.color,
+					icon: source.icon,
 					createdAt: new Date(),
 				})
 				.returning()

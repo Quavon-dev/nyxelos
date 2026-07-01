@@ -120,6 +120,13 @@
       "when": 1783000004001,
       "tag": "0016_workspace_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1783000005001,
+      "tag": "0017_project_appearance",
+      "breakpoints": true
     }
   ]
 }
