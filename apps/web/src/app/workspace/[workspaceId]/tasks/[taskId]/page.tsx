@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { MultiSelectPromptCard } from "@/components/chat/multi-select-prompt";
+import { parseAssistantContent } from "@/lib/chat-prompts";
 import type { AgentRunStatus, TaskPriority, TaskStatus } from "@/lib/trpc";
 import { trpcClient } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -92,6 +94,7 @@ export default function TaskDetailPage() {
     onSuccess: invalidate,
   });
   const [followUpInstruction, setFollowUpInstruction] = useState("");
+  const followUpTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const followUpTask = useMutation({
     mutationFn: () =>
       trpcClient.tasks.reply.mutate({
@@ -127,6 +130,9 @@ export default function TaskDetailPage() {
   const events = taskQuery.data?.events ?? [];
   const runs = taskQuery.data?.runs ?? [];
   const linkedApprovals = (approvalsQuery.data ?? []).filter((a) => a.taskId === taskId);
+  const followUpPrompt = task?.resultSummary
+    ? parseAssistantContent(task.resultSummary).prompt
+    : null;
   const autoStartRef = useRef(false);
 
   useEffect(() => {
@@ -278,11 +284,23 @@ export default function TaskDetailPage() {
             Give the same agent a new instruction. The task stays the same and the agent
             continues on a fresh run automatically.
           </p>
+          {followUpPrompt && (
+            <MultiSelectPromptCard
+              prompt={followUpPrompt}
+              mode="interactive"
+              onPickOption={(_, label) => setFollowUpInstruction(label)}
+              onChooseCustomAnswer={() => {
+                requestAnimationFrame(() => followUpTextareaRef.current?.focus());
+              }}
+              note="Wähle einen Vorschlag oder schreibe eine eigene Antwort unten."
+            />
+          )}
           <Textarea
+            ref={followUpTextareaRef}
             value={followUpInstruction}
             onChange={(e) => setFollowUpInstruction(e.target.value)}
-            placeholder="Add the next instruction for this agent..."
-            rows={4}
+            placeholder={followUpPrompt ? "Eigene Antwort schreiben..." : "Add the next instruction for this agent..."}
+            rows={followUpPrompt ? 3 : 4}
           />
           <div className="flex items-center gap-2">
             <Button
