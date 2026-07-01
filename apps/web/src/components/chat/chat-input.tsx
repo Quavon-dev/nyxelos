@@ -57,15 +57,12 @@ export function ChatInput({
 		if (promptKey !== "none") setValue("");
 	}, [promptKey]);
 
-	function handleSubmit(e: React.FormEvent) {
-		e.preventDefault();
+	// Attachments are stored inline as a structured envelope so the chat can
+	// render them later without needing a separate upload backend yet.
+	function submitMessage(rawText: string) {
 		if (disabled) return;
-
-		if (!value.trim() && !attachedFile) return;
-
-		// Attachments are stored inline as a structured envelope so the chat can
-		// render them later without needing a separate upload backend yet.
-		const answerText = value.trim();
+		const answerText = rawText.trim();
+		if (!answerText && !attachedFile) return;
 
 		const outgoing = attachedFile
 			? serializeChatMessageContent(answerText, [attachedFile])
@@ -74,6 +71,11 @@ export function ChatInput({
 		onSend(outgoing);
 		setValue("");
 		onAttachedFileChange(null);
+	}
+
+	function handleSubmit(e: React.FormEvent) {
+		e.preventDefault();
+		submitMessage(value);
 	}
 
 	const placeholder = assistantPrompt
@@ -133,7 +135,7 @@ export function ChatInput({
 							attachedFile={attachedFile}
 							onAttachedFileChange={onAttachedFileChange}
 							onVoiceResult={(text) =>
-								setValue((prev) => (prev ? `${prev} ${text}` : text))
+								submitMessage(value ? `${value} ${text}` : text)
 							}
 							messages={messages}
 						/>

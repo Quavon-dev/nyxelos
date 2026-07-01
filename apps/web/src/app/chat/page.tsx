@@ -116,12 +116,12 @@ export default function ChatLandingPage() {
 	}, [workingDirectory, defaultWorkingDirectory]);
 
 	const createChat = useMutation({
-		mutationFn: async () => {
+		mutationFn: async (vars: { text: string; file: AttachedFile | null }) => {
 			if (!workspaceId) throw new Error("Installation is incomplete.");
 			if (!modelId) throw new Error("No model selected.");
 			if (!workingDirectory.trim())
 				throw new Error("Choose a working directory.");
-			if (!message.trim() && !attachedFile) {
+			if (!vars.text.trim() && !vars.file) {
 				throw new Error("Add a message or attach a file.");
 			}
 
@@ -146,14 +146,14 @@ export default function ChatLandingPage() {
 				agentId = agent.id;
 			}
 
-			const outgoing = attachedFile
-				? serializeChatMessageContent(message.trim(), [attachedFile])
-				: message.trim();
+			const outgoing = vars.file
+				? serializeChatMessageContent(vars.text.trim(), [vars.file])
+				: vars.text.trim();
 
 			const chat = await trpcClient.chats.create.mutate({
 				workspaceId,
 				workingDirectory,
-				title: message.trim().slice(0, 60) || attachedFile?.name || "New chat",
+				title: vars.text.trim().slice(0, 60) || vars.file?.name || "New chat",
 				modelId,
 				agentId,
 				projectId,
@@ -172,7 +172,7 @@ export default function ChatLandingPage() {
 		e.preventDefault();
 		if ((!message.trim() && !attachedFile) || !modelId || createChat.isPending)
 			return;
-		createChat.mutate();
+		createChat.mutate({ text: message, file: attachedFile });
 	}
 
 	const name = ownerQuery.data?.name?.split(" ")[0];
@@ -238,9 +238,12 @@ export default function ChatLandingPage() {
 									onChatToolPolicyChange={setChatToolPolicy}
 									attachedFile={attachedFile}
 									onAttachedFileChange={setAttachedFile}
-									onVoiceResult={(text) =>
-										setMessage((prev) => (prev ? `${prev} ${text}` : text))
-									}
+									onVoiceResult={(text) => {
+										const combined = message ? `${message} ${text}` : text;
+										setMessage(combined);
+										if (!modelId || createChat.isPending) return;
+										createChat.mutate({ text: combined, file: attachedFile });
+									}}
 									showContextWindow={false}
 								/>
 							</div>
