@@ -98,8 +98,17 @@ function spawnCli(binary: string, args: string[], cwd: string, prompt: string): 
 
 	const stdin = proc.stdin;
 	if (stdin && typeof stdin !== "number") {
+		// A real composed system prompt (workspace instructions + agent prompt +
+		// mode guidance) easily runs 10-20KB — writing it without awaiting
+		// `flush()` before `end()` let `end()` race the write for anything past
+		// a few KB, silently truncating the prompt the CLI ever saw. Codex then
+		// hung waiting for input that already looked closed; the fix mirrors
+		// terminal.ts's send-input tool, which already awaits `flush()`.
 		stdin.write(prompt);
-		void stdin.end();
+		void (async () => {
+			await stdin.flush();
+			await stdin.end();
+		})();
 	}
 
 	async function* readLines(): AsyncIterable<string> {
