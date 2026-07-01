@@ -7,9 +7,12 @@ import { promisify } from "node:util";
 import type {
   CalendarEvent,
   CompanionStatus,
+  CreateReminderInput,
   ContactRecord,
   ListEventsInput,
+  ListRemindersInput,
   PhotoRecord,
+  ReminderRecord,
   SearchContactsInput,
   SearchPhotosInput,
 } from "../contracts.ts";
@@ -55,7 +58,7 @@ export class NativeBridgeBackend implements LocalDataBackend {
     this.bridgePath = bridgePath;
   }
 
-  private async run<T>(command: string, payload?: Record<string, unknown>): Promise<T> {
+  private async run<T>(command: string, payload?: object): Promise<T> {
     const args = [command];
     if (payload) args.push(JSON.stringify(payload));
 
@@ -102,5 +105,13 @@ export class NativeBridgeBackend implements LocalDataBackend {
 
   searchPhotos(input: Required<SearchPhotosInput>): Promise<PhotoRecord[]> {
     return this.run<PhotoRecord[]>("photos-search", input);
+  }
+
+  listReminders(input: Required<ListRemindersInput>): Promise<ReminderRecord[]> {
+    return this.run<ReminderRecord[]>("reminders-list", input);
+  }
+
+  createReminder(input: CreateReminderInput): Promise<ReminderRecord> {
+    return this.run<ReminderRecord>("reminders-create", input);
   }
 }

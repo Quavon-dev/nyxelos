@@ -1,11 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { MessageSquarePlus, Search } from "lucide-react";
+import { Compass, History, LibraryBig, Plus, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { type ChatSummary, trpcClient } from "@/lib/trpc";
 import { useInstallation } from "@/lib/use-installation";
@@ -22,7 +21,7 @@ function groupChats(chats: ChatSummary[]) {
   const groups: { label: string; chats: ChatSummary[] }[] = [
     { label: "Today", chats: [] },
     { label: "Yesterday", chats: [] },
-    { label: "Previous 7 days", chats: [] },
+    { label: "7 Days Ago", chats: [] },
     { label: "Older", chats: [] },
   ];
 
@@ -61,33 +60,43 @@ export function ChatSidebar() {
     [filtered],
   );
 
+  const bottomNav = [
+    { label: "Explore", icon: Compass, href: "/" },
+    {
+      label: "Library",
+      icon: LibraryBig,
+      href: workspaceId ? `/workspace/${workspaceId}/knowledge-base` : "/",
+    },
+    {
+      label: "History",
+      icon: History,
+      href: workspaceId ? `/workspace/${workspaceId}/audit-log` : "/",
+    },
+  ];
+
   return (
-    <aside className="flex h-full w-72 shrink-0 flex-col border-r">
-      <div className="space-y-3 border-b p-3">
-        <Button className="w-full justify-start gap-2" onClick={() => router.push("/chat")}>
-          <MessageSquarePlus className="size-4" />
-          New chat
-        </Button>
+    <aside className="flex h-full w-72 shrink-0 flex-col border-r bg-background">
+      <div className="p-3">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search chats…"
-            className="h-8 pl-8 text-sm"
+            className="h-9 border-none bg-muted pl-8 text-sm shadow-none focus-visible:ring-1"
           />
         </div>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto p-3">
+      <div className="flex-1 space-y-4 overflow-y-auto px-3 pb-3">
         {groups.length === 0 && (
           <p className="px-1 text-sm text-muted-foreground">
-            {chats.length === 0 ? "No chats yet — start one above." : "No chats match your search."}
+            {chats.length === 0 ? "No chats yet — start one below." : "No chats match your search."}
           </p>
         )}
         {groups.map((group) => (
           <div key={group.label} className="space-y-1">
-            <p className="px-1 text-xs font-medium text-muted-foreground">{group.label}</p>
+            <p className="px-1 text-xs text-muted-foreground">{group.label}</p>
             {group.chats.map((chat) => {
               const isActive = pathname === `/chat/${chat.id}`;
               return (
@@ -98,7 +107,7 @@ export function ChatSidebar() {
                     "block truncate rounded-md px-2 py-1.5 text-sm transition-colors",
                     isActive
                       ? "bg-muted font-medium text-foreground"
-                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                      : "text-foreground/80 hover:bg-muted/60 hover:text-foreground",
                   )}
                 >
                   {chat.title || "Untitled chat"}
@@ -109,16 +118,29 @@ export function ChatSidebar() {
         ))}
       </div>
 
-      {workspaceId && (
-        <div className="border-t p-3">
-          <Link
-            href={`/workspace/${workspaceId}/settings`}
-            className="block rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-          >
-            ← Back to workspace
-          </Link>
-        </div>
-      )}
+      <div className="space-y-3 border-t p-3">
+        <nav className="space-y-0.5">
+          {bottomNav.map((item) => (
+            <Link
+              key={item.label}
+              href={item.href}
+              className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+            >
+              <item.icon className="size-4" />
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+
+        <button
+          type="button"
+          onClick={() => router.push("/chat")}
+          className="flex w-full items-center justify-center gap-2 rounded-full bg-foreground py-2.5 text-sm font-medium text-background transition-opacity hover:opacity-90"
+        >
+          <Plus className="size-4" />
+          New Chat
+        </button>
+      </div>
     </aside>
   );
 }

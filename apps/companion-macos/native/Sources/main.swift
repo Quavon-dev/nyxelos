@@ -1,5 +1,5 @@
 import Contacts
-import EventKit
+@preconcurrency import EventKit
 import Foundation
 import Photos
 
@@ -20,6 +20,7 @@ struct PermissionStatus: Codable {
     let calendar: String
     let contacts: String
     let photos: String
+    let reminders: String
 }
 
 struct CompanionStatus: Codable {
@@ -32,6 +33,7 @@ struct CompanionStatus: Codable {
         let calendar: Bool
         let contacts: Bool
         let photos: Bool
+        let reminders: Bool
         let nativeBridge: Bool
     }
 }
@@ -69,6 +71,20 @@ struct PhotoRecord: Codable {
     let path: String?
 }
 
+struct ReminderRecord: Codable {
+    let id: String
+    let listName: String
+    let title: String
+    let notes: String?
+    let dueDate: String?
+    let remindAt: String?
+    let completed: Bool
+    let priority: Int?
+    let flagged: Bool?
+    let creationDate: String?
+    let completionDate: String?
+}
+
 struct ListEventsInput: Codable {
     let start: String
     let end: String
@@ -90,6 +106,26 @@ struct SearchPhotosInput: Codable {
     let to: String
     let limit: Int
     let includeHidden: Bool
+}
+
+struct ListRemindersInput: Codable {
+    let query: String
+    let listNames: [String]
+    let includeCompleted: Bool
+    let from: String
+    let to: String
+    let limit: Int
+    let includeNotes: Bool
+}
+
+struct CreateReminderInput: Codable {
+    let title: String
+    let listName: String?
+    let notes: String?
+    let dueDate: String?
+    let remindAt: String?
+    let priority: Int?
+    let flagged: Bool?
 }
 
 struct ResponseEnvelope<T: Codable>: Codable {
@@ -142,6 +178,12 @@ struct NyxelLocalBridge {
         case "photos-search":
             let input = try decode(SearchPhotosInput.self, from: payload)
             return ResponseEnvelope(data: try await searchPhotos(input: input))
+        case "reminders-list":
+            let input = try decode(ListRemindersInput.self, from: payload)
+            return ResponseEnvelope(data: try await listReminders(input: input))
+        case "reminders-create":
+            let input = try decode(CreateReminderInput.self, from: payload)
+            return ResponseEnvelope(data: try await createReminder(input: input))
         default:
             throw BridgeError.invalidArguments("Unknown command: \(command)")
         }
@@ -234,15 +276,52 @@ struct NyxelLocalBridge {
         }
     }
 
+    static func mapRemindersStatus(_ status: EKAuthorizationStatus) -> String {
+        if #available(macOS 14.0, *) {
+            switch status {
+            case .fullAccess:
+                return "authorized"
+            case .writeOnly:
+                return "authorized"
+            case .restricted, .denied:
+                return "denied"
+            case .notDetermined:
+                return "not_determined"
+            @unknown default:
+                return "unavailable"
+            }
+        } else {
+            switch status {
+            case .authorized:
+                return "authorized"
+            case .fullAccess, .writeOnly:
+                return "authorized"
+            case .restricted, .denied:
+                return "denied"
+            case .notDetermined:
+                return "not_determined"
+            @unknown default:
+                return "unavailable"
+            }
+        }
+    }
+
     static func status() async throws -> CompanionStatus {
         CompanionStatus(
             backend: "native",
             nativeBridgePath: CommandLine.arguments.first,
-            capabilities: .init(calendar: true, contacts: true, photos: true, nativeBridge: true),
+            capabilities: .init(
+                calendar: true,
+                contacts: true,
+                photos: true,
+                reminders: true,
+                nativeBridge: true
+            ),
             permissions: .init(
                 calendar: mapCalendarStatus(EKEventStore.authorizationStatus(for: .event)),
                 contacts: mapContactsStatus(CNContactStore.authorizationStatus(for: .contacts)),
-                photos: mapPhotosStatus(PHPhotoLibrary.authorizationStatus(for: .readWrite))
+                photos: mapPhotosStatus(PHPhotoLibrary.authorizationStatus(for: .readWrite)),
+                reminders: mapRemindersStatus(EKEventStore.authorizationStatus(for: .reminder))
             )
         )
     }
@@ -314,6 +393,66 @@ struct NyxelLocalBridge {
 
         if result != .authorized && result != .limited {
             throw BridgeError.permissionDenied("Photos access was not granted.")
+        }
+    }
+
+    static func requestRemindersAccess(_ store: EKEventStore) async throws {
+        let current = EKEventStore.authorizationStatus(for: .reminder)
+        if #available(macOS 14.0, *) {
+            if current == .fullAccess || current == .writeOnly { return }
+        } else if current == .authorized {
+            return
+        }
+        if current == .denied || current == .restricted {
+            throw BridgeError.permissionDenied("Reminders access was denied.")
+        }
+
+        let granted: Bool
+        if #available(macOS 14.0, *) {
+            granted = try await withCheckedThrowingContinuation { continuation in
+                store.requestFullAccessToReminders { granted, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else { continuation.resume(returning: granted) }
+                }
+            }
+        } else {
+            granted = try await withCheckedThrowingContinuation { continuation in
+                store.requestAccess(to: .reminder) { granted, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else { continuation.resume(returning: granted) }
+                }
+            }
+        }
+
+        if !granted {
+            throw BridgeError.permissionDenied("Reminders access was not granted.")
+        }
+    }
+
+    static func fetchReminderRecords(
+        _ store: EKEventStore,
+        predicate: NSPredicate,
+        includeNotes: Bool
+    ) async throws -> [ReminderRecord] {
+        try await withCheckedThrowingContinuation { continuation in
+            store.fetchReminders(matching: predicate) { reminders in
+                let records = (reminders ?? []).map { reminder in
+                    ReminderRecord(
+                        id: reminder.calendarItemIdentifier,
+                        listName: reminder.calendar.title,
+                        title: reminder.title,
+                        notes: includeNotes ? reminder.notes : nil,
+                        dueDate: isoString(reminder.dueDateComponents?.date),
+                        remindAt: isoString(reminder.alarms?.first?.absoluteDate),
+                        completed: reminder.isCompleted,
+                        priority: reminder.priority == 0 ? nil : Int(reminder.priority),
+                        flagged: nil,
+                        creationDate: isoString(reminder.creationDate),
+                        completionDate: isoString(reminder.completionDate)
+                    )
+                }
+                continuation.resume(returning: records)
+            }
         }
     }
 
@@ -476,5 +615,103 @@ struct NyxelLocalBridge {
         }
 
         return results
+    }
+
+    static func listReminders(input: ListRemindersInput) async throws -> [ReminderRecord] {
+        let store = EKEventStore()
+        try await requestRemindersAccess(store)
+
+        let selectedCalendars = input.listNames.isEmpty
+            ? nil
+            : store.calendars(for: .reminder).filter { input.listNames.contains($0.title) }
+        let predicate = store.predicateForReminders(in: selectedCalendars)
+        let query = input.query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let fromDate = input.from.isEmpty ? nil : try parseISODate(input.from)
+        let toDate = input.to.isEmpty ? nil : try parseISODate(input.to)
+
+        return try await fetchReminderRecords(store, predicate: predicate, includeNotes: input.includeNotes)
+            .filter { reminder in
+                if !input.includeCompleted && reminder.completed {
+                    return false
+                }
+                if let fromDate {
+                    guard let dueDateRaw = reminder.dueDate, let dueDate = ISO8601DateFormatter().date(from: dueDateRaw), dueDate >= fromDate else {
+                        return false
+                    }
+                }
+                if let toDate {
+                    guard let dueDateRaw = reminder.dueDate, let dueDate = ISO8601DateFormatter().date(from: dueDateRaw), dueDate <= toDate else {
+                        return false
+                    }
+                }
+                guard !query.isEmpty else { return true }
+                let haystack = [
+                    reminder.title.lowercased(),
+                    reminder.listName.lowercased(),
+                    reminder.notes?.lowercased(),
+                ]
+                .compactMap { $0 }
+                .joined(separator: " ")
+                return haystack.contains(query)
+            }
+            .sorted { lhs, rhs in
+                let formatter = ISO8601DateFormatter()
+                let lhsDate = lhs.dueDate.flatMap(formatter.date) ?? lhs.creationDate.flatMap(formatter.date) ?? .distantFuture
+                let rhsDate = rhs.dueDate.flatMap(formatter.date) ?? rhs.creationDate.flatMap(formatter.date) ?? .distantFuture
+                return lhsDate < rhsDate
+            }
+            .prefix(input.limit)
+            .map { $0 }
+    }
+
+    static func createReminder(input: CreateReminderInput) async throws -> ReminderRecord {
+        let store = EKEventStore()
+        try await requestRemindersAccess(store)
+
+        let calendar: EKCalendar
+        if let listName = input.listName, !listName.isEmpty {
+            guard let namedCalendar = store.calendars(for: .reminder).first(where: { $0.title == listName }) else {
+                throw BridgeError.invalidArguments("Unknown reminder list: \(listName)")
+            }
+            calendar = namedCalendar
+        } else if let defaultCalendar = store.defaultCalendarForNewReminders() {
+            calendar = defaultCalendar
+        } else {
+            throw BridgeError.unsupported("No default reminder list is configured.")
+        }
+
+        let reminder = EKReminder(eventStore: store)
+        reminder.calendar = calendar
+        reminder.title = input.title
+        reminder.notes = input.notes
+        reminder.priority = input.priority ?? 0
+
+        if let dueDate = input.dueDate {
+            reminder.dueDateComponents = Calendar.current.dateComponents(
+                [.year, .month, .day, .hour, .minute, .second],
+                from: try parseISODate(dueDate)
+            )
+        }
+
+        if let remindAt = input.remindAt {
+            let alarm = EKAlarm(absoluteDate: try parseISODate(remindAt))
+            reminder.alarms = [alarm]
+        }
+
+        try store.save(reminder, commit: true)
+
+        return ReminderRecord(
+            id: reminder.calendarItemIdentifier,
+            listName: calendar.title,
+            title: reminder.title,
+            notes: reminder.notes,
+            dueDate: isoString(reminder.dueDateComponents?.date),
+            remindAt: isoString(reminder.alarms?.first?.absoluteDate),
+            completed: reminder.isCompleted,
+            priority: reminder.priority == 0 ? nil : Int(reminder.priority),
+            flagged: input.flagged,
+            creationDate: isoString(reminder.creationDate),
+            completionDate: isoString(reminder.completionDate)
+        )
     }
 }

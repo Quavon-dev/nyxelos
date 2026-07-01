@@ -6,6 +6,8 @@ Local MCP server for macOS data access. It exposes:
 - `calendar.list_events`
 - `contacts.search`
 - `photos.search`
+- `reminders.list`
+- `reminders.create`
 
 Backend selection:
 
@@ -46,4 +48,4 @@ If you want the fallback backend explicitly:
 - Command: `env`
 - Arguments: `NYXEL_COMPANION_BACKEND=fallback node --experimental-strip-types /ABSOLUTE/PATH/TO/apps/companion-macos/src/index.ts`
 
-The first tool call may trigger macOS permission dialogs for Calendar, Contacts, or Photos.
+The first tool call may trigger macOS permission dialogs for Calendar, Contacts, Photos, or Reminders.

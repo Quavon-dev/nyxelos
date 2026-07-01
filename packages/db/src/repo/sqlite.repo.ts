@@ -37,6 +37,12 @@ export function createSqliteRepository(filePath: string): DbRepository {
       return row;
     },
 
+    async getUser(userId) {
+      const row = db.select().from(schema.user).where(eq(schema.user.id, userId)).get();
+      if (!row) return null;
+      return { id: row.id, name: row.name, email: row.email };
+    },
+
     async getInstallation() {
       const row = db
         .select()
@@ -269,6 +275,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
       autonomyLevel,
       skillIds,
       mcpServerIds,
+      mcpToolFilter,
       delegateAgentIds,
     }) {
       const row = db
@@ -282,6 +289,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
           autonomyLevel: autonomyLevel ?? "chat",
           skillIds: skillIds ?? [],
           mcpServerIds: mcpServerIds ?? [],
+          mcpToolFilter: mcpToolFilter ?? null,
           delegateAgentIds: delegateAgentIds ?? [],
           createdAt: new Date(),
         })

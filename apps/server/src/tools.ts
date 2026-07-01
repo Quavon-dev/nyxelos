@@ -132,8 +132,21 @@ export async function buildToolsForAgent(
       continue;
     }
 
+    // A non-null mcpToolFilter narrows the *tools* granted from servers the
+    // agent already has in mcpServerIds — it can never add servers or tools
+    // beyond that set. Entries are "serverId::toolName"; a null filter (the
+    // default) keeps the old behavior of granting every tool on the server.
+    const allowedToolNames = agent.mcpToolFilter
+      ? new Set(
+          agent.mcpToolFilter
+            .filter((entry) => entry.startsWith(`${server.id}::`))
+            .map((entry) => entry.slice(server.id.length + 2)),
+        )
+      : null;
+
     const mcpTools = await mcpManager.listTools(server.id);
     for (const mcpTool of mcpTools) {
+      if (allowedToolNames && !allowedToolNames.has(mcpTool.name)) continue;
       // Namespaced so identically-named tools from two servers don't collide.
       const toolKey = `${server.name}__${mcpTool.name}`;
       tools[toolKey] = dynamicTool({

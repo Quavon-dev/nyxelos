@@ -64,6 +64,10 @@ export const agent = sqliteTable("agent", {
   autonomyLevel: text("autonomy_level").notNull().default("chat").$type<AgentAutonomyLevel>(),
   skillIds: text("skill_ids", { mode: "json" }).notNull().default([]).$type<string[]>(),
   mcpServerIds: text("mcp_server_ids", { mode: "json" }).notNull().default([]).$type<string[]>(),
+  // Optional per-tool allow-list, entries shaped "serverId::toolName". Null
+  // (the default) means "every tool from every server in mcpServerIds" —
+  // this only narrows that set, it never grants access beyond it.
+  mcpToolFilter: text("mcp_tool_filter", { mode: "json" }).$type<string[] | null>(),
   delegateAgentIds: text("delegate_agent_ids", { mode: "json" })
     .notNull()
     .default([])

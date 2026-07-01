@@ -30,6 +30,12 @@ export function createPgRepository(connectionString: string): DbRepository {
       return created;
     },
 
+    async getUser(userId) {
+      const row = await db.query.user.findFirst({ where: eq(schema.user.id, userId) });
+      if (!row) return null;
+      return { id: row.id, name: row.name, email: row.email };
+    },
+
     async getInstallation() {
       const row = await db.query.installation.findFirst({
         where: eq(schema.installation.id, "main"),
@@ -242,6 +248,7 @@ export function createPgRepository(connectionString: string): DbRepository {
       autonomyLevel,
       skillIds,
       mcpServerIds,
+      mcpToolFilter,
       delegateAgentIds,
     }) {
       const [row] = await db
@@ -255,6 +262,7 @@ export function createPgRepository(connectionString: string): DbRepository {
           autonomyLevel: autonomyLevel ?? "chat",
           skillIds: skillIds ?? [],
           mcpServerIds: mcpServerIds ?? [],
+          mcpToolFilter: mcpToolFilter ?? null,
           delegateAgentIds: delegateAgentIds ?? [],
         })
         .returning();

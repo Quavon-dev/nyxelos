@@ -3,10 +3,13 @@ import { promisify } from "node:util";
 import type {
   CalendarEvent,
   CompanionStatus,
+  CreateReminderInput,
   ContactRecord,
   ListEventsInput,
+  ListRemindersInput,
   PermissionState,
   PhotoRecord,
+  ReminderRecord,
   SearchContactsInput,
   SearchPhotosInput,
 } from "../contracts.ts";
@@ -105,6 +108,7 @@ export class FallbackBackend implements LocalDataBackend {
       calendar: "unavailable" as PermissionState,
       contacts: "unavailable" as PermissionState,
       photos: "authorized" as PermissionState,
+      reminders: "unavailable" as PermissionState,
     };
 
     try {
@@ -125,6 +129,15 @@ export class FallbackBackend implements LocalDataBackend {
       );
     }
 
+    try {
+      await runOsascript('tell application "Reminders" to get name of default list');
+      permissions.reminders = "authorized";
+    } catch (error) {
+      permissions.reminders = normalizeAppleState(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+
     return {
       backend: "fallback",
       nativeBridgePath: null,
@@ -132,6 +145,7 @@ export class FallbackBackend implements LocalDataBackend {
         calendar: true,
         contacts: true,
         photos: true,
+        reminders: true,
         nativeBridge: false,
       },
       permissions,
@@ -334,5 +348,139 @@ export class FallbackBackend implements LocalDataBackend {
           : "image",
       path,
     }));
+  }
+
+  async listReminders(input: Required<ListRemindersInput>): Promise<ReminderRecord[]> {
+    const escapedQuery = JSON.stringify(input.query.toLowerCase());
+    const escapedLists = JSON.stringify(input.listNames);
+    const script = `
+      set fieldSeparator to character id 31
+      set recordSeparator to character id 30
+      set queryText to ${escapedQuery}
+      set allowedListsJson to ${escapedLists}
+      set maxCount to ${input.limit}
+
+      on normalizedText(valueText)
+        if valueText is missing value then return ""
+        set valueText to (valueText as text)
+        set valueText to do shell script "printf %s " & quoted form of valueText & " | tr '\\n\\r' '  '"
+        return valueText
+      end normalizedText
+
+      on containsText(haystack, needle)
+        if needle is "" then return true
+        return (offset of needle in haystack) is not 0
+      end containsText
+
+      on inListName(listName, allowedLists)
+        if (count of allowedLists) is 0 then return true
+        repeat with allowedName in allowedLists
+          if listName is equal to allowedName then return true
+        end repeat
+        return false
+      end inListName
+
+      set oldDelimiters to AppleScript's text item delimiters
+      set AppleScript's text item delimiters to ","
+      set allowedLists to {}
+      if allowedListsJson is not "[]" then
+        set rawLists to do shell script "python3 - <<'PY'\nimport json\nfor item in json.loads(" & quoted form of allowedListsJson & "):\n    print(item)\nPY"
+        if rawLists is not "" then set allowedLists to paragraphs of rawLists
+      end if
+
+      tell application "Reminders"
+        set outputRecords to {}
+        repeat with reminderList in lists
+          set listName to my normalizedText(name of reminderList)
+          if my inListName(listName, allowedLists) then
+            repeat with reminderItem in reminders of reminderList
+              set completedText to (completed of reminderItem as text)
+              if ${input.includeCompleted ? "true" : "false"} or completedText is "false" then
+                set dueText to ""
+                if due date of reminderItem is not missing value then set dueText to (due date of reminderItem as text)
+                set remindText to ""
+                if remind me date of reminderItem is not missing value then set remindText to (remind me date of reminderItem as text)
+                set notesText to ""
+                if ${input.includeNotes ? "true" : "false"} then set notesText to my normalizedText(body of reminderItem)
+                set searchText to my normalizedText(name of reminderItem) & " " & listName & " " & notesText
+                set searchText to do shell script "printf %s " & quoted form of searchText & " | tr '[:upper:]' '[:lower:]'"
+                set dueOk to true
+                if ${input.from ? "true" : "false"} and dueText is not "" then set dueOk to ((date dueText) ≥ (date "${new Date(input.from || 0).toUTCString()}"))
+                if ${input.from ? "true" : "false"} and dueText is "" then set dueOk to false
+                if dueOk and ${input.to ? "true" : "false"} and dueText is not "" then set dueOk to ((date dueText) ≤ (date "${new Date(input.to || 0).toUTCString()}"))
+                if dueOk and ${input.to ? "true" : "false"} and dueText is "" then set dueOk to false
+                if dueOk and my containsText(searchText, queryText) then
+                  set completionText to ""
+                  if completion date of reminderItem is not missing value then set completionText to (completion date of reminderItem as text)
+                  set end of outputRecords to ((id of reminderItem as text) & fieldSeparator & listName & fieldSeparator & my normalizedText(name of reminderItem) & fieldSeparator & notesText & fieldSeparator & dueText & fieldSeparator & remindText & fieldSeparator & completedText & fieldSeparator & (priority of reminderItem as text) & fieldSeparator & ((flagged of reminderItem) as text) & fieldSeparator & ((creation date of reminderItem) as text) & fieldSeparator & completionText)
+                  if (count of outputRecords) ≥ maxCount then exit repeat
+                end if
+              end if
+            end repeat
+          end if
+          if (count of outputRecords) ≥ maxCount then exit repeat
+        end repeat
+      end tell
+
+      set AppleScript's text item delimiters to recordSeparator
+      set finalOutput to outputRecords as text
+      set AppleScript's text item delimiters to oldDelimiters
+      return finalOutput
+    `;
+
+    const output = await runOsascript(script);
+
+    return splitRecords(output).map(
+      ([id, listName, title, notes, dueDate, remindAt, completed, priority, flagged, creationDate, completionDate]) => ({
+        id: id || `${listName}-${title}`,
+        listName: listName || "Reminders",
+        title: title || "(untitled reminder)",
+        notes: notes || null,
+        dueDate: isoDate(dueDate) ?? dueDate ?? null,
+        remindAt: isoDate(remindAt) ?? remindAt ?? null,
+        completed: completed === "true",
+        priority: priority ? Number(priority) : null,
+        flagged: flagged === "true",
+        creationDate: isoDate(creationDate) ?? creationDate ?? null,
+        completionDate: isoDate(completionDate) ?? completionDate ?? null,
+      }),
+    );
+  }
+
+  async createReminder(input: CreateReminderInput): Promise<ReminderRecord> {
+    const title = JSON.stringify(input.title);
+    const listName = input.listName ? JSON.stringify(input.listName) : null;
+    const notes = input.notes ? JSON.stringify(input.notes) : null;
+    const dueDate = input.dueDate ? new Date(input.dueDate).toUTCString() : null;
+    const remindAt = input.remindAt ? new Date(input.remindAt).toUTCString() : null;
+    const script = `
+      set fieldSeparator to character id 31
+      set titleText to ${title}
+      tell application "Reminders"
+        set targetList to ${listName ? `first list whose name is ${listName}` : "default list"}
+        set newReminder to make new reminder at end of reminders of targetList with properties {name:titleText}
+        ${notes ? `set body of newReminder to ${notes}` : ""}
+        ${dueDate ? `set due date of newReminder to date "${dueDate}"` : ""}
+        ${remindAt ? `set remind me date of newReminder to date "${remindAt}"` : ""}
+        ${typeof input.priority === "number" ? `set priority of newReminder to ${input.priority}` : ""}
+        ${typeof input.flagged === "boolean" ? `set flagged of newReminder to ${input.flagged ? "true" : "false"}` : ""}
+        return (id of newReminder as text) & fieldSeparator & (name of targetList as text) & fieldSeparator & (name of newReminder as text)
+      end tell
+    `;
+
+    const [id, resolvedListName, resolvedTitle] = splitRecords(await runOsascript(script))[0] ?? [];
+    return {
+      id: id || crypto.randomUUID(),
+      listName: resolvedListName || input.listName || "Reminders",
+      title: resolvedTitle || input.title,
+      notes: input.notes ?? null,
+      dueDate: input.dueDate ?? null,
+      remindAt: input.remindAt ?? null,
+      completed: false,
+      priority: input.priority ?? null,
+      flagged: input.flagged ?? null,
+      creationDate: new Date().toISOString(),
+      completionDate: null,
+    };
   }
 }

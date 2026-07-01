@@ -73,6 +73,7 @@ export default function AgentsPage() {
   const [systemPrompt, setSystemPrompt] = useState("");
   const [modelId, setModelId] = useState("");
   const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>("assisted");
+  const [autoAttachWorkspaceTools, setAutoAttachWorkspaceTools] = useState(true);
   const [skillIds, setSkillIds] = useState<string[]>([]);
   const [mcpServerIds, setMcpServerIds] = useState<string[]>([]);
   const [delegateAgentIds, setDelegateAgentIds] = useState<string[]>([]);
@@ -85,14 +86,16 @@ export default function AgentsPage() {
         systemPrompt: systemPrompt || undefined,
         modelId,
         autonomyLevel,
-        skillIds,
-        mcpServerIds,
+        skillIds: autoAttachWorkspaceTools ? undefined : skillIds,
+        mcpServerIds: autoAttachWorkspaceTools ? undefined : mcpServerIds,
+        autoAttachWorkspaceTools,
         delegateAgentIds: autonomyLevel === "super_agent" ? delegateAgentIds : undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agents", workspaceId] });
       setName("");
       setSystemPrompt("");
+      setAutoAttachWorkspaceTools(true);
       setSkillIds([]);
       setMcpServerIds([]);
       setDelegateAgentIds([]);
@@ -175,8 +178,8 @@ export default function AgentsPage() {
         <CardHeader>
           <CardTitle>Create agent</CardTitle>
           <CardDescription>
-            Pick a model and autonomy level, then attach any skills or MCP servers it should have
-            access to.
+            Pick a model and autonomy level. By default the agent inherits all current workspace
+            skills and MCP servers automatically.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -233,7 +236,25 @@ export default function AgentsPage() {
             </div>
           </div>
 
-          {skillsQuery.data && skillsQuery.data.length > 0 && (
+          <div className="flex items-start gap-3 rounded-lg border p-3">
+            <Checkbox
+              id="auto-attach-tools"
+              checked={autoAttachWorkspaceTools}
+              onCheckedChange={(checked) => setAutoAttachWorkspaceTools(Boolean(checked))}
+              className="mt-0.5"
+            />
+            <Label htmlFor="auto-attach-tools" className="flex-1 font-normal">
+              <span className="font-medium text-foreground">
+                Auto-attach all workspace skills and MCP servers
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Keeps the agent tool-ready regardless of model. Sensitive actions still go through
+                the normal approval queue.
+              </span>
+            </Label>
+          </div>
+
+          {!autoAttachWorkspaceTools && skillsQuery.data && skillsQuery.data.length > 0 && (
             <div className="space-y-2">
               <Label>Skills</Label>
               <div className="space-y-2 rounded-lg border p-3">
@@ -260,7 +281,7 @@ export default function AgentsPage() {
             </div>
           )}
 
-          {mcpServersQuery.data && mcpServersQuery.data.length > 0 && (
+          {!autoAttachWorkspaceTools && mcpServersQuery.data && mcpServersQuery.data.length > 0 && (
             <div className="space-y-2">
               <Label>MCP servers</Label>
               <div className="space-y-2 rounded-lg border p-3">

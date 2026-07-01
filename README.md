@@ -15,7 +15,7 @@ Living project documentation (Obsidian vault): [`knowledge-base/`](knowledge-bas
 apps/
   web/      # Next.js (App Router) + shadcn/ui frontend
   server/   # Bun + Hono + tRPC backend, agent engine
-  companion-macos/ # MCP server for local Calendar/Contacts/Photos access on macOS
+  companion-macos/ # MCP server for local Calendar/Contacts/Photos/Reminders access on macOS
 packages/
   db/                 # Drizzle schema + repository layer (Postgres or SQLite)
   model-providers/    # local model detection + cloud/local model routing
@@ -38,7 +38,7 @@ This starts the server on `http://localhost:3001` (SQLite database by default, a
 
 ## macOS companion (Phase 4)
 
-The local-data companion lives in [`apps/companion-macos/`](apps/companion-macos). It is a standalone MCP server that exposes local calendar, contacts, and photo search tools for Nyxel. The preferred path is the native Swift bridge (`EventKit`, `Contacts`, `PhotoKit`); if that bridge is missing, the server falls back to an AppleScript/Spotlight implementation behind the same tool names.
+The local-data companion lives in [`apps/companion-macos/`](apps/companion-macos). It is a standalone MCP server that exposes local calendar, contacts, photo search, and reminders tools for Nyxel. The preferred path is the native Swift bridge (`EventKit`, `Contacts`, `PhotoKit`); if that bridge is missing, the server falls back to an AppleScript/Spotlight implementation behind the same tool names.
 
 Quick start:
 

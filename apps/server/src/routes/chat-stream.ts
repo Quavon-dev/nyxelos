@@ -2,6 +2,7 @@ import { getDb } from "@nyxel/db";
 import { streamChat } from "@nyxel/model-providers";
 import type { Hono } from "hono";
 import { z } from "zod";
+import { resolveAgentRuntimeConfig } from "../auto-agent";
 import { getInstalledProvidersForWorkspace } from "../models";
 import { buildToolsForAgent } from "../tools";
 
@@ -33,10 +34,11 @@ export function registerChatStreamRoute(app: Hono) {
     const chat = await db.getChat(chatId);
     if (!chat) return c.json({ error: `Unknown chat: ${chatId}` }, 404);
 
-    const [workspace, agent] = await Promise.all([
+    const [workspace, storedAgent] = await Promise.all([
       db.getWorkspace(chat.workspaceId),
       chat.agentId ? db.getAgent(chat.agentId) : Promise.resolve(null),
     ]);
+    const agent = storedAgent ? await resolveAgentRuntimeConfig(storedAgent) : null;
 
     const systemPrompt =
       [workspace?.customInstructions, agent?.systemPrompt].filter(Boolean).join("\n\n") ||
@@ -64,17 +66,25 @@ export function registerChatStreamRoute(app: Hono) {
           role: m.role === "tool" ? "assistant" : m.role,
           content: m.content,
         })),
+        // Tied to the AI SDK's own stream lifecycle rather than a detached
+        // `.then()` on `result.text` — same completion signal, but errors
+        // here are visible right where the stream itself reports them.
+        onFinish: async ({ text }) => {
+          if (!text) return; // e.g. a tool-only turn that produced no final text
+          try {
+            await db.addMessage({ chatId, role: "assistant", content: text });
+          } catch (err) {
+            console.error(`Failed to persist assistant message for chat ${chatId}:`, err);
+          }
+        },
+        onError: ({ error }) => {
+          console.error(`Model stream failed mid-response for chat ${chatId}:`, error);
+        },
       });
     } catch (err) {
       const messageText = err instanceof Error ? err.message : "Failed to start model stream.";
       return c.json({ error: messageText }, 502);
     }
-
-    Promise.resolve(result.text)
-      .then((full) => db.addMessage({ chatId, role: "assistant", content: full }))
-      .catch((err: unknown) => {
-        console.error("Failed to persist assistant message", err);
-      });
 
     return result.toTextStreamResponse();
   });

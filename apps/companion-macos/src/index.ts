@@ -5,9 +5,12 @@ import { createLocalDataBackend } from "./backends/index.ts";
 import type {
   CalendarEvent,
   CompanionStatus,
+  CreateReminderInput,
   ContactRecord,
   ListEventsInput,
+  ListRemindersInput,
   PhotoRecord,
+  ReminderRecord,
   SearchContactsInput,
   SearchPhotosInput,
 } from "./contracts.ts";
@@ -40,6 +43,18 @@ function summarizePhotos(photos: PhotoRecord[]): string {
     .join("\n");
 }
 
+function summarizeReminders(reminders: ReminderRecord[]): string {
+  if (reminders.length === 0) return "No matching reminders found.";
+  return reminders
+    .slice(0, 5)
+    .map((reminder) => {
+      const state = reminder.completed ? "completed" : "open";
+      const due = reminder.dueDate ? ` · due ${reminder.dueDate}` : "";
+      return `${reminder.title} (${reminder.listName}, ${state})${due}`;
+    })
+    .join("\n");
+}
+
 async function main(): Promise<void> {
   const backend = await createLocalDataBackend();
   const status = await backend.getStatus();
@@ -57,7 +72,7 @@ async function main(): Promise<void> {
         tools: {},
       },
       instructions:
-        "Provides local macOS calendar, contacts, and photo search tools. Read-only access only.",
+        "Provides local macOS calendar, contacts, photos, and reminders tools. Reminder creation changes local state; review tool outputs carefully.",
     },
   );
 
@@ -73,7 +88,7 @@ async function main(): Promise<void> {
         content: [
           {
             type: "text",
-            text: `Backend: ${latestStatus.backend}\nCalendar: ${latestStatus.permissions.calendar}\nContacts: ${latestStatus.permissions.contacts}\nPhotos: ${latestStatus.permissions.photos}`,
+            text: `Backend: ${latestStatus.backend}\nCalendar: ${latestStatus.permissions.calendar}\nContacts: ${latestStatus.permissions.contacts}\nPhotos: ${latestStatus.permissions.photos}\nReminders: ${latestStatus.permissions.reminders}`,
           },
         ],
         structuredContent: {
@@ -182,6 +197,112 @@ async function main(): Promise<void> {
           backend: (await backend.getStatus()).backend,
           count: contacts.length,
           contacts,
+        },
+      };
+    },
+  );
+
+  server.registerTool(
+    "reminders.list",
+    {
+      description:
+        "List local macOS reminders/tasks by text, list, due-date range, and completion status.",
+      inputSchema: {
+        query: z.string().optional().describe("Optional case-insensitive text filter."),
+        listNames: z
+          .array(z.string())
+          .optional()
+          .describe("Optional allow-list of reminder list names."),
+        includeCompleted: z
+          .boolean()
+          .optional()
+          .describe("Whether completed reminders should be included."),
+        from: z
+          .string()
+          .datetime()
+          .optional()
+          .describe("Optional inclusive ISO-8601 lower bound for due dates."),
+        to: z
+          .string()
+          .datetime()
+          .optional()
+          .describe("Optional inclusive ISO-8601 upper bound for due dates."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe("Maximum number of reminders."),
+        includeNotes: z
+          .boolean()
+          .optional()
+          .describe("Whether reminder notes should be read and included in text filtering."),
+      },
+    },
+    async (rawInput: ListRemindersInput = {}) => {
+      const input: Required<ListRemindersInput> = {
+        query: rawInput.query ?? "",
+        listNames: rawInput.listNames ?? [],
+        includeCompleted: rawInput.includeCompleted ?? false,
+        from: rawInput.from ?? "",
+        to: rawInput.to ?? "",
+        limit: rawInput.limit ?? 25,
+        includeNotes: rawInput.includeNotes ?? false,
+      };
+      const reminders = await backend.listReminders(input);
+      return {
+        content: [{ type: "text", text: summarizeReminders(reminders) }],
+        structuredContent: {
+          backend: (await backend.getStatus()).backend,
+          count: reminders.length,
+          reminders,
+        },
+      };
+    },
+  );
+
+  server.registerTool(
+    "reminders.create",
+    {
+      description:
+        "Create a local macOS reminder/task in the default list or a named reminder list.",
+      inputSchema: {
+        title: z.string().min(1).describe("Reminder title."),
+        listName: z.string().optional().describe("Optional target reminder list name."),
+        notes: z.string().optional().describe("Optional reminder notes/body."),
+        dueDate: z
+          .string()
+          .datetime()
+          .optional()
+          .describe("Optional due date/time in ISO-8601 format."),
+        remindAt: z
+          .string()
+          .datetime()
+          .optional()
+          .describe("Optional reminder notification time in ISO-8601 format."),
+        priority: z
+          .number()
+          .int()
+          .min(0)
+          .max(9)
+          .optional()
+          .describe("Optional EventKit priority (0-9)."),
+        flagged: z.boolean().optional().describe("Whether the reminder should be flagged."),
+      },
+    },
+    async (input: CreateReminderInput) => {
+      const reminder = await backend.createReminder(input);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Created reminder "${reminder.title}" in ${reminder.listName}.`,
+          },
+        ],
+        structuredContent: {
+          backend: (await backend.getStatus()).backend,
+          reminder,
         },
       };
     },

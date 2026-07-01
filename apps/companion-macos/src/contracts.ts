@@ -9,6 +9,7 @@ export interface PermissionStatus {
   calendar: PermissionState;
   contacts: PermissionState;
   photos: PermissionState;
+  reminders: PermissionState;
 }
 
 export interface CalendarEvent {
@@ -44,6 +45,20 @@ export interface PhotoRecord {
   path?: string | null;
 }
 
+export interface ReminderRecord {
+  id: string;
+  listName: string;
+  title: string;
+  notes?: string | null;
+  dueDate?: string | null;
+  remindAt?: string | null;
+  completed: boolean;
+  priority?: number | null;
+  flagged?: boolean | null;
+  creationDate?: string | null;
+  completionDate?: string | null;
+}
+
 export interface CompanionStatus {
   backend: string;
   nativeBridgePath?: string | null;
@@ -51,6 +66,7 @@ export interface CompanionStatus {
     calendar: boolean;
     contacts: boolean;
     photos: boolean;
+    reminders: boolean;
     nativeBridge: boolean;
   };
   permissions: PermissionStatus;
@@ -77,4 +93,24 @@ export interface SearchPhotosInput {
   to?: string;
   limit?: number;
   includeHidden?: boolean;
+}
+
+export interface ListRemindersInput {
+  query?: string;
+  listNames?: string[];
+  includeCompleted?: boolean;
+  from?: string;
+  to?: string;
+  limit?: number;
+  includeNotes?: boolean;
+}
+
+export interface CreateReminderInput {
+  title: string;
+  listName?: string;
+  notes?: string;
+  dueDate?: string;
+  remindAt?: string;
+  priority?: number;
+  flagged?: boolean;
 }

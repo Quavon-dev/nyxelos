@@ -90,6 +90,10 @@ export const agent = pgTable("agent", {
   autonomyLevel: agentAutonomyLevel("autonomy_level").notNull().default("chat"),
   skillIds: jsonb("skill_ids").notNull().default([]).$type<string[]>(),
   mcpServerIds: jsonb("mcp_server_ids").notNull().default([]).$type<string[]>(),
+  // Optional per-tool allow-list, entries shaped "serverId::toolName". Null
+  // (the default) means "every tool from every server in mcpServerIds" —
+  // this only narrows that set, it never grants access beyond it.
+  mcpToolFilter: jsonb("mcp_tool_filter").$type<string[] | null>(),
   // Only meaningful for autonomyLevel "super_agent" — the whitelist of other
   // agent ids this agent may delegate subtasks to. See ADR-0011.
   delegateAgentIds: jsonb("delegate_agent_ids").notNull().default([]).$type<string[]>(),

@@ -21,5 +21,6 @@ export type {
   MessageRole,
   ModelInstallationRecord,
   ModelProviderKind,
+  UserRecord,
   WorkspaceRecord,
 } from "./repo/types";

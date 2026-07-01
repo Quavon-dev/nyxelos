@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, Mic, Paperclip } from "lucide-react";
 import { useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -21,8 +21,8 @@ export function ChatInput({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="border-t pt-4">
-      <div className="flex items-end gap-2 rounded-2xl border bg-card p-2 shadow-xs">
+    <form onSubmit={handleSubmit} className="pt-4">
+      <div className="space-y-1 rounded-2xl border bg-card p-2 shadow-sm">
         <Textarea
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -37,13 +37,31 @@ export function ChatInput({
           rows={1}
           className="max-h-40 min-h-9 resize-none border-0 p-1.5 shadow-none focus-visible:ring-0"
         />
-        <button
-          type="submit"
-          disabled={disabled || !value.trim()}
-          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
-        >
-          <ArrowUp className="size-4" />
-        </button>
+        <div className="flex items-center justify-between px-0.5">
+          <button
+            type="button"
+            className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label="Attach a file"
+          >
+            <Paperclip className="size-4" />
+          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label="Voice input"
+            >
+              <Mic className="size-4" />
+            </button>
+            <button
+              type="submit"
+              disabled={disabled || !value.trim()}
+              className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
+            >
+              <ArrowUp className="size-4" />
+            </button>
+          </div>
+        </div>
       </div>
     </form>
   );

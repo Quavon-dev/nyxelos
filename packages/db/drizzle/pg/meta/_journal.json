@@ -43,6 +43,13 @@
       "when": 1782903405544,
       "tag": "0005_purple_tusk",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782908235730,
+      "tag": "0006_slim_arclight",
+      "breakpoints": true
     }
   ]
 }

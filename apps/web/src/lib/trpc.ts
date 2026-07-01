@@ -70,8 +70,17 @@ export type AgentSummary = {
   autonomyLevel: AutonomyLevel;
   skillIds: string[];
   mcpServerIds: string[];
+  /** Entries shaped "serverId::toolName"; null means every tool from every
+   * server in mcpServerIds. */
+  mcpToolFilter: string[] | null;
   delegateAgentIds: string[];
   createdAt: Date;
+};
+
+export type UserSummary = {
+  id: string;
+  name: string;
+  email: string;
 };
 
 export type SkillSummary = {
@@ -234,6 +243,11 @@ type NyxelTrpcClient = {
   demoUser: {
     query(): Promise<DemoUser>;
   };
+  users: {
+    get: {
+      query(input: { userId: string }): Promise<UserSummary | null>;
+    };
+  };
   installation: {
     status: {
       query(): Promise<InstallationStatus>;
@@ -334,6 +348,8 @@ type NyxelTrpcClient = {
         autonomyLevel?: AutonomyLevel;
         skillIds?: string[];
         mcpServerIds?: string[];
+        mcpToolFilter?: string[] | null;
+        autoAttachWorkspaceTools?: boolean;
         delegateAgentIds?: string[];
       }): Promise<AgentSummary>;
     };

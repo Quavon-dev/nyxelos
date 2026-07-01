@@ -24,11 +24,13 @@ export interface StreamingMessage {
 export function useChatStream(chatId: string) {
   const [streamingMessage, setStreamingMessage] = useState<StreamingMessage | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const sendMessage = useCallback(
     async (message: string) => {
       setIsStreaming(true);
+      setError(null);
       setStreamingMessage({ role: "assistant", content: "" });
 
       queryClient.setQueryData(["messages", chatId], (old: unknown) => {
@@ -54,7 +56,15 @@ export function useChatStream(chatId: string) {
         });
 
         if (!res.ok || !res.body) {
-          throw new Error(`Chat stream failed: ${res.status}`);
+          // The route returns { error } as JSON for pre-stream failures
+          // (unknown model, bad request) — surface that instead of a bare
+          // status code whenever it's available.
+          const body = await res.json().catch(() => null);
+          const detail =
+            typeof body?.error === "string"
+              ? body.error
+              : (body?.error?.formErrors?.[0] ?? `Request failed (${res.status}).`);
+          throw new Error(detail);
         }
 
         const reader = res.body.getReader();
@@ -67,6 +77,8 @@ export function useChatStream(chatId: string) {
           full += decoder.decode(value, { stream: true });
           setStreamingMessage({ role: "assistant", content: full });
         }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong while streaming.");
       } finally {
         setIsStreaming(false);
         setStreamingMessage(null);
@@ -76,5 +88,5 @@ export function useChatStream(chatId: string) {
     [chatId, queryClient],
   );
 
-  return { sendMessage, streamingMessage, isStreaming };
+  return { sendMessage, streamingMessage, isStreaming, error };
 }

@@ -21,7 +21,7 @@ export default function ChatPage() {
     queryFn: () => trpcClient.chats.messages.query({ chatId }),
   });
 
-  const { sendMessage, streamingMessage, isStreaming } = useChatStream(chatId);
+  const { sendMessage, streamingMessage, isStreaming, error } = useChatStream(chatId);
 
   // A chat created from the landing page's composer arrives here with its
   // first message tucked into ?draft= — send it once, then drop the param
@@ -37,6 +37,11 @@ export default function ChatPage() {
   return (
     <div className="mx-auto flex h-full max-w-2xl flex-col p-4">
       <MessageList messages={messagesQuery.data ?? []} streamingMessage={streamingMessage} />
+      {error && (
+        <p className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
       <ChatInput onSend={sendMessage} disabled={isStreaming} />
     </div>
   );

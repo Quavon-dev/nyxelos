@@ -53,9 +53,18 @@ export interface AgentRecord {
   autonomyLevel: AgentAutonomyLevel;
   skillIds: string[];
   mcpServerIds: string[];
+  /** Per-tool allow-list narrowing mcpServerIds, entries shaped
+   * "serverId::toolName". Null means every tool from every listed server. */
+  mcpToolFilter: string[] | null;
   /** Only meaningful for autonomyLevel "super_agent" — see ADR-0011. */
   delegateAgentIds: string[];
   createdAt: Date;
+}
+
+export interface UserRecord {
+  id: string;
+  name: string;
+  email: string;
 }
 
 export interface AutomationRecord {
@@ -151,6 +160,7 @@ export interface DbRepository {
   readonly driver: "pg" | "sqlite";
 
   getOrCreateDemoUser(): Promise<{ id: string; name: string; email: string }>;
+  getUser(userId: string): Promise<UserRecord | null>;
   getInstallation(): Promise<InstallationRecord | null>;
   completeInstallation(input: {
     mode: InstallationMode;
@@ -201,6 +211,7 @@ export interface DbRepository {
     autonomyLevel?: AgentAutonomyLevel;
     skillIds?: string[];
     mcpServerIds?: string[];
+    mcpToolFilter?: string[] | null;
     delegateAgentIds?: string[];
   }): Promise<AgentRecord>;
   listAgentsByWorkspace(workspaceId: string): Promise<AgentRecord[]>;

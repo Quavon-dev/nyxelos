@@ -2,6 +2,7 @@ import { getDb } from "@nyxel/db";
 import { listAvailableModels, probeOpenAiCompatibleEndpoint } from "@nyxel/model-providers";
 import { z } from "zod";
 import { resolveApprovalDecision } from "../approvals";
+import { ensureAutoAssistantForWorkspaceModel, getWorkspaceDefaultToolIds } from "../auto-agent";
 import { auth } from "../auth";
 import {
   buildKnowledgeBaseGraph,
@@ -27,6 +28,14 @@ export const appRouter = router({
   health: publicProcedure.query(() => ({ ok: true, name: "nyxel-server" })),
 
   demoUser: publicProcedure.query(() => getDb().getOrCreateDemoUser()),
+
+  users: router({
+    // Looks up a real account by id (e.g. installation.ownerUserId) — unlike
+    // demoUser, which is a stubbed-in fallback for local development.
+    get: publicProcedure
+      .input(z.object({ userId: z.string() }))
+      .query(({ input }) => getDb().getUser(input.userId)),
+  }),
 
   installation: router({
     status: publicProcedure.query(async () => {
@@ -207,13 +216,18 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const db = getDb();
         let modelId = input.modelId;
+        let agentId = input.agentId;
         if (!modelId && input.agentId) {
           const agent = await db.getAgent(input.agentId);
           if (!agent) throw new Error(`Unknown agent: ${input.agentId}`);
           modelId = agent.modelId;
         }
         if (!modelId) throw new Error("chats.create needs either modelId or agentId.");
-        return db.createChat({ ...input, modelId });
+        if (!agentId) {
+          const autoAgent = await ensureAutoAssistantForWorkspaceModel(input.workspaceId, modelId);
+          agentId = autoAgent.id;
+        }
+        return db.createChat({ ...input, modelId, agentId });
       }),
     messages: publicProcedure
       .input(z.object({ chatId: z.string() }))
@@ -234,11 +248,30 @@ export const appRouter = router({
           autonomyLevel: autonomyLevelSchema.optional(),
           skillIds: z.array(z.string()).optional(),
           mcpServerIds: z.array(z.string()).optional(),
+          // Entries shaped "serverId::toolName" — narrows which tools from
+          // mcpServerIds are actually granted. Omitted/null = every tool.
+          mcpToolFilter: z.array(z.string()).nullable().optional(),
+          autoAttachWorkspaceTools: z.boolean().optional(),
           // Only meaningful for autonomyLevel "super_agent" — see ADR-0011.
           delegateAgentIds: z.array(z.string()).optional(),
         }),
       )
-      .mutation(({ input }) => getDb().createAgent(input)),
+      .mutation(async ({ input }) => {
+        const toolIds =
+          input.autoAttachWorkspaceTools === false
+            ? {
+                skillIds: input.skillIds,
+                mcpServerIds: input.mcpServerIds,
+              }
+            : await getWorkspaceDefaultToolIds(input.workspaceId);
+
+        return getDb().createAgent({
+          ...input,
+          skillIds: toolIds.skillIds,
+          mcpServerIds: toolIds.mcpServerIds,
+          mcpToolFilter: input.mcpToolFilter ?? null,
+        });
+      }),
   }),
 
   mcpServers: router({
