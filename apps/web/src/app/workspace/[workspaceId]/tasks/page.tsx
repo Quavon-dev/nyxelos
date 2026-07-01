@@ -95,10 +95,17 @@ export default function TasksPage() {
     queryKey: ["agents", workspaceId],
     queryFn: () => trpcClient.agents.list.query({ workspaceId }),
   });
+  const modelsQuery = useQuery({
+    queryKey: ["models", workspaceId],
+    queryFn: () => trpcClient.models.list.query({ workspaceId }),
+  });
 
   const agents = agentsQuery.data ?? [];
+  const models = modelsQuery.data ?? [];
   const agentName = (id: string | null) =>
     id ? (agents.find((a) => a.id === id)?.name ?? id) : "Unassigned";
+  const agentDefaultModel = (id: string | null) =>
+    id ? (agents.find((a) => a.id === id)?.modelId ?? null) : null;
 
   const allTasks = tasksQuery.data ?? [];
   const tasks =
@@ -117,6 +124,15 @@ export default function TasksPage() {
     onMutate: ({ taskId }) => setAssigningTaskId(taskId),
     onSuccess: invalidate,
     onSettled: () => setAssigningTaskId(null),
+  });
+
+  const [settingModelTaskId, setSettingModelTaskId] = useState<string | null>(null);
+  const setTaskModel = useMutation({
+    mutationFn: (input: { taskId: string; modelId: string | null }) =>
+      trpcClient.tasks.setModel.mutate(input),
+    onMutate: ({ taskId }) => setSettingModelTaskId(taskId),
+    onSuccess: invalidate,
+    onSettled: () => setSettingModelTaskId(null),
   });
 
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
@@ -141,6 +157,7 @@ export default function TasksPage() {
   const [instruction, setInstruction] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("normal");
   const [assignedAgentId, setAssignedAgentId] = useState<string>("none");
+  const [modelId, setModelId] = useState<string>("default");
 
   const createTask = useMutation({
     mutationFn: () =>
@@ -150,6 +167,7 @@ export default function TasksPage() {
         instruction,
         priority,
         assignedAgentId: assignedAgentId === "none" ? null : assignedAgentId,
+        modelId: modelId === "default" ? null : modelId,
       }),
     onSuccess: () => {
       invalidate();
@@ -157,6 +175,7 @@ export default function TasksPage() {
       setInstruction("");
       setPriority("normal");
       setAssignedAgentId("none");
+      setModelId("default");
     },
   });
 
@@ -243,6 +262,7 @@ export default function TasksPage() {
                     <TableHead>Status</TableHead>
                     <TableHead>Priority</TableHead>
                     <TableHead>Assignee</TableHead>
+                    <TableHead>Model</TableHead>
                     <TableHead className="w-[280px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -294,6 +314,37 @@ export default function TasksPage() {
                             {agents.map((a) => (
                               <SelectItem key={a.id} value={a.id}>
                                 {a.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        <Select
+                          value={task.modelId ?? "default"}
+                          onValueChange={(v) =>
+                            setTaskModel.mutate({
+                              taskId: task.id,
+                              modelId: v === "default" ? null : v,
+                            })
+                          }
+                        >
+                          <SelectTrigger
+                            className="h-8 w-[170px]"
+                            disabled={setTaskModel.isPending && settingModelTaskId === task.id}
+                          >
+                            <SelectValue>
+                              {task.modelId ??
+                                (agentDefaultModel(task.assignedAgentId)
+                                  ? `Agent default (${agentDefaultModel(task.assignedAgentId)})`
+                                  : "Agent default")}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="default">Agent default</SelectItem>
+                            {models.map((m) => (
+                              <SelectItem key={m.id} value={m.id}>
+                                {m.label}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -386,6 +437,26 @@ export default function TasksPage() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+          <div className="grid gap-2">
+            <Label>Model (optional override)</Label>
+            <Select value={modelId} onValueChange={setModelId}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Use the agent's default model</SelectItem>
+                {models.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.label} ({m.kind})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Run this specific task on a different model — e.g. a fast/cheap model for a simple
+              task, or a stronger one for a hard one.
+            </p>
           </div>
           <div className="flex items-center gap-3 border-t pt-4">
             <Button

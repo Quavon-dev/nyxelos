@@ -5,17 +5,27 @@ import { ArrowLeft, Bot, CheckCircle2, Clock, ListTree, XCircle } from "lucide-r
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { MarkdownContent } from "@/components/chat/markdown-content";
 import { MultiSelectPromptCard } from "@/components/chat/multi-select-prompt";
 import { PageHeaderSkeleton } from "@/components/loading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { parseAssistantContent } from "@/lib/chat-prompts";
 import type { AgentRunStatus, TaskPriority, TaskStatus } from "@/lib/trpc";
 import { trpcClient } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+
+const RUNNING_TASK_STATUSES = new Set<TaskStatus>(["running", "planning"]);
 
 const STATUS_BADGE: Record<TaskStatus, string> = {
   pending: "border-0 bg-muted text-muted-foreground",
@@ -60,11 +70,21 @@ export default function TaskDetailPage() {
   const taskQuery = useQuery({
     queryKey: ["task", taskId],
     queryFn: () => trpcClient.tasks.get.query({ taskId }),
-    refetchInterval: 8_000,
+    // Poll faster while the task is actively running so the live-streamed
+    // output (agent-runtime.ts progressively persists it) actually feels
+    // live instead of updating in 8-second jumps.
+    refetchInterval: (query) =>
+      RUNNING_TASK_STATUSES.has(query.state.data?.task?.status as TaskStatus)
+        ? 1_500
+        : 8_000,
   });
   const agentsQuery = useQuery({
     queryKey: ["agents", workspaceId],
     queryFn: () => trpcClient.agents.list.query({ workspaceId }),
+  });
+  const modelsQuery = useQuery({
+    queryKey: ["models", workspaceId],
+    queryFn: () => trpcClient.models.list.query({ workspaceId }),
   });
   const approvalsQuery = useQuery({
     queryKey: ["approvals", workspaceId, "all"],
@@ -73,6 +93,7 @@ export default function TaskDetailPage() {
   });
 
   const agents = agentsQuery.data ?? [];
+  const models = modelsQuery.data ?? [];
   const agentName = (id: string | null) =>
     id ? (agents.find((a) => a.id === id)?.name ?? id) : "Unassigned";
 
@@ -93,6 +114,10 @@ export default function TaskDetailPage() {
   });
   const startTask = useMutation({
     mutationFn: () => trpcClient.tasks.start.mutate({ taskId }),
+    onSuccess: invalidate,
+  });
+  const setTaskModel = useMutation({
+    mutationFn: (modelId: string | null) => trpcClient.tasks.setModel.mutate({ taskId, modelId }),
     onSuccess: invalidate,
   });
   const [followUpInstruction, setFollowUpInstruction] = useState("");
@@ -137,6 +162,7 @@ export default function TaskDetailPage() {
     .at(-1)?.finalOutput;
   const promptSource = latestRunOutput ?? task?.resultSummary ?? null;
   const followUpPrompt = promptSource ? parseAssistantContent(promptSource).prompt : null;
+  const latestQuestionEvent = [...events].reverse().find((e) => e.kind === "question");
   const autoStartRef = useRef(false);
 
   useEffect(() => {
@@ -176,7 +202,8 @@ export default function TaskDetailPage() {
   }
 
   const canResolve = task.status !== "completed" && task.status !== "cancelled";
-  const isBlocked = task.status === "blocked" || task.status === "waiting_approval";
+  const isBlockedOnQuestion = task.status === "blocked";
+  const isBlocked = isBlockedOnQuestion || task.status === "waiting_approval";
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 md:p-8">
@@ -202,6 +229,25 @@ export default function TaskDetailPage() {
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
               <Bot className="size-3.5" /> {agentName(task.assignedAgentId)}
             </p>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Model</span>
+              <Select
+                value={task.modelId ?? "default"}
+                onValueChange={(v) => setTaskModel.mutate(v === "default" ? null : v)}
+              >
+                <SelectTrigger className="h-7 w-[190px] text-xs" disabled={setTaskModel.isPending}>
+                  <SelectValue>{task.modelId ?? "Agent default"}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Agent default</SelectItem>
+                  {models.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.label} ({m.kind})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           {canResolve && (
             <div className="flex shrink-0 gap-2">
@@ -242,13 +288,25 @@ export default function TaskDetailPage() {
             <p className="whitespace-pre-wrap text-sm">{task.instruction}</p>
           </div>
 
-          {isBlocked && (
-            <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
-              This task is {task.status.replace("_", " ")}
-              {task.errorMessage ? `: ${task.errorMessage}` : "."}
-              {linkedApprovals.some((a) => a.status === "pending") &&
-                " Resolve the pending approval below to let it resume."}
+          {isBlockedOnQuestion ? (
+            <div className="rounded-lg border border-orange-500/25 bg-orange-500/10 p-3 text-sm text-orange-700 dark:text-orange-400">
+              <p className="font-medium">The agent paused to ask a question:</p>
+              <p className="mt-1">
+                {latestQuestionEvent?.message ?? "Waiting for an answer."}
+              </p>
+              <p className="mt-1 text-xs opacity-80">
+                Answer it below in "Continue with agent" to resume the run.
+              </p>
             </div>
+          ) : (
+            isBlocked && (
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
+                This task is {task.status.replace("_", " ")}
+                {task.errorMessage ? `: ${task.errorMessage}` : "."}
+                {linkedApprovals.some((a) => a.status === "pending") &&
+                  " Resolve the pending approval below to let it resume."}
+              </div>
+            )
           )}
 
           {task.plan && (
@@ -267,14 +325,15 @@ export default function TaskDetailPage() {
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {task.errorMessage ? "Error" : "Result"}
               </p>
-              <p
-                className={cn(
-                  "whitespace-pre-wrap text-sm",
-                  task.errorMessage && "text-destructive",
-                )}
-              >
-                {task.errorMessage ?? task.resultSummary}
-              </p>
+              {task.errorMessage ? (
+                <p className="whitespace-pre-wrap text-sm text-destructive">
+                  {task.errorMessage}
+                </p>
+              ) : (
+                <div className="text-sm">
+                  <MarkdownContent content={task.resultSummary ?? ""} />
+                </div>
+              )}
             </div>
           )}
 
@@ -288,12 +347,15 @@ export default function TaskDetailPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Continue with agent</CardTitle>
+          <CardTitle className="text-base">
+            {isBlockedOnQuestion ? "Answer the agent's question" : "Continue with agent"}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Give the same agent a new instruction. The task stays the same and the agent continues
-            on a fresh run automatically.
+            {isBlockedOnQuestion
+              ? "Your answer resumes the same run — the agent picks up right where it paused."
+              : "Give the same agent a new instruction. The task stays the same and the agent continues on a fresh run automatically."}
           </p>
           {followUpPrompt && (
             <MultiSelectPromptCard
@@ -387,6 +449,16 @@ export default function TaskDetailPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <ListTree className="size-4" /> Child tasks
+              {children.filter((c) => c.status === "running" || c.status === "planning").length >
+                1 && (
+                <Badge variant="outline" className="border-0 bg-violet-500/15 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300">
+                  {
+                    children.filter((c) => c.status === "running" || c.status === "planning")
+                      .length
+                  }{" "}
+                  running in parallel
+                </Badge>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -397,9 +469,16 @@ export default function TaskDetailPage() {
                 className="flex items-center justify-between rounded-lg border p-3 text-sm hover:bg-muted/50"
               >
                 <span className="font-medium">{child.title}</span>
-                <Badge variant="outline" className={cn(STATUS_BADGE[child.status])}>
-                  {child.status.replace("_", " ")}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  {child.modelId && (
+                    <Badge variant="outline" className="border-0 bg-muted text-muted-foreground">
+                      {child.modelId}
+                    </Badge>
+                  )}
+                  <Badge variant="outline" className={cn(STATUS_BADGE[child.status])}>
+                    {child.status.replace("_", " ")}
+                  </Badge>
+                </div>
               </Link>
             ))}
           </CardContent>
@@ -419,11 +498,16 @@ export default function TaskDetailPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-medium">{agentName(run.agentId)}</span>
                   <div className="flex items-center gap-2">
+                    {run.modelId && (
+                      <Badge variant="outline" className="border-0 bg-muted text-muted-foreground">
+                        {run.modelId}
+                      </Badge>
+                    )}
                     <Badge variant="outline" className="border-0 bg-muted text-muted-foreground">
                       {run.trigger}
                     </Badge>
                     <Badge variant="outline" className={cn(RUN_STATUS_BADGE[run.status])}>
-                      {run.status.replace("_", " ")}
+                      {run.status === "running" ? "streaming…" : run.status.replace("_", " ")}
                     </Badge>
                   </div>
                 </div>
@@ -431,7 +515,9 @@ export default function TaskDetailPage() {
                   {run.stepCount} step{run.stepCount === 1 ? "" : "s"} · {formatDate(run.createdAt)}
                 </p>
                 {run.finalOutput && (
-                  <p className="mt-1 whitespace-pre-wrap text-xs">{run.finalOutput}</p>
+                  <div className="mt-1 text-xs">
+                    <MarkdownContent content={run.finalOutput} />
+                  </div>
                 )}
                 {run.errorMessage && (
                   <p className="mt-1 text-xs text-destructive">{run.errorMessage}</p>
