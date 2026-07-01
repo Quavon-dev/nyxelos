@@ -12,6 +12,7 @@ import {
 	buildStreamFailureResponse,
 	ensureVisibleAssistantResponse,
 } from "./chat-stream-response";
+import { encodeSseDataEvent, SSE_HEADERS } from "./chat-stream-sse";
 
 const bodySchema = z.object({
 	chatId: z.string(),
@@ -31,13 +32,6 @@ const CHAT_MODE_GUIDANCE = {
 		"Operate with automatic tool usage. Make a short internal plan, gather the missing local context with tools before asking the user, and carry out code and file changes directly when the path is clear. Only ask the user when a real product decision or a hard permission boundary blocks progress.",
 	auto: "Operate as a fully autonomous agent. Never ask the user clarifying or scoping questions — if the request is underspecified, pick the most reasonable interpretation, use tools to gather whatever context you need, and proceed immediately with the full task. Only surface a blocker to the user when an approval policy hard-stops a specific tool call; in that case name the blocked action and continue all unblocked work. Do not ask for confirmation, permission, or clarification under any circumstances.",
 } as const;
-
-const STREAM_HEADERS = {
-	"Content-Type": "text/plain; charset=utf-8",
-	"Cache-Control": "no-cache, no-transform",
-	Connection: "keep-alive",
-	"X-Accel-Buffering": "no",
-};
 
 async function persistAssistantMessage(chatId: string, content: string) {
 	const db = getDb();
@@ -175,7 +169,7 @@ export function registerChatStreamRoute(app: Hono) {
 					for await (const chunk of result.textStream) {
 						streamedText += chunk;
 						if (!clientDisconnected) {
-							controller.enqueue(encoder.encode(chunk));
+							controller.enqueue(encoder.encode(encodeSseDataEvent(chunk)));
 						}
 					}
 
@@ -192,7 +186,9 @@ export function registerChatStreamRoute(app: Hono) {
 							? assistantText.slice(streamedText.length)
 							: assistantText;
 						if (missingSuffix) {
-							controller.enqueue(encoder.encode(missingSuffix));
+							controller.enqueue(
+								encoder.encode(encodeSseDataEvent(missingSuffix)),
+							);
 						}
 					}
 
@@ -222,7 +218,9 @@ export function registerChatStreamRoute(app: Hono) {
 						? assistantText.slice(streamedText.length)
 						: assistantText;
 					if (missingSuffix) {
-						controller.enqueue(encoder.encode(missingSuffix));
+						controller.enqueue(
+							encoder.encode(encodeSseDataEvent(missingSuffix)),
+						);
 					}
 					controller.close();
 				}
@@ -232,6 +230,6 @@ export function registerChatStreamRoute(app: Hono) {
 			},
 		});
 
-		return new Response(stream, { headers: STREAM_HEADERS });
+		return new Response(stream, { headers: SSE_HEADERS });
 	});
 }

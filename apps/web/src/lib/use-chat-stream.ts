@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
+import { extractSseData } from "./chat-stream-parser";
 
 const SERVER_URL =
 	process.env.NEXT_PUBLIC_SERVER_URL ?? "http://localhost:3001";
@@ -76,15 +77,23 @@ export function useChatStream(chatId: string) {
 				const reader = res.body.getReader();
 				const decoder = new TextDecoder();
 				let full = "";
+				let buffer = "";
 
 				for (;;) {
 					const { done, value } = await reader.read();
 					if (done) break;
-					full += decoder.decode(value, { stream: true });
-					setStreamingMessage({ role: "assistant", content: full });
+					buffer += decoder.decode(value, { stream: true });
+					const parsed = extractSseData(buffer);
+					buffer = parsed.remaining;
+					if (parsed.text) {
+						full += parsed.text;
+						setStreamingMessage({ role: "assistant", content: full });
+					}
 				}
 
-				full += decoder.decode();
+				buffer += decoder.decode();
+				const parsed = extractSseData(buffer);
+				full += parsed.text;
 				const visibleResponse = full.trim() ? full : EMPTY_ASSISTANT_RESPONSE;
 				setStreamingMessage({ role: "assistant", content: visibleResponse });
 			} catch (err) {
