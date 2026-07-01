@@ -704,6 +704,9 @@ type NyxelTrpcClient = {
 		start: {
 			mutate(input: { taskId: string }): Promise<TaskSummary>;
 		};
+		reply: {
+			mutate(input: { taskId: string; instruction: string }): Promise<TaskSummary | null>;
+		};
 		events: {
 			query(input: { taskId: string }): Promise<TaskEventSummary[]>;
 		};

@@ -36,7 +36,7 @@ import {
 	listProviderImportSources,
 } from "../provider-imports";
 import { computeNextRunAt, runAutomation } from "../scheduler";
-import { startTaskExecutionIfIdle } from "../agent-runtime";
+import { executeManagedTask, startTaskExecutionIfIdle } from "../agent-runtime";
 import { listSkillCatalogForWorkspace } from "../skills-resolve";
 import { publicProcedure, router } from "./trpc";
 
@@ -787,6 +787,56 @@ export const appRouter = router({
 				const task = await getDb().getTask(input.taskId);
 				if (!task) throw new Error(`Unknown task: ${input.taskId}`);
 				return task;
+			}),
+		reply: publicProcedure
+			.input(
+				z.object({
+					taskId: z.string(),
+					instruction: z.string().min(1),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				const db = getDb();
+				const task = await db.getTask(input.taskId);
+				if (!task) throw new Error(`Unknown task: ${input.taskId}`);
+				const agentId = task.assignedAgentId ?? task.createdByAgentId;
+				if (!agentId) {
+					throw new Error("This task has no agent to continue with.");
+				}
+				const agent = await db.getAgent(agentId);
+				if (!agent) {
+					throw new Error(`Unknown agent: ${agentId}`);
+				}
+				await db.updateTask(task.id, {
+					status: "ready",
+					startedAt: new Date(),
+					completedAt: null,
+					errorMessage: null,
+				});
+				await db.createTaskEvent({
+					taskId: task.id,
+					workspaceId: task.workspaceId,
+					agentId,
+					kind: "comment",
+					message: "Follow-up instruction added.",
+					payload: { instruction: input.instruction },
+				});
+				await db.createTaskEvent({
+					taskId: task.id,
+					workspaceId: task.workspaceId,
+					agentId,
+					kind: "status_changed",
+					message: "Task reopened for follow-up execution.",
+					payload: { status: "ready" },
+				});
+				const result = await executeManagedTask({
+					taskId: task.id,
+					agent,
+					trigger: "chat",
+					chatId: task.sourceChatId,
+					instructionOverride: input.instruction,
+				});
+				return result.task;
 			}),
 		events: publicProcedure
 			.input(z.object({ taskId: z.string() }))

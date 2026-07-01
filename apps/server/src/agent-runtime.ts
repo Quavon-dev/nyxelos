@@ -71,14 +71,18 @@ async function buildSystemPrompt(agent: AgentRecord) {
 	);
 }
 
-async function planTask(agent: AgentRecord, task: TaskRecord): Promise<ExecutionPlan> {
+async function planTask(
+	agent: AgentRecord,
+	task: TaskRecord,
+	instructionOverride?: string,
+): Promise<ExecutionPlan> {
 	const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
 	const systemPrompt = await buildSystemPrompt(agent);
 	const planningPrompt = [
 		"Create a compact JSON execution plan for this task.",
 		"Return JSON only with keys: goal, successCriteria, steps, neededCapabilities, delegationCandidates, completionCheck.",
 		`Task title: ${task.title}`,
-		`Task instruction: ${task.instruction}`,
+		`Task instruction: ${buildTaskPrompt(task, instructionOverride)}`,
 		agent.delegateAgentIds.length > 0
 			? `Delegate candidates available: ${agent.delegateAgentIds.join(", ")}`
 			: "Delegate candidates available: none",
@@ -90,13 +94,27 @@ async function planTask(agent: AgentRecord, task: TaskRecord): Promise<Execution
 		messages: [{ role: "user", content: planningPrompt }],
 	});
 	const raw = await result.text;
-	return toExecutionPlan(task, raw);
+  return toExecutionPlan(task, raw);
+}
+
+function buildTaskPrompt(task: TaskRecord, instructionOverride?: string): string {
+	const base = task.instruction.trim();
+	const override = instructionOverride?.trim();
+	if (!override) return base;
+	return [
+		"Original task:",
+		base,
+		"",
+		"Follow-up instruction:",
+		override,
+	].join("\n");
 }
 
 async function runDirectExecution(
 	agent: AgentRecord,
 	task: TaskRecord,
 	run: AgentRunRecord,
+	instructionOverride?: string,
 ): Promise<string> {
 	const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
 	const systemPrompt = await buildSystemPrompt(agent);
@@ -109,7 +127,9 @@ async function runDirectExecution(
 		systemPrompt,
 		installedProviders,
 		tools,
-		messages: [{ role: "user", content: task.instruction }],
+		messages: [
+			{ role: "user", content: buildTaskPrompt(task, instructionOverride) },
+		],
 	});
 	return result.text;
 }
@@ -120,6 +140,7 @@ export async function executeManagedTask(input: {
 	trigger: "task" | "automation" | "delegate" | "chat";
 	chatId?: string | null;
 	automationId?: string | null;
+	instructionOverride?: string;
 }): Promise<{ task: TaskRecord; run: AgentRunRecord; output: string }> {
 	const db = getDb();
 	const task = await db.getTask(input.taskId);
@@ -140,6 +161,8 @@ export async function executeManagedTask(input: {
 		status: "planning",
 		startedAt: task.startedAt ?? new Date(),
 		assignedAgentId: task.assignedAgentId ?? input.agent.id,
+		completedAt: null,
+		errorMessage: null,
 	});
 	await db.createTaskEvent({
 		taskId: task.id,
@@ -150,7 +173,15 @@ export async function executeManagedTask(input: {
 		message: `Run started by ${input.agent.name}.`,
 	});
 
-	const plan = await planTask(input.agent, task);
+	const activeTask: TaskRecord = {
+		...task,
+		status: "planning",
+		startedAt: task.startedAt ?? new Date(),
+		assignedAgentId: task.assignedAgentId ?? input.agent.id,
+		completedAt: null,
+		errorMessage: null,
+	};
+	const plan = await planTask(input.agent, activeTask, input.instructionOverride);
 	await db.updateTask(task.id, {
 		status: "running",
 		plan: plan as unknown as Record<string, unknown>,
@@ -211,7 +242,7 @@ export async function executeManagedTask(input: {
 
 		const synthesisPrompt = [
 			"Merge the delegated task results into one final response.",
-			`Original task: ${task.instruction}`,
+			`Original task: ${buildTaskPrompt(task, input.instructionOverride)}`,
 			"Delegated outputs:",
 			...children.map(
 				(child) => `- ${child.agentId}: ${child.resultSummary.slice(0, 4000)}`,
@@ -229,7 +260,12 @@ export async function executeManagedTask(input: {
 		});
 		output = await synthesis.text;
 	} else {
-		output = await runDirectExecution(input.agent, task, run);
+		output = await runDirectExecution(
+			input.agent,
+			task,
+			run,
+			input.instructionOverride,
+		);
 	}
 
 	run = await db.updateAgentRun(run.id, {
@@ -266,6 +302,7 @@ export async function startTaskExecutionIfIdle(input: {
 	trigger: "task" | "automation" | "delegate" | "chat";
 	chatId?: string | null;
 	automationId?: string | null;
+	instructionOverride?: string;
 }): Promise<{ task: TaskRecord; run: AgentRunRecord; output: string } | null> {
 	const db = getDb();
 	const task = await db.getTask(input.taskId);
@@ -284,5 +321,6 @@ export async function startTaskExecutionIfIdle(input: {
 		trigger: input.trigger,
 		chatId: input.chatId ?? task.sourceChatId ?? null,
 		automationId: input.automationId ?? null,
+		instructionOverride: input.instructionOverride,
 	});
 }

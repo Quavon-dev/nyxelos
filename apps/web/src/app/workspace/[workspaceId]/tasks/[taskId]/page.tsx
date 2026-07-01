@@ -93,21 +93,11 @@ export default function TaskDetailPage() {
   });
   const [followUpInstruction, setFollowUpInstruction] = useState("");
   const followUpTask = useMutation({
-    mutationFn: () => {
-      const assignee = task?.assignedAgentId ?? task?.createdByAgentId ?? null;
-      if (!task || !assignee) {
-        throw new Error("No agent is available for a follow-up task.");
-      }
-      return trpcClient.tasks.create.mutate({
-        workspaceId,
-        parentTaskId: task.id,
-        sourceChatId: task.sourceChatId ?? null,
-        createdByAgentId: assignee,
-        assignedAgentId: assignee,
-        title: `${task.title} · follow-up`,
+    mutationFn: () =>
+      trpcClient.tasks.reply.mutate({
+        taskId,
         instruction: followUpInstruction,
-      });
-    },
+      }),
     onSuccess: () => {
       setFollowUpInstruction("");
       invalidate();
@@ -285,8 +275,8 @@ export default function TaskDetailPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Give the same agent a new instruction. A child task is created and starts
-            automatically when an assignee is available.
+            Give the same agent a new instruction. The task stays the same and the agent
+            continues on a fresh run automatically.
           </p>
           <Textarea
             value={followUpInstruction}
@@ -299,10 +289,10 @@ export default function TaskDetailPage() {
               onClick={() => followUpTask.mutate()}
               disabled={followUpTask.isPending || followUpInstruction.trim().length === 0}
             >
-              {followUpTask.isPending ? "Starting…" : "Create follow-up task"}
+              {followUpTask.isPending ? "Starting…" : "Send follow-up"}
             </Button>
             <p className="text-xs text-muted-foreground">
-              This keeps the agent session going without leaving this page.
+              This keeps the agent session going without creating a new task.
             </p>
           </div>
         </CardContent>
