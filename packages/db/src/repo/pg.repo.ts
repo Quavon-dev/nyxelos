@@ -1100,6 +1100,13 @@ export function createPgRepository(connectionString: string): DbRepository {
 			await db.delete(schema.mcpServer).where(eq(schema.mcpServer.id, id));
 		},
 
+		async updateMcpServerOAuthState(id, oauthState) {
+			await db
+				.update(schema.mcpServer)
+				.set({ oauthState })
+				.where(eq(schema.mcpServer.id, id));
+		},
+
 		async getKnowledgeBaseConfig(workspaceId) {
 			const row = await db.query.knowledgeBaseConfig.findFirst({
 				where: eq(schema.knowledgeBaseConfig.workspaceId, workspaceId),

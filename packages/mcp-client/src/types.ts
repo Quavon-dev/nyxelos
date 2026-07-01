@@ -1,9 +1,26 @@
 export type McpTransportKind = "stdio" | "http";
 
+/** Everything InMemoryMcpOAuthProvider holds that's worth surviving a
+ * restart. Opaque to callers — persist and hand back verbatim. */
+export interface McpOAuthProviderState {
+	clientInfo?: unknown;
+	tokens?: unknown;
+	codeVerifier?: string;
+	discoveryState?: unknown;
+}
+
 export interface McpOAuthConfig {
 	callbackUrl: string;
 	clientName?: string;
 	clientMetadataUrl?: string;
+	/** Rehydrates the OAuth provider from a previously-persisted state
+	 * instead of starting a fresh session (dynamic client registration +
+	 * full re-authorization) on every process restart. */
+	initialState?: McpOAuthProviderState;
+	/** Called every time the provider's state changes (new client
+	 * registration, new/refreshed tokens, PKCE verifier) so the caller can
+	 * persist it. */
+	onStateChange?: (state: McpOAuthProviderState) => void;
 }
 
 /** Matches packages/db's McpServerRecord shape closely on purpose — this is

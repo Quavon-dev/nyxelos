@@ -1,5 +1,5 @@
-import assert from "node:assert/strict";
 import { afterEach, test } from "bun:test";
+import assert from "node:assert/strict";
 import type { McpServerRecord } from "@nyxel/db";
 import { completeMcpServerAuthorization, mcpManager } from "./mcp-runtime";
 
@@ -26,6 +26,7 @@ test("completeMcpServerAuthorization reuses the pending OAuth session instead of
     env: null,
     enabled: true,
     createdAt: new Date("2026-07-01T00:00:00.000Z"),
+    oauthState: null,
   };
 
   mcpManager.rememberConfig = (config) => {
@@ -40,8 +41,5 @@ test("completeMcpServerAuthorization reuses the pending OAuth session instead of
 
   await completeMcpServerAuthorization(server, "auth-code-123");
 
-  assert.deepEqual(calls, [
-    "remember:server-1",
-    "complete:server-1:auth-code-123",
-  ]);
+  assert.deepEqual(calls, ["remember:server-1", "complete:server-1:auth-code-123"]);
 });

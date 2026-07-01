@@ -1,5 +1,5 @@
-import type { McpServerRecord } from "@nyxel/db";
-import { McpClientManager } from "@nyxel/mcp-client";
+import { getDb, type McpServerRecord } from "@nyxel/db";
+import { McpClientManager, type McpOAuthProviderState } from "@nyxel/mcp-client";
 
 /** Process-wide MCP connection pool. See ARCHITECTURE.md section 8. */
 export const mcpManager = new McpClientManager();
@@ -30,6 +30,19 @@ function toMcpServerConfig(server: McpServerRecord) {
 				? {
 						callbackUrl: buildMcpOAuthCallbackUrl(server),
 						clientName: `Nyxel · ${server.name}`,
+						// Rehydrate whatever was persisted last time so a server
+						// restart doesn't force every previously-authorized
+						// connector back through dynamic client registration and
+						// full re-authorization. Every subsequent change (new
+						// tokens, refreshed tokens, new client registration) is
+						// written straight back here.
+						initialState: server.oauthState ?? undefined,
+						onStateChange: (state: McpOAuthProviderState) => {
+							void getDb().updateMcpServerOAuthState(
+								server.id,
+								state as unknown as Record<string, unknown>,
+							);
+						},
 					}
 				: undefined,
 	};

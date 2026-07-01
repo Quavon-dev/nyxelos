@@ -162,6 +162,13 @@
       "when": 1783000010001,
       "tag": "0022_mcp_server_env",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1783000011001,
+      "tag": "0023_mcp_server_oauth_state",
+      "breakpoints": true
     }
   ]
 }

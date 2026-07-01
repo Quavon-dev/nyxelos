@@ -1272,6 +1272,13 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			db.delete(schema.mcpServer).where(eq(schema.mcpServer.id, id)).run();
 		},
 
+		async updateMcpServerOAuthState(id, oauthState) {
+			db.update(schema.mcpServer)
+				.set({ oauthState })
+				.where(eq(schema.mcpServer.id, id))
+				.run();
+		},
+
 		async getKnowledgeBaseConfig(workspaceId) {
 			const row = db
 				.select()

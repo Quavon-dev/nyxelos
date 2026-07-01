@@ -16,6 +16,7 @@ import type {
 import {
 	McpAuthorizationRequiredError,
 	McpInvalidConfigurationError,
+	type McpOAuthProviderState,
 	type McpServerConfig,
 	type McpToolSummary,
 } from "./types";
@@ -94,12 +95,38 @@ class InMemoryMcpOAuthProvider implements OAuthClientProvider {
 	private savedCodeVerifier?: string;
 	private lastAuthorizationUrl?: URL;
 	private savedDiscoveryState?: OAuthDiscoveryState;
+	private onStateChange?: (state: McpOAuthProviderState) => void;
 
 	constructor(
 		private readonly callbackUrl: string,
 		private readonly clientName: string,
 		readonly clientMetadataUrl?: string,
-	) {}
+		initialState?: McpOAuthProviderState,
+		onStateChange?: (state: McpOAuthProviderState) => void,
+	) {
+		this.clientInfo = initialState?.clientInfo as
+			| OAuthClientInformationMixed
+			| undefined;
+		this.savedTokens = initialState?.tokens as OAuthTokens | undefined;
+		this.savedCodeVerifier = initialState?.codeVerifier;
+		this.savedDiscoveryState = initialState?.discoveryState as
+			| OAuthDiscoveryState
+			| undefined;
+		this.onStateChange = onStateChange;
+	}
+
+	getState(): McpOAuthProviderState {
+		return {
+			clientInfo: this.clientInfo,
+			tokens: this.savedTokens,
+			codeVerifier: this.savedCodeVerifier,
+			discoveryState: this.savedDiscoveryState,
+		};
+	}
+
+	private emitStateChange(): void {
+		this.onStateChange?.(this.getState());
+	}
 
 	get redirectUrl(): string {
 		return this.callbackUrl;
@@ -121,6 +148,7 @@ class InMemoryMcpOAuthProvider implements OAuthClientProvider {
 
 	saveClientInformation(clientInformation: OAuthClientInformationMixed): void {
 		this.clientInfo = clientInformation;
+		this.emitStateChange();
 	}
 
 	tokens(): OAuthTokens | undefined {
@@ -129,10 +157,12 @@ class InMemoryMcpOAuthProvider implements OAuthClientProvider {
 
 	saveTokens(tokens: OAuthTokens): void {
 		this.savedTokens = tokens;
+		this.emitStateChange();
 	}
 
 	saveDiscoveryState(state: OAuthDiscoveryState): void {
 		this.savedDiscoveryState = state;
+		this.emitStateChange();
 	}
 
 	discoveryState(): OAuthDiscoveryState | undefined {
@@ -145,6 +175,7 @@ class InMemoryMcpOAuthProvider implements OAuthClientProvider {
 
 	saveCodeVerifier(codeVerifier: string): void {
 		this.savedCodeVerifier = codeVerifier;
+		this.emitStateChange();
 	}
 
 	codeVerifier(): string {
@@ -222,6 +253,8 @@ export class McpClientManager {
 			config.oauth.callbackUrl,
 			config.oauth.clientName ?? "Nyxel MCP Client",
 			config.oauth.clientMetadataUrl,
+			config.oauth.initialState,
+			config.oauth.onStateChange,
 		);
 		this.oauthProviders.set(config.id, provider);
 		return provider;

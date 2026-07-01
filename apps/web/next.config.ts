@@ -10,6 +10,17 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname, "../.."),
   },
+  // Dev-only same-origin proxy to the backend, mirroring the /trpc + /api
+  // path routing Caddy does in production — lets the client hit a relative
+  // URL instead of a hardcoded cross-origin port during local development.
+  async rewrites() {
+    if (process.env.NODE_ENV !== "development") return [];
+    const target = process.env.NYXEL_DEV_SERVER_URL ?? "http://localhost:3001";
+    return [
+      { source: "/trpc/:path*", destination: `${target}/trpc/:path*` },
+      { source: "/api/:path*", destination: `${target}/api/:path*` },
+    ];
+  },
 };
 
 export default nextConfig;

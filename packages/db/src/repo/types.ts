@@ -349,6 +349,10 @@ export interface McpServerRecord {
 	url: string | null;
 	/** Extra env vars passed to the spawned process for stdio servers. */
 	env: Record<string, string> | null;
+	/** Persisted OAuth session for http servers (dynamic client registration
+	 * result + tokens) — see packages/mcp-client. Without this, restarting
+	 * the server drops every previously-authorized http connector's session. */
+	oauthState: Record<string, unknown> | null;
 	enabled: boolean;
 	createdAt: Date;
 }
@@ -746,6 +750,10 @@ export interface DbRepository {
 	listMcpServersByWorkspace(workspaceId: string): Promise<McpServerRecord[]>;
 	getMcpServer(id: string): Promise<McpServerRecord | null>;
 	deleteMcpServer(id: string): Promise<void>;
+	updateMcpServerOAuthState(
+		id: string,
+		oauthState: Record<string, unknown>,
+	): Promise<void>;
 
 	getKnowledgeBaseConfig(
 		workspaceId: string,

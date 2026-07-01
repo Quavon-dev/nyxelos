@@ -245,6 +245,12 @@ export const mcpServer = sqliteTable("mcp_server", {
 	 * credentials file a local command needs to read. Never sent to http
 	 * servers — those authenticate via OAuth, not process env. */
 	env: text("env", { mode: "json" }).$type<Record<string, string>>(),
+	/** Persisted OAuth session for http servers — dynamic client registration
+	 * result, access/refresh tokens, PKCE state. Without this, every server
+	 * restart drops the in-memory OAuth provider and forces re-authorization
+	 * for every previously-connected http connector. Opaque blob because the
+	 * shape belongs to @modelcontextprotocol/sdk, not this schema. */
+	oauthState: text("oauth_state", { mode: "json" }).$type<Record<string, unknown>>(),
 	enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
