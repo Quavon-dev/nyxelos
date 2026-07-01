@@ -145,6 +145,3 @@ bun.lockb.bak
 *.sqlite
 *.sqlite3
 *.db
-
-# Drizzle
-drizzle/meta/

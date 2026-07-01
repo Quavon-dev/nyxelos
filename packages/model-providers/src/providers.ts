@@ -1,7 +1,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
-import { detectLocalModels } from "./detect";
+import { detectLocalModels, getLmStudioBaseUrl, getOllamaBaseUrl } from "./detect";
 
 export interface CloudModelDefinition {
   /** e.g. "anthropic/claude-sonnet-5" */
@@ -45,16 +45,19 @@ export async function listAvailableModels(): Promise<ModelSummary[]> {
   return [...local.map((m) => ({ id: m.id, label: m.label, kind: "local" as const })), ...cloud];
 }
 
-const LOCAL_BASE_URLS: Record<string, string> = {
-  ollama: "http://localhost:11434/v1",
-  lmstudio: "http://localhost:1234/v1",
-};
+function getLocalBaseUrl(prefix: string): string | undefined {
+  if (prefix === "ollama") return `${getOllamaBaseUrl()}/v1`;
+  if (prefix === "lmstudio") return `${getLmStudioBaseUrl()}/v1`;
+  return undefined;
+}
 
 /** Resolves a model id (e.g. "ollama/llama3.1:8b" or "anthropic/claude-sonnet-5")
  * to a Vercel AI SDK LanguageModel instance. */
 export function resolveModel(modelId: string): LanguageModel {
   const [prefix, ...rest] = modelId.split("/");
   const nativeId = rest.join("/");
+
+  if (!prefix) throw new Error(`Unknown model id: ${modelId}`);
 
   if (prefix === "anthropic") {
     const def = CLOUD_MODELS.find((m) => m.id === modelId);
@@ -63,7 +66,7 @@ export function resolveModel(modelId: string): LanguageModel {
     return anthropic(def.modelName);
   }
 
-  const baseURL = prefix ? LOCAL_BASE_URLS[prefix] : undefined;
+  const baseURL = getLocalBaseUrl(prefix);
   if (!baseURL) throw new Error(`Unknown model id: ${modelId}`);
 
   const compatible = createOpenAICompatible({ name: prefix, baseURL });

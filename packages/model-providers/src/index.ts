@@ -1,6 +1,6 @@
-export { detectLocalModels, detectLmStudioModels, detectOllamaModels } from "./detect";
 export type { DetectedLocalModel } from "./detect";
-export { listAvailableModels, resolveModel } from "./providers";
+export { detectLmStudioModels, detectLocalModels, detectOllamaModels } from "./detect";
 export type { CloudModelDefinition, ModelSummary } from "./providers";
-export { streamChat } from "./stream";
+export { listAvailableModels, resolveModel } from "./providers";
 export type { ChatMessageInput, StreamChatInput } from "./stream";
+export { streamChat } from "./stream";

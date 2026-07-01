@@ -1,0 +1,65 @@
+# Server mode: PostgreSQL + Caddy reverse proxy with automatic TLS for your
+# own domain, full Better-Auth login. See ARCHITECTURE.md section 11 and
+# ADR-0002. Requires a .env with NYXEL_DOMAIN, POSTGRES_PASSWORD, and
+# BETTER_AUTH_SECRET set — see .env.example.
+#
+# Usage: docker compose -f docker-compose.server.yml up --build -d
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: nyxel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: nyxel
+    volumes:
+      - nyxel-postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    environment:
+      DB_DRIVER: pg
+      DATABASE_URL: postgres://nyxel:${POSTGRES_PASSWORD}@postgres:5432/nyxel
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+      BETTER_AUTH_URL: https://${NYXEL_DOMAIN}
+      WEB_ORIGIN: https://${NYXEL_DOMAIN}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      # Same origin as the web app — Caddy below path-routes /trpc and /api
+      # to the server container, so no CORS setup is needed in server mode.
+      NEXT_PUBLIC_SERVER_URL: https://${NYXEL_DOMAIN}
+    depends_on:
+      - server
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      NYXEL_DOMAIN: ${NYXEL_DOMAIN:?set NYXEL_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - nyxel-caddy-data:/data
+      - nyxel-caddy-config:/config
+    depends_on:
+      - server
+      - web
+    restart: unless-stopped
+
+volumes:
+  nyxel-postgres:
+  nyxel-caddy-data:
+  nyxel-caddy-config:

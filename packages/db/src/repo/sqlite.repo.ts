@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
+import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../schema/sqlite";
 import type { DbRepository } from "./types";
 
@@ -47,7 +47,11 @@ export function createSqliteRepository(filePath: string): DbRepository {
     },
 
     async listWorkspacesByUser(userId) {
-      const rows = db.select().from(schema.workspace).where(eq(schema.workspace.userId, userId)).all();
+      const rows = db
+        .select()
+        .from(schema.workspace)
+        .where(eq(schema.workspace.userId, userId))
+        .all();
       return rows.map((r) => ({
         id: r.id,
         name: r.name,
@@ -71,7 +75,11 @@ export function createSqliteRepository(filePath: string): DbRepository {
     },
 
     async listChatsByWorkspace(workspaceId) {
-      const rows = db.select().from(schema.chat).where(eq(schema.chat.workspaceId, workspaceId)).all();
+      const rows = db
+        .select()
+        .from(schema.chat)
+        .where(eq(schema.chat.workspaceId, workspaceId))
+        .all();
       return rows.map((r) => ({
         id: r.id,
         workspaceId: r.workspaceId,

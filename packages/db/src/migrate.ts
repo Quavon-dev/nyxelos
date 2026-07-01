@@ -5,6 +5,11 @@ import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
 import { migrate as migratePg } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
+// Resolved relative to this file, not the caller's cwd, so `bun run
+// db:migrate` works the same whether invoked from the repo root, from
+// packages/db, or from apps/server.
+const PACKAGE_DIR = new URL(".", import.meta.url).pathname;
+
 async function main() {
   const raw = process.env.DB_DRIVER?.toLowerCase();
 
@@ -13,14 +18,14 @@ async function main() {
     const client = postgres(url, { max: 1 });
     const db = drizzlePg(client);
     console.log(`Running Postgres migrations against ${url}...`);
-    await migratePg(db, { migrationsFolder: "./drizzle/pg" });
+    await migratePg(db, { migrationsFolder: `${PACKAGE_DIR}../drizzle/pg` });
     await client.end();
   } else {
     const path = process.env.DATABASE_URL ?? "./nyxel.sqlite";
     const sqlite = new Database(path, { create: true });
     const db = drizzleSqlite(sqlite);
     console.log(`Running SQLite migrations against ${path}...`);
-    migrateSqlite(db, { migrationsFolder: "./drizzle/sqlite" });
+    migrateSqlite(db, { migrationsFolder: `${PACKAGE_DIR}../drizzle/sqlite` });
   }
 
   console.log("Migrations complete.");

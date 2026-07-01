@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { drizzle } from "drizzle-orm/postgres-js";
 import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "../schema/pg";
 import type { DbRepository } from "./types";
@@ -96,10 +96,7 @@ export function createPgRepository(connectionString: string): DbRepository {
     },
 
     async listMessages(chatId) {
-      const rows = await db
-        .select()
-        .from(schema.message)
-        .where(eq(schema.message.chatId, chatId));
+      const rows = await db.select().from(schema.message).where(eq(schema.message.chatId, chatId));
       return rows.map((r) => ({
         id: r.id,
         chatId: r.chatId,

@@ -1,0 +1,33 @@
+{
+  "name": "@nyxel/web",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "next dev --turbopack -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "latest",
+    "@tanstack/react-query": "latest",
+    "@trpc/client": "latest",
+    "class-variance-authority": "latest",
+    "clsx": "latest",
+    "next": "latest",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "latest"
+  },
+  "devDependencies": {
+    "@nyxel/server": "workspace:*",
+    "@tailwindcss/postcss": "latest",
+    "@types/bun": "latest",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tailwindcss": "latest",
+    "tw-animate-css": "latest",
+    "typescript": "^5.9.0"
+  }
+}

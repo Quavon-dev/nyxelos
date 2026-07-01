@@ -1,0 +1,41 @@
+# PC mode: SQLite, no reverse proxy, everything reachable on localhost.
+# `host.docker.internal` lets the containerized server reach a model
+# runtime (Ollama, LM Studio) installed directly on your machine — see
+# ARCHITECTURE.md section 7 and packages/model-providers/src/detect.ts.
+#
+# Usage: docker compose -f docker-compose.pc.yml up --build
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      DB_DRIVER: sqlite
+      DATABASE_URL: /data/nyxel.sqlite
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-me}
+      BETTER_AUTH_URL: http://localhost:3001
+      WEB_ORIGIN: http://localhost:3000
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      LMSTUDIO_BASE_URL: http://host.docker.internal:1234
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - nyxel-data:/data
+    ports:
+      - "3001:3001"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      NEXT_PUBLIC_SERVER_URL: http://localhost:3001
+    ports:
+      - "3000:3000"
+    depends_on:
+      - server
+
+volumes:
+  nyxel-data:
