@@ -1,103 +1,82 @@
-# NyxelOS
+# ✨ NyxelOS: The Agentic Operating System 🧠
 
-A fully open source, self-hosted agentic OS with a web UI — on your own PC or on your own server with a URL and login. Local and cloud AI models, skills, MCP servers, plugins, normal chats, autonomous agents, and super-agents in a single UI consistently built in the shadcn/ui default design.
+NyxelOS is not just another app; it's a fully open-source, self-hosted agentic OS designed to bring your local and cloud AI models into a single, cohesive interface. Think of it as unifying your digital existence: local servers, cloud services, autonomous agents, and knowledge base—all in one place.
 
-Status: Self-hosting polish (Phase 5) is implemented for first-run setup, Docker packaging, and Caddy-backed server installs. Phase 6 is partially implemented: DB-backed dynamic skills with a "Skills" tab (selection + creation), automatic knowledge-base injection into every chat/agent/automation, and file-watch automations — see `knowledge-base/01-Decisions/ADR-0013-*.md`. The product is still pre-1.0 software.
+🛡️ **Local-First & Open Source** 🌐
+Run NyxelOS entirely on your hardware or deploy it across a server cluster. Full control, full privacy. Contributors are welcome!
 
-Full architecture plan: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-Installation guide: [`docs/INSTALL.md`](docs/INSTALL.md)
+---
+### 🚀 Core Principles of NyxelOS
+*   **🧠 Agentic Autonomy:** Beyond simple chat. Our system supports normal chats, advanced autonomous agents, and Super-Agents capable of complex tasks.
+*   **🌳 Local-First:** Usable offline once the local model ecosystem is running. Your data stays yours.
+*   **🧱 Modularity:** Swappable components—models, skills, MCP servers, and databases. Everything plugs into the robust core.
+*   **🎨 Consistent UI:** A clean, predictable experience powered by `shadcn/ui`.
 
-Living project documentation (Obsidian vault): [`knowledge-base/`](knowledge-base/)
+### 🛠️ Tech Stack at a Glance
+*   **Backend:** Bun runtime, Hono, tRPC. The intelligence layer.
+*   **Frontend:** React, TanStack Start/Query, `shadcn/ui`. The visual interface.
+*   **Data:** Drizzle ORM layer supporting PostgreSQL (Server Mode) or SQLite (PC/Dev Mode).
+*   **Connectivity:** Vercel AI SDK & Official MCP TypeScript SDK for seamless model and tool integration.
 
-## Project layout
+---
+### 📖 Getting Started & Deployment Modes
 
-```
-apps/
-  web/      # Next.js (App Router) + shadcn/ui frontend
-  server/   # Bun + Hono + tRPC backend, agent engine
-  companion-macos/ # MCP server for local Calendar/Contacts/Photos/Reminders access on macOS
-packages/
-  db/                 # Drizzle schema + repository layer (Postgres or SQLite)
-  model-providers/    # local model detection + cloud/local model routing
-```
-
-## Local development (no Docker)
-
-Requires [Bun](https://bun.sh) 1.3+.
-
-```
+#### 💻 Local Development (Dev Machines / Quick Test)
+Ideal for development and personal testing without Docker. Requires [Bun](https://bun.sh) 1.3+.
+```bash
 bun install
 
+# Setup environment files
 cp apps/server/.env.example apps/server/.env
 cp apps/web/.env.example apps/web/.env.local
 
-bun dev
+bun dev # Start both server and web interfaces
 ```
+> 💡 **Tip:** For models to show up automatically, run Ollama or LM Studio beforehand. API keys can also be configured in `apps/server/.env`.
 
-This starts the server on `http://localhost:3001` (SQLite database by default, a `nyxel.sqlite` file is created next to `apps/server`) and the web app on `http://localhost:3000`. Start [Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai) beforehand to have local models show up automatically, or set `ANTHROPIC_API_KEY` in `apps/server/.env` to enable Claude models.
+#### 🍎 macOS Companion Server (Phase 4)
+Give Nyxel access to your local ecosystem! The `apps/companion-macos` package functions as a dedicated MCP server for deep integration with:
+*   📅 Calendar Events
+*   📞 Contacts
+*   🖼️ Photo Search
+*   🔔 Reminders
 
-## macOS companion (Phase 4)
+This is the bridge between AI and your desktop life. Full detail in [`apps/companion-macos/README.md`](apps/companion-macos/README.md).
 
-The local-data companion lives in [`apps/companion-macos/`](apps/companion-macos). It is a standalone MCP server that exposes local calendar, contacts, photo search, and reminders tools for Nyxel. The preferred path is the native Swift bridge (`EventKit`, `Contacts`, `PhotoKit`); if that bridge is missing, the server falls back to an AppleScript/Spotlight implementation behind the same tool names.
+#### 🐳 Docker Compose Deployment (PC Mode / Server Mode)
+Deploying via Docker is the recommended path for stability.
 
-Quick start:
-
+**🖥️ PC Mode (Testing/Home Server):**
 ```bash
-npm install --prefix apps/companion-macos --package-lock=false
-swift build --package-path apps/companion-macos/native -c release
-node --experimental-strip-types apps/companion-macos/src/index.ts
-```
-
-Then register it in Nyxel as a `stdio` MCP server:
-
-- Command: `node`
-- Args: `--experimental-strip-types /ABSOLUTE/PATH/TO/apps/companion-macos/src/index.ts`
-
-More detail: [`apps/companion-macos/README.md`](apps/companion-macos/README.md)
-
-## PC mode (Docker, SQLite)
-
-```
-cp .env.example .env   # set BETTER_AUTH_SECRET at minimum
+cp .env.example .env   # Secure your app with BETTER_AUTH_SECRET
 docker compose -f docker-compose.pc.yml up --build
 ```
+Access at `http://localhost:3000`.
 
-Then open `http://localhost:3000` and complete the setup wizard:
-
-- choose `PC mode`
-- create the first owner account
-- confirm the primary workspace name
-- keep `http://localhost:3000` as the public app URL unless you changed the exposed port
-
-## Server mode (Docker, PostgreSQL + your own domain)
-
-```
-cp .env.example .env   # set NYXEL_DOMAIN, POSTGRES_PASSWORD, BETTER_AUTH_SECRET, optionally ACME_EMAIL
+**🌐 Server Mode (Production/Uptime):**
+```bash
+cp .env.example .env   # Set NYXEL_DOMAIN, POSTGRES_PASSWORD, etc.
 docker compose -f docker-compose.server.yml up --build -d
 ```
+Access at `https://NYXEL_DOMAIN`. Caddy handles TLS certificates, health checks (`/healthz`), and routing.
 
-Then browse to `https://NYXEL_DOMAIN` and complete the setup wizard:
-
-- choose `Server mode`
-- create the first owner account
-- keep the default public app URL (`https://NYXEL_DOMAIN`) unless you front it differently
-
-Caddy requests a TLS certificate for `NYXEL_DOMAIN` automatically, serves `/healthz`, reverse-proxies `/trpc/*` and `/api/*` to the server, and sends everything else to the web app.
-
-## Docker images
-
-The Compose files now assign stable local image names:
-
-- `nyxel/server:pc`
-- `nyxel/web:pc`
-- `nyxel/server:server`
-- `nyxel/web:server`
-
-That makes it straightforward to prebuild, inspect, or retag images independently of a running stack.
-
-## Database migrations
-
+---
+### 📂 Project Structure Deep Dive
 ```
-bun run db:generate   # generates SQL for both dialects from the Drizzle schema
-bun run db:migrate    # applies migrations for whichever DB_DRIVER is active
+apps/
+  web/: Frontend UI (Next.js, shadcn/ui) 🎨
+  server/: Core Agent Engine (Bun, Hono, tRPC) 🔥
+  companion-macos/: Local macOS Data MCP Server (Phase 4 integration) 🍎
+
+packages/
+  db/: Drizzle Schema & Repository Layer (Postgres/SQLite) 🗄️
+  model-providers/: Handles routing between local and cloud AI models. ☁️⚡️
 ```
+
+### ⚙️ Development Tools
+*   **DB Migration:** Use `bun run db:generate` and `bun run db:migrate`.
+*   **Knowledge Base:** All documentation lives in the Obsidian vault, automatically synced via ADR-0013.
+
+🔗 **Architecture Plan:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+🔗 **Installation Guide:** [`docs/INSTALL.md`](docs/INSTALL.md)
+🔗 **Obsidian Knowledge Base:** [`knowledge-base/`](knowledge-base/)
