@@ -15,6 +15,7 @@ Living project documentation (Obsidian vault): [`knowledge-base/`](knowledge-bas
 apps/
   web/      # Next.js (App Router) + shadcn/ui frontend
   server/   # Bun + Hono + tRPC backend, agent engine
+  companion-macos/ # MCP server for local Calendar/Contacts/Photos access on macOS
 packages/
   db/                 # Drizzle schema + repository layer (Postgres or SQLite)
   model-providers/    # local model detection + cloud/local model routing
@@ -34,6 +35,25 @@ bun dev
 ```
 
 This starts the server on `http://localhost:3001` (SQLite database by default, a `nyxel.sqlite` file is created next to `apps/server`) and the web app on `http://localhost:3000`. Start [Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai) beforehand to have local models show up automatically, or set `ANTHROPIC_API_KEY` in `apps/server/.env` to enable Claude models.
+
+## macOS companion (Phase 4)
+
+The local-data companion lives in [`apps/companion-macos/`](apps/companion-macos). It is a standalone MCP server that exposes local calendar, contacts, and photo search tools for Nyxel. The preferred path is the native Swift bridge (`EventKit`, `Contacts`, `PhotoKit`); if that bridge is missing, the server falls back to an AppleScript/Spotlight implementation behind the same tool names.
+
+Quick start:
+
+```bash
+npm install --prefix apps/companion-macos --package-lock=false
+swift build --package-path apps/companion-macos/native -c release
+node --experimental-strip-types apps/companion-macos/src/index.ts
+```
+
+Then register it in Nyxel as a `stdio` MCP server:
+
+- Command: `node`
+- Args: `--experimental-strip-types /ABSOLUTE/PATH/TO/apps/companion-macos/src/index.ts`
+
+More detail: [`apps/companion-macos/README.md`](apps/companion-macos/README.md)
 
 ## PC mode (Docker, SQLite)
 

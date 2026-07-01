@@ -145,3 +145,6 @@ bun.lockb.bak
 *.sqlite
 *.sqlite3
 *.db
+
+# Swift Package Manager build artifacts
+.build/
