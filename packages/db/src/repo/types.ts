@@ -374,9 +374,14 @@ export interface DbRepository {
 	listWorkspacesByUser(userId: string): Promise<WorkspaceRecord[]>;
 	listWorkspaces(): Promise<WorkspaceRecord[]>;
 	getWorkspace(workspaceId: string): Promise<WorkspaceRecord | null>;
-	updateWorkspaceInstructions(input: {
+	updateWorkspaceSettings(input: {
 		workspaceId: string;
-		customInstructions: string | null;
+		name?: string;
+		customInstructions?: string | null;
+		icon?: string | null;
+		color?: string | null;
+		defaultModelId?: string | null;
+		defaultAutonomyLevel?: AgentAutonomyLevel;
 	}): Promise<WorkspaceRecord>;
 
 	createModelInstallation(input: {

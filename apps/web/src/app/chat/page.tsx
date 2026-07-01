@@ -80,13 +80,9 @@ export default function ChatLandingPage() {
 		queryFn: () => trpcClient.models.list.query({ workspaceId }),
 		enabled: Boolean(workspaceId),
 	});
-	const skillsQuery = useQuery({
-		queryKey: ["skills", "list"],
-		queryFn: () => trpcClient.skills.list.query(),
-	});
-	const toolsQuery = useQuery({
-		queryKey: ["tools", "list", workspaceId],
-		queryFn: () => trpcClient.tools.list.query({ workspaceId: workspaceId! }),
+	const workspaceQuery = useQuery({
+		queryKey: ["workspace", workspaceId],
+		queryFn: () => trpcClient.workspaces.get.query({ workspaceId: workspaceId! }),
 		enabled: Boolean(workspaceId),
 	});
 
@@ -102,8 +98,16 @@ export default function ChatLandingPage() {
 	const [workingDirectory, setWorkingDirectory] = useState("");
 
 	useEffect(() => {
-		if (!modelId && modelsQuery.data?.[0]) setModelId(modelsQuery.data[0].id);
-	}, [modelId, modelsQuery.data]);
+		const models = modelsQuery.data;
+		const firstModel = models?.[0];
+		if (modelId || !firstModel) return;
+		const defaultModelId = workspaceQuery.data?.defaultModelId;
+		const preferred =
+			defaultModelId && models.some((model) => model.id === defaultModelId)
+				? defaultModelId
+				: firstModel.id;
+		setModelId(preferred);
+	}, [modelId, modelsQuery.data, workspaceQuery.data]);
 
 	useEffect(() => {
 		if (!workingDirectory && defaultWorkingDirectory) {
@@ -133,12 +137,8 @@ export default function ChatLandingPage() {
 					name: "Chat — custom tools",
 					modelId,
 					autonomyLevel: "assisted",
-					skillIds: toolSelection.skillsEnabled
-						? (skillsQuery.data ?? []).map((s) => s.id)
-						: [],
-					toolIds: toolSelection.toolsEnabled
-						? (toolsQuery.data ?? []).filter((t) => t.enabled).map((t) => t.id)
-						: [],
+					skillIds: toolSelection.skillIds,
+					toolIds: toolSelection.toolIds,
 					mcpServerIds: toolSelection.mcpServerIds,
 					mcpToolFilter: toolSelection.mcpToolFilter,
 					autoAttachWorkspaceTools: false,

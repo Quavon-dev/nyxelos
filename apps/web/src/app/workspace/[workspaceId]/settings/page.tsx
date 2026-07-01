@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, NotebookPen, Plug } from "lucide-react";
+import { Bot, NotebookPen, Plug, Settings2 } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/page-header";
@@ -9,15 +9,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { type ProbedModelProvider, trpcClient } from "@/lib/trpc";
+import { type AutonomyLevel, type ProbedModelProvider, trpcClient } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 
 const SECTIONS = [
   {
+    id: "general",
+    label: "General",
+    icon: Settings2,
+    description: "Workspace name, icon, accent color, and defaults for new agents.",
+  },
+  {
     id: "instructions",
     label: "Instructions",
     icon: NotebookPen,
-    description: "Prepended as a system-prompt block before every chat in this workspace.",
+    description: "Always prepended as a system-prompt block before every chat and task in this workspace.",
   },
   {
     id: "providers",
@@ -33,13 +39,20 @@ const SECTIONS = [
   },
 ] as const;
 
+const AUTONOMY_LEVELS: { value: AutonomyLevel; label: string }[] = [
+  { value: "chat", label: "Chat — replies only, no tool calls" },
+  { value: "assisted", label: "Assisted — tools, sensitive actions need approval" },
+  { value: "autonomous", label: "Autonomous — runs tasks without stopping to ask" },
+  { value: "super_agent", label: "Super-agent — can delegate to other agents" },
+];
+
 type SectionId = (typeof SECTIONS)[number]["id"];
 
 export default function WorkspaceSettingsPage() {
   const params = useParams<{ workspaceId: string }>();
   const workspaceId = params.workspaceId;
   const queryClient = useQueryClient();
-  const [section, setSection] = useState<SectionId>("instructions");
+  const [section, setSection] = useState<SectionId>("general");
 
   const workspaceQuery = useQuery({
     queryKey: ["workspace", workspaceId],
@@ -55,20 +68,47 @@ export default function WorkspaceSettingsPage() {
   });
 
   const [instructions, setInstructions] = useState("");
+  const [name, setName] = useState("");
+  const [icon, setIcon] = useState("");
+  const [color, setColor] = useState("");
+  const [defaultModelId, setDefaultModelId] = useState("");
+  const [defaultAutonomyLevel, setDefaultAutonomyLevel] =
+    useState<AutonomyLevel>("assisted");
   const [providerLabel, setProviderLabel] = useState("");
   const [providerBaseUrl, setProviderBaseUrl] = useState("http://localhost:1234");
   const [providerApiKey, setProviderApiKey] = useState("");
   const [probeResult, setProbeResult] = useState<ProbedModelProvider | null>(null);
 
   useEffect(() => {
-    if (workspaceQuery.data) setInstructions(workspaceQuery.data.customInstructions ?? "");
+    if (!workspaceQuery.data) return;
+    setInstructions(workspaceQuery.data.customInstructions ?? "");
+    setName(workspaceQuery.data.name);
+    setIcon(workspaceQuery.data.icon ?? "");
+    setColor(workspaceQuery.data.color ?? "");
+    setDefaultModelId(workspaceQuery.data.defaultModelId ?? "");
+    setDefaultAutonomyLevel(workspaceQuery.data.defaultAutonomyLevel);
   }, [workspaceQuery.data]);
 
   const saveInstructions = useMutation({
     mutationFn: () =>
-      trpcClient.workspaces.updateInstructions.mutate({
+      trpcClient.workspaces.updateSettings.mutate({
         workspaceId,
         customInstructions: instructions.trim() === "" ? null : instructions,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] });
+    },
+  });
+
+  const saveGeneral = useMutation({
+    mutationFn: () =>
+      trpcClient.workspaces.updateSettings.mutate({
+        workspaceId,
+        name: name.trim() || undefined,
+        icon: icon.trim() === "" ? null : icon.trim(),
+        color: color.trim() === "" ? null : color.trim(),
+        defaultModelId: defaultModelId === "" ? null : defaultModelId,
+        defaultAutonomyLevel,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] });
@@ -160,6 +200,105 @@ export default function WorkspaceSettingsPage() {
             <CardDescription>{activeSection.description}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            {section === "general" && (
+              <div className="space-y-6">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium" htmlFor="workspace-name">
+                      Name
+                    </label>
+                    <Input
+                      id="workspace-name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      disabled={workspaceQuery.isLoading}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor="workspace-icon">
+                        Icon (emoji)
+                      </label>
+                      <Input
+                        id="workspace-icon"
+                        placeholder="🚀"
+                        value={icon}
+                        onChange={(e) => setIcon(e.target.value)}
+                        disabled={workspaceQuery.isLoading}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor="workspace-color">
+                        Accent color
+                      </label>
+                      <Input
+                        id="workspace-color"
+                        type="color"
+                        value={color || "#6366f1"}
+                        onChange={(e) => setColor(e.target.value)}
+                        disabled={workspaceQuery.isLoading}
+                        className="h-9 p-1"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 border-t pt-6 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium" htmlFor="workspace-default-model">
+                      Default model for new chats
+                    </label>
+                    <select
+                      id="workspace-default-model"
+                      value={defaultModelId}
+                      onChange={(e) => setDefaultModelId(e.target.value)}
+                      disabled={workspaceQuery.isLoading}
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none"
+                    >
+                      <option value="">No default — ask every time</option>
+                      {availableModelsQuery.data?.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium" htmlFor="workspace-default-autonomy">
+                      Default autonomy for new agents
+                    </label>
+                    <select
+                      id="workspace-default-autonomy"
+                      value={defaultAutonomyLevel}
+                      onChange={(e) =>
+                        setDefaultAutonomyLevel(e.target.value as AutonomyLevel)
+                      }
+                      disabled={workspaceQuery.isLoading}
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none"
+                    >
+                      {AUTONOMY_LEVELS.map((level) => (
+                        <option key={level.value} value={level.value}>
+                          {level.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <Button
+                    onClick={() => saveGeneral.mutate()}
+                    disabled={saveGeneral.isPending || workspaceQuery.isLoading}
+                  >
+                    {saveGeneral.isPending ? "Saving…" : "Save"}
+                  </Button>
+                  {saveGeneral.isSuccess && (
+                    <span className="text-sm text-muted-foreground">Saved.</span>
+                  )}
+                </div>
+              </div>
+            )}
+
             {section === "instructions" && (
               <div className="space-y-3">
                 <Textarea

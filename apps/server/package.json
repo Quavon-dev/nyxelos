@@ -23,6 +23,7 @@
     "better-auth": "latest",
     "cron-parser": "latest",
     "hono": "latest",
+    "playwright": "^1.61.1",
     "zod": "latest"
   },
   "devDependencies": {

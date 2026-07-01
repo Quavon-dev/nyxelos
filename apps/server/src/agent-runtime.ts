@@ -4,6 +4,7 @@ import { streamChat } from "@nyxel/model-providers";
 import { getKnowledgeBaseContextForPrompt } from "./knowledge-base";
 import { getInstalledProvidersForWorkspace } from "./models";
 import { buildToolsForAgent, type AgentRunContext } from "./tools";
+import { composeSystemPrompt } from "./workspace-prompt";
 
 export interface ExecutionPlan {
 	goal: string;
@@ -64,10 +65,10 @@ async function buildSystemPrompt(agent: AgentRecord) {
 		db.getWorkspace(agent.workspaceId),
 		getKnowledgeBaseContextForPrompt(agent.workspaceId),
 	]);
-	return (
-		[workspace?.customInstructions, agent.systemPrompt, knowledgeBaseContext]
-			.filter(Boolean)
-			.join("\n\n") || undefined
+	return composeSystemPrompt(
+		workspace,
+		agent.systemPrompt,
+		knowledgeBaseContext,
 	);
 }
 

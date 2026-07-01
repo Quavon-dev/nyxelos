@@ -65,7 +65,7 @@ export async function resolveApprovalDecision(
     let output: unknown;
     if (approval.kind === "skill") {
       if (!approval.skillId) throw new Error("Approval request is missing skillId.");
-      const skill = resolveSkillDefinition(approval.skillId);
+      const skill = await resolveSkillDefinition(approval.workspaceId, approval.skillId);
       if (!skill) throw new Error(`Skill no longer exists: ${approval.skillId}`);
       const parsedInput = skill.inputSchema.parse(approval.input);
       output = await skill.run(parsedInput, createSkillContext(skill.permissions));

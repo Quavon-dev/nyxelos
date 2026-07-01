@@ -30,7 +30,7 @@ export async function getWorkspaceDefaultToolIds(workspaceId: string): Promise<{
 	const db = getDb();
 	const [servers, skills, tools] = await Promise.all([
 		db.listMcpServersByWorkspace(workspaceId),
-		listSkillCatalog(),
+		listSkillCatalog(workspaceId),
 		listToolCatalogForWorkspace(workspaceId),
 	]);
 
@@ -54,14 +54,16 @@ export async function ensureAutoAssistantForWorkspaceModel(
 	);
 	if (existing) return existing;
 
-	const { skillIds, toolIds, mcpServerIds } =
-		await getWorkspaceDefaultToolIds(workspaceId);
+	const [{ skillIds, toolIds, mcpServerIds }, workspace] = await Promise.all([
+		getWorkspaceDefaultToolIds(workspaceId),
+		db.getWorkspace(workspaceId),
+	]);
 	return db.createAgent({
 		workspaceId,
 		name,
 		systemPrompt: AUTO_AGENT_SYSTEM_PROMPT,
 		modelId,
-		autonomyLevel: "assisted",
+		autonomyLevel: workspace?.defaultAutonomyLevel ?? "assisted",
 		skillIds,
 		toolIds,
 		mcpServerIds,

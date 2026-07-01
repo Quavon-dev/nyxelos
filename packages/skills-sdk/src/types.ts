@@ -21,6 +21,9 @@ export interface SkillContext {
 	appendFile: (path: string, content: string) => Promise<void>;
 	deleteFile: (path: string) => Promise<void>;
 	moveFile: (fromPath: string, toPath: string) => Promise<void>;
+	/** Restricted to `permissions.filesystem`. Creates a directory (and any
+	 * missing parents). */
+	mkdir: (path: string) => Promise<void>;
 	statPath: (
 		path: string,
 	) => Promise<{ path: string; size: number; isDirectory: boolean; modifiedAt: Date }>;

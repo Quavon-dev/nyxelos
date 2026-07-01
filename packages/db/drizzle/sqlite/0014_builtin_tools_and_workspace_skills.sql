@@ -1,0 +1,1 @@
+ALTER TABLE `tool` ADD COLUMN `builtin` integer DEFAULT false NOT NULL;

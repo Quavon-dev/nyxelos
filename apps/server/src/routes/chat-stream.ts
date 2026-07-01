@@ -11,6 +11,7 @@ import {
 } from "../knowledge-base";
 import { getInstalledProvidersForWorkspace } from "../models";
 import { buildToolsForAgent } from "../tools";
+import { composeSystemPrompt } from "../workspace-prompt";
 import {
 	buildStreamFailureResponse,
 	ensureVisibleAssistantResponse,
@@ -102,17 +103,14 @@ export function registerChatStreamRoute(app: Hono) {
 			chat.workspaceId,
 		);
 
-		const systemPrompt =
-			[
-				workspace?.customInstructions,
-				agent?.systemPrompt,
-				`Working directory: ${chat.workingDirectory}. Resolve relative file paths inside this directory.`,
-				CHAT_MODE_GUIDANCE[chat.toolMode],
-				chat.toolMode === "auto" ? null : CHAT_FOLLOW_UP_GUIDANCE,
-				knowledgeBaseContext,
-			]
-				.filter(Boolean)
-				.join("\n\n") || undefined;
+		const systemPrompt = composeSystemPrompt(
+			workspace,
+			agent?.systemPrompt,
+			`Working directory: ${chat.workingDirectory}. Resolve relative file paths inside this directory.`,
+			CHAT_MODE_GUIDANCE[chat.toolMode],
+			chat.toolMode === "auto" ? null : CHAT_FOLLOW_UP_GUIDANCE,
+			knowledgeBaseContext,
+		);
 		const tools = agent
 			? await buildToolsForAgent(agent, {
 					chatId,

@@ -88,6 +88,10 @@ function createContext(permissions: SkillPermissions): SkillContext {
 			await fsMkdir(path.dirname(resolvedTo), { recursive: true });
 			await fsRename(resolvedFrom, resolvedTo);
 		},
+		mkdir: async (dirPath) => {
+			const resolved = assertPathAllowed(permissions, dirPath);
+			await fsMkdir(resolved, { recursive: true });
+		},
 		statPath: async (targetPath) => {
 			const resolved = assertPathAllowed(permissions, targetPath);
 			const stats = await fsStat(resolved);

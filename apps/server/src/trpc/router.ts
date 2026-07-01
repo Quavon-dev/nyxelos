@@ -509,14 +509,19 @@ export const appRouter = router({
 		get: publicProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => getDb().getWorkspace(input.workspaceId)),
-		updateInstructions: publicProcedure
+		updateSettings: publicProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
-					customInstructions: z.string().nullable(),
+					name: z.string().min(1).optional(),
+					customInstructions: z.string().nullable().optional(),
+					icon: z.string().nullable().optional(),
+					color: z.string().nullable().optional(),
+					defaultModelId: z.string().nullable().optional(),
+					defaultAutonomyLevel: autonomyLevelSchema.optional(),
 				}),
 			)
-			.mutation(({ input }) => getDb().updateWorkspaceInstructions(input)),
+			.mutation(({ input }) => getDb().updateWorkspaceSettings(input)),
 	}),
 
 	chats: router({
@@ -552,6 +557,10 @@ export const appRouter = router({
 					const agent = await db.getAgent(input.agentId);
 					if (!agent) throw new Error(`Unknown agent: ${input.agentId}`);
 					modelId = agent.modelId;
+				}
+				if (!modelId) {
+					const workspace = await db.getWorkspace(input.workspaceId);
+					modelId = workspace?.defaultModelId ?? undefined;
 				}
 				if (!modelId)
 					throw new Error("chats.create needs either modelId or agentId.");

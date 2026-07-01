@@ -26,7 +26,10 @@ import {
 export const skillRegistry = new SkillRegistry();
 
 const notesDir = process.env.NYXEL_NOTES_DIR ?? "/tmp/nyxel-notes";
-const workspaceRootDir = path.resolve(
+/** Reused by apps/server/src/tools-builtin-seed.ts and the tools-builtin/*
+ * modules so builtin file/terminal/search tools operate on the same
+ * "workspace" root as these hand-written skills. */
+export const workspaceRootDir = path.resolve(
 	process.env.NYXEL_WORKSPACE_ROOT ??
 		DEFAULT_CHAT_WORKING_DIRECTORY ??
 		fileURLToPath(new URL("../../../", import.meta.url)),

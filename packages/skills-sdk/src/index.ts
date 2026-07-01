@@ -1,5 +1,12 @@
 export { defineSkill } from "./define-skill";
 export {
+	loadFileSkill,
+	loadFileSkillsFromDir,
+	parseSkillMarkdown,
+	serializeSkillMarkdown,
+	type ParsedFileSkill,
+} from "./file-skill";
+export {
 	createSkillContext,
 	SkillPermissionError,
 	SkillRegistry,

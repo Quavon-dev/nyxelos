@@ -44,6 +44,10 @@ export type WorkspaceSummary = {
 	id: string;
 	name: string;
 	customInstructions: string | null;
+	icon: string | null;
+	color: string | null;
+	defaultModelId: string | null;
+	defaultAutonomyLevel: AutonomyLevel;
 };
 
 export type ChatToolMode = "default" | "automatic" | "auto";
@@ -651,10 +655,15 @@ type NyxelTrpcClient = {
 		get: {
 			query(input: { workspaceId: string }): Promise<WorkspaceSummary | null>;
 		};
-		updateInstructions: {
+		updateSettings: {
 			mutate(input: {
 				workspaceId: string;
-				customInstructions: string | null;
+				name?: string;
+				customInstructions?: string | null;
+				icon?: string | null;
+				color?: string | null;
+				defaultModelId?: string | null;
+				defaultAutonomyLevel?: AutonomyLevel;
 			}): Promise<WorkspaceSummary>;
 		};
 	};

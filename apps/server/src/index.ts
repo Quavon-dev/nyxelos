@@ -6,10 +6,14 @@ import { auth } from "./auth";
 import { startKnowledgeBaseSyncLoop } from "./knowledge-base";
 import { registerChatStreamRoute } from "./routes/chat-stream";
 import { startScheduler } from "./scheduler";
+import { seedBuiltinToolsForAllWorkspaces } from "./tools-builtin-seed";
 import { createContext } from "./trpc/context";
 import { appRouter } from "./trpc/router";
 
 await migrateDatabase();
+// Backfills the builtin tool catalog into every workspace that existed
+// before this feature shipped — idempotent, see tools-builtin-seed.ts.
+await seedBuiltinToolsForAllWorkspaces();
 
 const app = new Hono();
 

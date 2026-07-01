@@ -68,6 +68,18 @@ export function createSqliteRepository(filePath: string): DbRepository {
 
 	const db = drizzle(sqlite, { schema });
 
+	function toWorkspaceRecord(row: typeof schema.workspace.$inferSelect) {
+		return {
+			id: row.id,
+			name: row.name,
+			customInstructions: row.customInstructions,
+			icon: row.icon,
+			color: row.color,
+			defaultModelId: row.defaultModelId,
+			defaultAutonomyLevel: row.defaultAutonomyLevel,
+		};
+	}
+
 	function mapChat(row: typeof schema.chat.$inferSelect) {
 		return {
 			id: row.id,
@@ -205,11 +217,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.values({ id: randomUUID(), userId, name, createdAt: new Date() })
 				.returning()
 				.get();
-			return {
-				id: row.id,
-				name: row.name,
-				customInstructions: row.customInstructions,
-			};
+			return toWorkspaceRecord(row);
 		},
 
 		async listWorkspacesByUser(userId) {
@@ -218,20 +226,12 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.from(schema.workspace)
 				.where(eq(schema.workspace.userId, userId))
 				.all();
-			return rows.map((r) => ({
-				id: r.id,
-				name: r.name,
-				customInstructions: r.customInstructions,
-			}));
+			return rows.map(toWorkspaceRecord);
 		},
 
 		async listWorkspaces() {
 			const rows = db.select().from(schema.workspace).all();
-			return rows.map((r) => ({
-				id: r.id,
-				name: r.name,
-				customInstructions: r.customInstructions,
-			}));
+			return rows.map(toWorkspaceRecord);
 		},
 
 		async getWorkspace(workspaceId) {
@@ -241,26 +241,18 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.where(eq(schema.workspace.id, workspaceId))
 				.get();
 			if (!row) return null;
-			return {
-				id: row.id,
-				name: row.name,
-				customInstructions: row.customInstructions,
-			};
+			return toWorkspaceRecord(row);
 		},
 
-		async updateWorkspaceInstructions({ workspaceId, customInstructions }) {
+		async updateWorkspaceSettings({ workspaceId, ...updates }) {
 			const row = db
 				.update(schema.workspace)
-				.set({ customInstructions })
+				.set(updates)
 				.where(eq(schema.workspace.id, workspaceId))
 				.returning()
 				.get();
 			if (!row) throw new Error(`Workspace not found: ${workspaceId}`);
-			return {
-				id: row.id,
-				name: row.name,
-				customInstructions: row.customInstructions,
-			};
+			return toWorkspaceRecord(row);
 		},
 
 		async createModelInstallation({

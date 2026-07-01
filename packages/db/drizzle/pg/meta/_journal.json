@@ -113,6 +113,13 @@
       "when": 1783000003001,
       "tag": "0015_automation_run_status",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1783000004001,
+      "tag": "0016_workspace_settings",
+      "breakpoints": true
     }
   ]
 }

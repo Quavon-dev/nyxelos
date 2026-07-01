@@ -180,7 +180,7 @@ export async function buildToolsForAgent(
 			: null;
 		const skill =
 			chatScopedBuiltin ??
-			resolveSkillDefinition(skillId);
+			(await resolveSkillDefinition(agent.workspaceId, skillId));
 		if (!skill) continue;
 		tools[skill.id] = tool({
 			description: skill.description,

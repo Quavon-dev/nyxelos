@@ -3,24 +3,62 @@ import type { ToolRecord } from "@nyxel/db";
 import { createSkillContext, type SkillDefinition } from "@nyxel/skills-sdk";
 import { z } from "zod";
 import { listKnowledgeBaseDocuments } from "./knowledge-base";
+import {
+	buildBrowserClickTool,
+	buildBrowserDragTool,
+	buildBrowserHandleDialogTool,
+	buildBrowserHoverTool,
+	buildBrowserNavigateTool,
+	buildBrowserReadPageTool,
+	buildBrowserRunPlaywrightCodeTool,
+	buildBrowserScreenshotTool,
+	buildBrowserTypeTool,
+} from "./tools-builtin/browser";
+import {
+	buildDirectoryCreateTool,
+	buildFileCreateTool,
+	buildFileMoveTool,
+	buildFilePatchTool,
+	buildNotebookEditTool,
+} from "./tools-builtin/edit";
+import {
+	buildFileStatTool,
+	buildFileViewImageTool,
+	buildNotebookCellOutputTool,
+	buildNotebookSummaryTool,
+	buildProblemsTool,
+	buildTerminalLastCommandTool,
+	buildTerminalOutputTool,
+} from "./tools-builtin/read";
+import {
+	buildChangesTool,
+	buildCodebaseSearchTool,
+	buildFileSearchTool,
+	buildTextSearchTool,
+	buildUsagesTool,
+} from "./tools-builtin/search";
+import {
+	buildTaskRunTool,
+	buildTerminalKillTool,
+	buildTerminalRunTool,
+	buildTerminalSendInputTool,
+	buildTestRunTool,
+} from "./tools-builtin/terminal";
+import { buildGithubCodeSearchTool, buildGithubRepoFetchTool } from "./tools-builtin/web";
 
 /**
- * Turns a DB-backed ToolRecord (created through the workspace tools tab) into the
- * same SkillDefinition shape as the hand-written skills in
- * packages/skills-sdk/src/skills — so apps/server/src/tools.ts can run both
- * kinds through one code path.
+ * Turns a DB-backed ToolRecord (created through the workspace tools tab, or
+ * seeded as a builtin default — see tools-builtin-seed.ts) into the same
+ * SkillDefinition shape as the hand-written skills in packages/skills-sdk,
+ * so apps/server/src/tools.ts can run both kinds through one code path.
  *
- * Config shape per kind (validated loosely — a malformed config degrades to
- * "no permissions" rather than throwing, so one bad skill can't break tool
- * building for the whole agent):
- *   http_fetch:  { allowedHosts: string[] }
- *   file_read:   { allowedDirs: string[] }
- *   file_list:   { allowedDirs: string[] }
- *   file_write:  { allowedDirs: string[] }
- *   file_delete: { allowedDirs: string[] }
- *   kb_search:   {} (reads the workspace's configured knowledge-base vault)
- *   custom_code: { allowedHosts: string[], allowedDirs: string[], code: string }
- *                `code` is the body of an async function `(input, ctx) => { ... }`.
+ * The original 7 kinds (http_fetch..custom_code) stay inline below; every
+ * newer kind dispatches to a per-category builder in ./tools-builtin — see
+ * that directory and the plan doc for what each category covers and what's
+ * deliberately simplified (usages/codebase_search are regex, not LSP/
+ * embeddings; problems is `tsc --noEmit` output, not a live diagnostics
+ * feed; notebook cell execution is a one-off subprocess, not a persistent
+ * kernel).
  */
 export function buildDynamicToolDefinition(
 	record: ToolRecord,
@@ -180,6 +218,84 @@ export function buildDynamicToolDefinition(
 			};
 		}
 
+		// edit
+		case "file_create":
+			return buildFileCreateTool(record);
+		case "directory_create":
+			return buildDirectoryCreateTool(record);
+		case "file_move":
+			return buildFileMoveTool(record);
+		case "file_patch":
+			return buildFilePatchTool(record);
+		case "notebook_edit":
+			return buildNotebookEditTool(record);
+
+		// read
+		case "file_stat":
+			return buildFileStatTool(record);
+		case "file_view_image":
+			return buildFileViewImageTool(record);
+		case "notebook_summary":
+			return buildNotebookSummaryTool(record);
+		case "notebook_cell_output":
+			return buildNotebookCellOutputTool(record);
+		case "terminal_last_command":
+			return buildTerminalLastCommandTool(record);
+		case "terminal_output":
+			return buildTerminalOutputTool(record);
+		case "problems":
+			return buildProblemsTool(record);
+
+		// search
+		case "file_search":
+			return buildFileSearchTool(record);
+		case "text_search":
+			return buildTextSearchTool(record);
+		case "usages":
+			return buildUsagesTool(record);
+		case "codebase_search":
+			return buildCodebaseSearchTool(record);
+		case "changes":
+			return buildChangesTool(record);
+
+		// execute
+		case "terminal_run":
+			return buildTerminalRunTool(record);
+		case "terminal_send_input":
+			return buildTerminalSendInputTool(record);
+		case "terminal_kill":
+			return buildTerminalKillTool(record);
+		case "task_run":
+			return buildTaskRunTool(record);
+		case "test_run":
+			return buildTestRunTool(record);
+
+		// browser
+		case "browser_navigate":
+			return buildBrowserNavigateTool(record);
+		case "browser_click":
+			return buildBrowserClickTool(record);
+		case "browser_drag":
+			return buildBrowserDragTool(record);
+		case "browser_hover":
+			return buildBrowserHoverTool(record);
+		case "browser_type":
+			return buildBrowserTypeTool(record);
+		case "browser_handle_dialog":
+			return buildBrowserHandleDialogTool(record);
+		case "browser_screenshot":
+			return buildBrowserScreenshotTool(record);
+		case "browser_read_page":
+			return buildBrowserReadPageTool(record);
+		case "browser_run_playwright_code":
+			return buildBrowserRunPlaywrightCodeTool(record);
+
+		// web
+		case "github_repo_fetch":
+			return buildGithubRepoFetchTool(record);
+		case "github_code_search":
+			return buildGithubCodeSearchTool(record);
+
 		default:
 			// Exhaustiveness guard — a future ToolKind added to the DB schema
 			// without a case here degrades to a no-op rather than crashing tool
@@ -194,3 +310,53 @@ export function buildDynamicToolDefinition(
 			};
 	}
 }
+
+/** Which screenshot-derived category each ToolKind belongs to — used by the
+ * frontend's Tools page for grouping and by tools-builtin-seed.ts for the
+ * default catalog. Kept here (not duplicated client-side) as the single
+ * source of truth; the frontend's copy in apps/web mirrors this list. */
+export const TOOL_KIND_CATEGORY: Record<
+	ToolRecord["kind"],
+	"edit" | "read" | "search" | "execute" | "browser" | "web"
+> = {
+	http_fetch: "web",
+	file_read: "read",
+	file_write: "edit",
+	file_list: "search",
+	file_delete: "edit",
+	kb_search: "search",
+	custom_code: "execute",
+	file_create: "edit",
+	file_patch: "edit",
+	file_move: "edit",
+	directory_create: "edit",
+	notebook_edit: "edit",
+	file_stat: "read",
+	file_view_image: "read",
+	notebook_summary: "read",
+	notebook_cell_output: "read",
+	terminal_last_command: "read",
+	terminal_output: "read",
+	problems: "read",
+	file_search: "search",
+	text_search: "search",
+	usages: "search",
+	codebase_search: "search",
+	changes: "search",
+	terminal_run: "execute",
+	terminal_send_input: "execute",
+	terminal_kill: "execute",
+	task_run: "execute",
+	test_run: "execute",
+	browser_navigate: "browser",
+	browser_click: "browser",
+	browser_drag: "browser",
+	browser_hover: "browser",
+	browser_type: "browser",
+	browser_handle_dialog: "browser",
+	browser_screenshot: "browser",
+	browser_read_page: "browser",
+	browser_run_playwright_code: "browser",
+	github_repo_fetch: "web",
+	github_code_search: "web",
+};

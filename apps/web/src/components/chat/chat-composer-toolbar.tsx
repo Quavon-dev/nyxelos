@@ -18,7 +18,6 @@ import {
 	Plug,
 	Settings2,
 	Sparkles,
-	Wrench,
 	X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -46,14 +45,14 @@ import {
 	trpcClient,
 } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+import { ToolsAndSkillsPicker } from "./tools-and-skills-picker";
 
 export interface ChatToolSelection {
-	/** true = every real runtime skill is available (default); false = none.
-	 * Simple on/off, matching the Skills pill's plain toggle. */
-	skillsEnabled: boolean;
-	/** true = every enabled workspace tool is available (default); false =
-	 * none. Simple on/off, matching the Tools pill's plain toggle. */
-	toolsEnabled: boolean;
+	/** Explicit per-item selection — see ToolsAndSkillsPicker. Replaced the
+	 * earlier coarse skillsEnabled/toolsEnabled booleans once there were
+	 * enough categorized tools that "all or nothing" stopped being useful. */
+	skillIds: string[];
+	toolIds: string[];
 	mcpServerIds: string[];
 	/** Entries shaped "serverId::toolName"; null means every tool from every
 	 * server in mcpServerIds. */
@@ -247,19 +246,8 @@ export function ChatComposerToolbar({
 	// automatically once a file is attached, so they need no separate flag.
 	// MCP Server always stays visible: it's the one control that must remain
 	// reachable so tool changes mid-conversation are never buried in a menu.
-	const [skillsPinned, setSkillsPinned] = useState(false);
-	const [toolsPinned, setToolsPinned] = useState(false);
+	const [toolsPickerOpen, setToolsPickerOpen] = useState(false);
 	const [artifactsPinned, setArtifactsPinned] = useState(false);
-	const initialPinRef = useRef(false);
-	useEffect(() => {
-		if (initialPinRef.current || !toolSelection) return;
-		initialPinRef.current = true;
-		// A chat that was previously customized to disable skills/tools has a
-		// real, non-default state worth surfacing immediately rather than
-		// hiding it.
-		if (!toolSelection.skillsEnabled) setSkillsPinned(true);
-		if (!toolSelection.toolsEnabled) setToolsPinned(true);
-	}, [toolSelection]);
 
 	const mcpServersQuery = useQuery({
 		queryKey: ["mcpServers", workspaceId],
@@ -267,11 +255,21 @@ export function ChatComposerToolbar({
 			trpcClient.mcpServers.list.query({ workspaceId: workspaceId! }),
 		enabled: Boolean(workspaceId),
 	});
-	const toolsQuery = useQuery({
+	const mcpToolsQuery = useQuery({
 		queryKey: ["mcpServers", "listTools", expandedServerId],
 		queryFn: () =>
 			trpcClient.mcpServers.listTools.query({ id: expandedServerId! }),
 		enabled: Boolean(expandedServerId),
+	});
+	const skillsQuery = useQuery({
+		queryKey: ["skills", "list", workspaceId],
+		queryFn: () => trpcClient.skills.list.query({ workspaceId: workspaceId! }),
+		enabled: Boolean(workspaceId),
+	});
+	const workspaceToolsQuery = useQuery({
+		queryKey: ["tools", "list", workspaceId],
+		queryFn: () => trpcClient.tools.list.query({ workspaceId: workspaceId! }),
+		enabled: Boolean(workspaceId),
 	});
 
 	useEffect(() => {
@@ -279,42 +277,38 @@ export function ChatComposerToolbar({
 			if (event.origin !== window.location.origin) return;
 			if (event.data?.type !== "nyxel:mcp-auth-complete") return;
 			if (event.data.serverId !== expandedServerId) return;
-			void toolsQuery.refetch();
+			void mcpToolsQuery.refetch();
 		}
 
 		window.addEventListener("message", handleMessage);
 		return () => window.removeEventListener("message", handleMessage);
-	}, [expandedServerId, toolsQuery]);
+	}, [expandedServerId, mcpToolsQuery]);
 
 	const servers = mcpServersQuery.data ?? [];
-	const toolsResult = toolsQuery.data;
+	const toolsResult = mcpToolsQuery.data;
 	const availableTools =
 		toolsResult?.status === "ready" ? toolsResult.tools : [];
 	const authPrompt = getAuthPrompt(toolsResult);
 	const invalidConfigMessage = getInvalidConfigMessage(toolsResult);
 	const effective: ChatToolSelection = toolSelection ?? {
-		skillsEnabled: true,
-		toolsEnabled: true,
+		skillIds: (skillsQuery.data ?? []).map((s) => s.id),
+		toolIds: (workspaceToolsQuery.data ?? [])
+			.filter((t) => t.enabled)
+			.map((t) => t.id),
 		mcpServerIds: servers.filter((s) => s.enabled).map((s) => s.id),
 		mcpToolFilter: null,
 	};
 	const guardrailsLocked =
 		chatToolPolicy.mode === "default" || chatToolPolicy.mode === "auto";
-	const skillsActive = effective.skillsEnabled;
-	const toolsActive = effective.toolsEnabled;
+	const toolsAndSkillsCustomized = toolSelection !== null;
+	const toolsAndSkillsSummary = toolsAndSkillsCustomized
+		? `${effective.skillIds.length + effective.toolIds.length} selected`
+		: "Skills & Tools";
 	const mcpCustomized = toolSelection !== null;
 	const modeLabel = CHAT_MODE_LABEL[chatToolPolicy.mode];
 
 	function commit(patch: Partial<ChatToolSelection>) {
 		onToolSelectionChange({ ...effective, ...patch });
-	}
-
-	function toggleSkills() {
-		commit({ skillsEnabled: !effective.skillsEnabled });
-	}
-
-	function toggleTools() {
-		commit({ toolsEnabled: !effective.toolsEnabled });
 	}
 
 	function updateChatToolPolicy(patch: Partial<ChatToolPolicy>) {
@@ -468,13 +462,14 @@ export function ChatComposerToolbar({
 								<Paperclip className="size-4" />
 								Attachment{attachedFile ? ` — ${attachedFile.name}` : ""}
 							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={toggleSkills}>
+							<DropdownMenuItem
+								onSelect={(event) => {
+									event.preventDefault();
+									setToolsPickerOpen(true);
+								}}
+							>
 								<Sparkles className="size-4" />
-								Skills — {skillsActive ? "on" : "off"}
-							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={toggleTools}>
-								<Wrench className="size-4" />
-								Tools — {toolsActive ? "on" : "off"}
+								Skills &amp; Tools ({toolsAndSkillsSummary})
 							</DropdownMenuItem>
 							<DropdownMenuItem onSelect={() => setArtifactsOpen(true)}>
 								<Blocks className="size-4" />
@@ -548,25 +543,16 @@ export function ChatComposerToolbar({
 									{attachedFile && <Check className="ml-auto size-3.5" />}
 								</DropdownMenuItem>
 								<DropdownMenuItem
-									onSelect={() => {
-										setSkillsPinned(true);
-										if (!effective.skillsEnabled)
-											commit({ skillsEnabled: true });
+									onSelect={(event) => {
+										event.preventDefault();
+										setToolsPickerOpen(true);
 									}}
 								>
 									<Sparkles className="size-4" />
-									Skills
-									{skillsPinned && <Check className="ml-auto size-3.5" />}
-								</DropdownMenuItem>
-								<DropdownMenuItem
-									onSelect={() => {
-										setToolsPinned(true);
-										if (!effective.toolsEnabled) commit({ toolsEnabled: true });
-									}}
-								>
-									<Wrench className="size-4" />
-									Tools
-									{toolsPinned && <Check className="ml-auto size-3.5" />}
+									Skills &amp; Tools
+									{toolsAndSkillsCustomized && (
+										<Check className="ml-auto size-3.5" />
+									)}
 								</DropdownMenuItem>
 								<DropdownMenuItem
 									onSelect={() => setArtifactsPinned((v) => !v)}
@@ -618,30 +604,6 @@ export function ChatComposerToolbar({
 							</span>
 						)}
 
-						{skillsPinned && (
-							<button
-								type="button"
-								onClick={() =>
-									commit({ skillsEnabled: !effective.skillsEnabled })
-								}
-								className={pillClass(skillsActive)}
-							>
-								<Sparkles className="size-3.5" />
-								Skills
-							</button>
-						)}
-
-						{toolsPinned && (
-							<button
-								type="button"
-								onClick={() => commit({ toolsEnabled: !effective.toolsEnabled })}
-								className={pillClass(toolsActive)}
-							>
-								<Wrench className="size-3.5" />
-								Tools
-							</button>
-						)}
-
 						{artifactsPinned && (
 							<Popover open={artifactsOpen} onOpenChange={setArtifactsOpen}>
 								<PopoverTrigger asChild>
@@ -690,24 +652,6 @@ export function ChatComposerToolbar({
 							)}
 							{attachedFile ? attachedFile.name : "Attachment"}
 							{attachedFile && <X className="size-3 opacity-70" />}
-						</button>
-
-						<button
-							type="button"
-							onClick={toggleSkills}
-							className={pillClass(skillsActive)}
-						>
-							<Sparkles className="size-3.5" />
-							Skills
-						</button>
-
-						<button
-							type="button"
-							onClick={toggleTools}
-							className={pillClass(toolsActive)}
-						>
-							<Wrench className="size-3.5" />
-							Tools
 						</button>
 
 						<Popover open={artifactsOpen} onOpenChange={setArtifactsOpen}>
@@ -871,6 +815,43 @@ export function ChatComposerToolbar({
 				</PopoverContent>
 			</Popover>
 
+			<Popover open={toolsPickerOpen} onOpenChange={setToolsPickerOpen}>
+				<PopoverTrigger asChild>
+					<button
+						type="button"
+						className={cn(pillClass(toolsAndSkillsCustomized), "shrink-0")}
+					>
+						<Sparkles className="size-3.5" />
+						{toolsAndSkillsSummary}
+						<ChevronDown className="size-3 opacity-60" />
+					</button>
+				</PopoverTrigger>
+				<PopoverContent align="start" className="w-80">
+					<div className="flex items-center justify-between">
+						<p className="font-medium">Skills &amp; tools for this chat</p>
+						{toolsAndSkillsCustomized && (
+							<button
+								type="button"
+								onClick={() => onToolSelectionChange(null)}
+								className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+							>
+								Reset
+							</button>
+						)}
+					</div>
+					<p className="-mt-2 mb-2 text-xs text-muted-foreground">
+						By default this chat can use every skill and enabled tool in the
+						workspace. Narrow it down here if this conversation should only
+						reach a subset.
+					</p>
+					<ToolsAndSkillsPicker
+						workspaceId={workspaceId}
+						value={{ skillIds: effective.skillIds, toolIds: effective.toolIds }}
+						onChange={(next) => commit(next)}
+					/>
+				</PopoverContent>
+			</Popover>
+
 			<Popover open={mcpOpen} onOpenChange={setMcpOpen}>
 				<PopoverTrigger asChild>
 					<button
@@ -951,14 +932,14 @@ export function ChatComposerToolbar({
 									</div>
 									{expanded && checked && (
 										<div className="ml-9 space-y-1 border-l pl-3">
-											{toolsQuery.isLoading && (
+											{mcpToolsQuery.isLoading && (
 												<p className="text-xs text-muted-foreground">
 													Loading tools…
 												</p>
 											)}
-											{toolsQuery.isError && (
+											{mcpToolsQuery.isError && (
 												<p className="text-xs text-destructive">
-													{(toolsQuery.error as Error).message}
+													{(mcpToolsQuery.error as Error).message}
 												</p>
 											)}
 											{authPrompt && (

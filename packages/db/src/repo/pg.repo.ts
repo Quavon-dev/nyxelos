@@ -11,6 +11,18 @@ export function createPgRepository(connectionString: string): DbRepository {
 	const client = postgres(connectionString);
 	const db = drizzle(client, { schema });
 
+	function toWorkspaceRecord(row: typeof schema.workspace.$inferSelect) {
+		return {
+			id: row.id,
+			name: row.name,
+			customInstructions: row.customInstructions,
+			icon: row.icon,
+			color: row.color,
+			defaultModelId: row.defaultModelId,
+			defaultAutonomyLevel: row.defaultAutonomyLevel,
+		};
+	}
+
 	function mapChat(row: typeof schema.chat.$inferSelect) {
 		return {
 			id: row.id,
@@ -132,11 +144,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 				.values({ id: randomUUID(), userId, name })
 				.returning();
 			if (!row) throw new Error("Failed to create workspace");
-			return {
-				id: row.id,
-				name: row.name,
-				customInstructions: row.customInstructions,
-			};
+			return toWorkspaceRecord(row);
 		},
 
 		async listWorkspacesByUser(userId) {
@@ -144,20 +152,12 @@ export function createPgRepository(connectionString: string): DbRepository {
 				.select()
 				.from(schema.workspace)
 				.where(eq(schema.workspace.userId, userId));
-			return rows.map((r) => ({
-				id: r.id,
-				name: r.name,
-				customInstructions: r.customInstructions,
-			}));
+			return rows.map(toWorkspaceRecord);
 		},
 
 		async listWorkspaces() {
 			const rows = await db.select().from(schema.workspace);
-			return rows.map((r) => ({
-				id: r.id,
-				name: r.name,
-				customInstructions: r.customInstructions,
-			}));
+			return rows.map(toWorkspaceRecord);
 		},
 
 		async getWorkspace(workspaceId) {
@@ -165,25 +165,17 @@ export function createPgRepository(connectionString: string): DbRepository {
 				where: eq(schema.workspace.id, workspaceId),
 			});
 			if (!row) return null;
-			return {
-				id: row.id,
-				name: row.name,
-				customInstructions: row.customInstructions,
-			};
+			return toWorkspaceRecord(row);
 		},
 
-		async updateWorkspaceInstructions({ workspaceId, customInstructions }) {
+		async updateWorkspaceSettings({ workspaceId, ...updates }) {
 			const [row] = await db
 				.update(schema.workspace)
-				.set({ customInstructions })
+				.set(updates)
 				.where(eq(schema.workspace.id, workspaceId))
 				.returning();
 			if (!row) throw new Error(`Workspace not found: ${workspaceId}`);
-			return {
-				id: row.id,
-				name: row.name,
-				customInstructions: row.customInstructions,
-			};
+			return toWorkspaceRecord(row);
 		},
 
 		async createModelInstallation({
