@@ -18,7 +18,8 @@ COPY --from=build /repo/apps/web/.next ./.next
 COPY --from=build /repo/apps/web/public ./public
 COPY --from=build /repo/apps/web/package.json ./package.json
 COPY --from=build /repo/apps/web/next.config.ts ./next.config.ts
-COPY --from=build /repo/node_modules ./node_modules
+COPY --from=build /repo/node_modules ../../node_modules
+COPY --from=build /repo/apps/web/node_modules ./node_modules
 ENV NODE_ENV=production
 EXPOSE 3000
 CMD ["bun", "run", "start"]
