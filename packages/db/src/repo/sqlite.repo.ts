@@ -456,6 +456,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
       obsidianRestUrl,
       obsidianApiKey,
       docsAgentEnabled,
+      injectIntoPrompts,
     }) {
       const now = new Date();
       const existing = db
@@ -471,6 +472,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
             obsidianRestUrl: obsidianRestUrl ?? null,
             obsidianApiKey: obsidianApiKey ?? null,
             docsAgentEnabled: docsAgentEnabled ?? existing.docsAgentEnabled,
+            injectIntoPrompts: injectIntoPrompts ?? existing.injectIntoPrompts,
             updatedAt: now,
           })
           .where(eq(schema.knowledgeBaseConfig.workspaceId, workspaceId))
@@ -488,6 +490,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
           obsidianRestUrl: obsidianRestUrl ?? null,
           obsidianApiKey: obsidianApiKey ?? null,
           docsAgentEnabled: docsAgentEnabled ?? true,
+          injectIntoPrompts: injectIntoPrompts ?? true,
           updatedAt: now,
         })
         .returning()
@@ -514,7 +517,10 @@ export function createSqliteRepository(filePath: string): DbRepository {
       workspaceId,
       agentId,
       name,
+      triggerType,
       cronExpression,
+      watchPath,
+      watchGlob,
       prompt,
       enabled,
       nextRunAt,
@@ -526,7 +532,10 @@ export function createSqliteRepository(filePath: string): DbRepository {
           workspaceId,
           agentId,
           name,
-          cronExpression,
+          triggerType: triggerType ?? "cron",
+          cronExpression: cronExpression ?? "",
+          watchPath: watchPath ?? null,
+          watchGlob: watchGlob ?? null,
           prompt,
           enabled: enabled ?? true,
           nextRunAt: nextRunAt ?? null,
@@ -550,6 +559,19 @@ export function createSqliteRepository(filePath: string): DbRepository {
         .select()
         .from(schema.automation)
         .where(and(eq(schema.automation.enabled, true), lte(schema.automation.nextRunAt, now)))
+        .all();
+    },
+
+    async listFileWatchAutomations() {
+      return db
+        .select()
+        .from(schema.automation)
+        .where(
+          and(
+            eq(schema.automation.enabled, true),
+            eq(schema.automation.triggerType, "file_watch"),
+          ),
+        )
         .all();
     },
 
@@ -591,8 +613,62 @@ export function createSqliteRepository(filePath: string): DbRepository {
       return row;
     },
 
+    async setAutomationWatchCheckedAt(id, lastWatchCheckAt) {
+      const row = db
+        .update(schema.automation)
+        .set({ lastWatchCheckAt })
+        .where(eq(schema.automation.id, id))
+        .returning()
+        .get();
+      if (!row) throw new Error(`Automation not found: ${id}`);
+      return row;
+    },
+
     async deleteAutomation(id) {
       db.delete(schema.automation).where(eq(schema.automation.id, id)).run();
+    },
+
+    async createSkill({ workspaceId, name, description, kind, config, sensitive, enabled }) {
+      const row = db
+        .insert(schema.skill)
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          name,
+          description,
+          kind,
+          config,
+          sensitive: sensitive ?? true,
+          enabled: enabled ?? true,
+          createdAt: new Date(),
+        })
+        .returning()
+        .get();
+      return row;
+    },
+
+    async listSkillsByWorkspace(workspaceId) {
+      return db.select().from(schema.skill).where(eq(schema.skill.workspaceId, workspaceId)).all();
+    },
+
+    async getSkill(id) {
+      const row = db.select().from(schema.skill).where(eq(schema.skill.id, id)).get();
+      return row ?? null;
+    },
+
+    async setSkillEnabled(id, enabled) {
+      const row = db
+        .update(schema.skill)
+        .set({ enabled })
+        .where(eq(schema.skill.id, id))
+        .returning()
+        .get();
+      if (!row) throw new Error(`Skill not found: ${id}`);
+      return row;
+    },
+
+    async deleteSkill(id) {
+      db.delete(schema.skill).where(eq(schema.skill.id, id)).run();
     },
 
     async createApprovalRequest({

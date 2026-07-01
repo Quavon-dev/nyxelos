@@ -1,12 +1,16 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import type { AutomationRecord } from "@nyxel/db";
 import { getDb } from "@nyxel/db";
 import { streamChat } from "@nyxel/model-providers";
 import { CronExpressionParser } from "cron-parser";
 import { logAudit } from "./audit";
+import { getKnowledgeBaseContextForPrompt } from "./knowledge-base";
 import { getInstalledProvidersForWorkspace } from "./models";
 import { buildToolsForAgent } from "./tools";
 
 const POLL_INTERVAL_MS = 30_000;
+const REPO_ROOT = path.resolve(new URL("../../..", import.meta.url).pathname);
 
 /**
  * Computes the next run time strictly after `from`. Used both when an
@@ -37,8 +41,11 @@ export async function runAutomation(automation: AutomationRecord): Promise<void>
   }
 
   const workspace = await db.getWorkspace(automation.workspaceId);
+  const knowledgeBaseContext = await getKnowledgeBaseContextForPrompt(automation.workspaceId);
   const systemPrompt =
-    [workspace?.customInstructions, agent.systemPrompt].filter(Boolean).join("\n\n") || undefined;
+    [workspace?.customInstructions, agent.systemPrompt, knowledgeBaseContext]
+      .filter(Boolean)
+      .join("\n\n") || undefined;
   const tools = await buildToolsForAgent(agent, { automationId: automation.id });
   const installedProviders = await getInstalledProvidersForWorkspace(automation.workspaceId);
 
@@ -71,16 +78,121 @@ export async function runAutomation(automation: AutomationRecord): Promise<void>
   });
 
   const now = new Date();
-  const nextRunAt = computeNextRunAt(automation.cronExpression, now);
+  // File-watch automations have no cron schedule — computeNextRunAt would
+  // reject an empty cronExpression anyway; they're re-triggered by the file
+  // poll loop below, not by nextRunAt.
+  const nextRunAt =
+    automation.triggerType === "cron" ? computeNextRunAt(automation.cronExpression, now) : null;
   await db.updateAutomationRun({ id: automation.id, lastRunAt: now, nextRunAt });
 }
 
+function resolveWatchPath(watchPath: string): string {
+  return path.isAbsolute(watchPath) ? watchPath : path.resolve(REPO_ROOT, watchPath);
+}
+
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await fs.access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Recursively lists files under `rootDir` modified after `since` (or every
+ * file, if `since` is null), optionally restricted to names ending in
+ * `suffixFilter` (e.g. ".md"). Mirrors listRecentlyChangedFiles in
+ * knowledge-base.ts but scoped to an arbitrary user-configured directory. */
+async function listChangedFilesUnder(
+  rootDir: string,
+  suffixFilter: string | null,
+  since: Date | null,
+): Promise<string[]> {
+  const changed: string[] = [];
+
+  async function walk(currentDir: string) {
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = await fs.readdir(currentDir, { withFileTypes: true });
+    } catch (err) {
+      console.error(`File-watch automation: failed to read "${currentDir}":`, err);
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const absolute = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(absolute);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (suffixFilter && !entry.name.endsWith(suffixFilter)) continue;
+      const stats = await fs.stat(absolute);
+      if (!since || stats.mtime > since) {
+        changed.push(path.relative(rootDir, absolute).replace(/\\/g, "/"));
+      }
+    }
+  }
+
+  if (await pathExists(rootDir)) await walk(rootDir);
+  return changed.sort().slice(0, 50);
+}
+
 /**
- * Polls the automation table every 30s for enabled automations whose
- * nextRunAt has passed, and runs each one headlessly (one full completion,
- * no client attached to stream to — see runAutomation). A failing or
- * unexpectedly slow automation is caught and logged per-automation so it
- * can't take down the poll loop or block sibling automations from running.
+ * Checks every enabled "file_watch" automation for changed files since its
+ * last check. The first check after creation only records a baseline
+ * timestamp rather than running immediately — otherwise every pre-existing
+ * file in the watched directory would look "changed" the moment the
+ * automation is created. See ADR-0013.
+ */
+async function checkFileWatchAutomations(): Promise<void> {
+  const db = getDb();
+  let automations: AutomationRecord[];
+  try {
+    automations = await db.listFileWatchAutomations();
+  } catch (err) {
+    console.error("Scheduler: failed to query file-watch automations:", err);
+    return;
+  }
+
+  for (const automation of automations) {
+    if (!automation.watchPath) continue;
+    const checkedAt = new Date();
+    try {
+      const rootDir = resolveWatchPath(automation.watchPath);
+      const changed = await listChangedFilesUnder(
+        rootDir,
+        automation.watchGlob || null,
+        automation.lastWatchCheckAt,
+      );
+
+      if (automation.lastWatchCheckAt && changed.length > 0) {
+        const prompt = [
+          automation.prompt,
+          "",
+          `Files changed under "${automation.watchPath}" since the last check:`,
+          ...changed.map((file) => `- ${file}`),
+        ].join("\n");
+        await runAutomation({ ...automation, prompt });
+      }
+
+      await db.setAutomationWatchCheckedAt(automation.id, checkedAt);
+    } catch (err) {
+      console.error(
+        `Scheduler: file-watch automation "${automation.name}" (${automation.id}) failed:`,
+        err,
+      );
+    }
+  }
+}
+
+/**
+ * Polls the automation table every 30s: cron automations whose nextRunAt has
+ * passed run headlessly (one full completion, no client attached to stream
+ * to — see runAutomation); file_watch automations are separately checked for
+ * changed files under their configured directory. A failing or unexpectedly
+ * slow automation is caught and logged per-automation so it can't take down
+ * the poll loop or block sibling automations from running.
  */
 export function startScheduler(): () => void {
   const timer = setInterval(async () => {
@@ -89,7 +201,7 @@ export function startScheduler(): () => void {
       due = await getDb().listDueAutomations(new Date());
     } catch (err) {
       console.error("Scheduler: failed to query due automations:", err);
-      return;
+      due = [];
     }
     for (const automation of due) {
       try {
@@ -98,6 +210,8 @@ export function startScheduler(): () => void {
         console.error(`Scheduler: automation "${automation.name}" (${automation.id}) failed:`, err);
       }
     }
+
+    await checkFileWatchAutomations();
   }, POLL_INTERVAL_MS);
 
   // Timers otherwise keep the process alive forever — unref lets a clean

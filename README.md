@@ -2,7 +2,7 @@
 
 A fully open source, self-hosted agentic OS with a web UI — on your own PC or on your own server with a URL and login. Local and cloud AI models, skills, MCP servers, plugins, normal chats, autonomous agents, and super-agents in a single UI consistently built in the shadcn/ui default design.
 
-Status: Self-hosting polish (Phase 5) is implemented for first-run setup, Docker packaging, and Caddy-backed server installs. The product is still pre-1.0 software.
+Status: Self-hosting polish (Phase 5) is implemented for first-run setup, Docker packaging, and Caddy-backed server installs. Phase 6 is partially implemented: DB-backed dynamic skills with a "Skills" tab (selection + creation), automatic knowledge-base injection into every chat/agent/automation, and file-watch automations — see `knowledge-base/01-Decisions/ADR-0013-*.md`. The product is still pre-1.0 software.
 
 Full architecture plan: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 Installation guide: [`docs/INSTALL.md`](docs/INSTALL.md)

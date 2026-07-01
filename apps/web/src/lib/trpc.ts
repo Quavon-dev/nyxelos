@@ -84,20 +84,37 @@ export type UserSummary = {
   email: string;
 };
 
+export type SkillKind =
+  | "http_fetch"
+  | "file_read"
+  | "file_write"
+  | "file_list"
+  | "kb_search"
+  | "custom_code";
+
 export type SkillSummary = {
   id: string;
   name: string;
   description: string;
   permissions: { network: string[]; filesystem: string[] };
   sensitive: boolean;
+  enabled: boolean;
+  source: "builtin" | "custom";
+  kind?: SkillKind;
 };
+
+export type AutomationTriggerType = "cron" | "file_watch";
 
 export type AutomationSummary = {
   id: string;
   workspaceId: string;
   agentId: string;
   name: string;
+  triggerType: AutomationTriggerType;
   cronExpression: string;
+  watchPath: string | null;
+  watchGlob: string | null;
+  lastWatchCheckAt: Date | null;
   prompt: string;
   enabled: boolean;
   lastRunAt: Date | null;
@@ -170,6 +187,7 @@ export type KnowledgeBaseConfigSummary = {
   obsidianRestUrl: string | null;
   obsidianApiKey: string | null;
   docsAgentEnabled: boolean;
+  injectIntoPrompts: boolean;
   lastDocsSyncAt: Date | null;
   lastDocsSyncError: string | null;
   updatedAt: Date;
@@ -300,7 +318,24 @@ type NyxelTrpcClient = {
   };
   skills: {
     list: {
-      query(): Promise<SkillSummary[]>;
+      query(input: { workspaceId: string }): Promise<SkillSummary[]>;
+    };
+    create: {
+      mutate(input: {
+        workspaceId: string;
+        name: string;
+        description: string;
+        kind: SkillKind;
+        config: Record<string, unknown>;
+        sensitive?: boolean;
+        enabled?: boolean;
+      }): Promise<SkillSummary>;
+    };
+    setEnabled: {
+      mutate(input: { id: string; enabled: boolean }): Promise<SkillSummary>;
+    };
+    delete: {
+      mutate(input: { id: string }): Promise<void>;
     };
   };
   workspaces: {
@@ -403,7 +438,10 @@ type NyxelTrpcClient = {
         workspaceId: string;
         agentId: string;
         name: string;
-        cronExpression: string;
+        triggerType?: AutomationTriggerType;
+        cronExpression?: string;
+        watchPath?: string;
+        watchGlob?: string;
         prompt: string;
         enabled?: boolean;
       }): Promise<AutomationSummary>;
@@ -445,6 +483,7 @@ type NyxelTrpcClient = {
         obsidianRestUrl?: string | null;
         obsidianApiKey?: string | null;
         docsAgentEnabled?: boolean;
+        injectIntoPrompts?: boolean;
       }): Promise<KnowledgeBaseConfigSummary>;
     };
     documents: {

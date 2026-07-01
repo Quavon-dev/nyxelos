@@ -406,6 +406,7 @@ export function createPgRepository(connectionString: string): DbRepository {
       obsidianRestUrl,
       obsidianApiKey,
       docsAgentEnabled,
+      injectIntoPrompts,
     }) {
       const existing = await db.query.knowledgeBaseConfig.findFirst({
         where: eq(schema.knowledgeBaseConfig.workspaceId, workspaceId),
@@ -418,6 +419,7 @@ export function createPgRepository(connectionString: string): DbRepository {
             obsidianRestUrl: obsidianRestUrl ?? null,
             obsidianApiKey: obsidianApiKey ?? null,
             docsAgentEnabled: docsAgentEnabled ?? existing.docsAgentEnabled,
+            injectIntoPrompts: injectIntoPrompts ?? existing.injectIntoPrompts,
             updatedAt: new Date(),
           })
           .where(eq(schema.knowledgeBaseConfig.workspaceId, workspaceId))
@@ -434,6 +436,7 @@ export function createPgRepository(connectionString: string): DbRepository {
           obsidianRestUrl: obsidianRestUrl ?? null,
           obsidianApiKey: obsidianApiKey ?? null,
           docsAgentEnabled: docsAgentEnabled ?? true,
+          injectIntoPrompts: injectIntoPrompts ?? true,
           updatedAt: new Date(),
         })
         .returning();
@@ -459,7 +462,10 @@ export function createPgRepository(connectionString: string): DbRepository {
       workspaceId,
       agentId,
       name,
+      triggerType,
       cronExpression,
+      watchPath,
+      watchGlob,
       prompt,
       enabled,
       nextRunAt,
@@ -471,7 +477,10 @@ export function createPgRepository(connectionString: string): DbRepository {
           workspaceId,
           agentId,
           name,
-          cronExpression,
+          triggerType: triggerType ?? "cron",
+          cronExpression: cronExpression ?? "",
+          watchPath: watchPath ?? null,
+          watchGlob: watchGlob ?? null,
           prompt,
           enabled: enabled ?? true,
           nextRunAt: nextRunAt ?? null,
@@ -493,6 +502,15 @@ export function createPgRepository(connectionString: string): DbRepository {
         .select()
         .from(schema.automation)
         .where(and(eq(schema.automation.enabled, true), lte(schema.automation.nextRunAt, now)));
+    },
+
+    async listFileWatchAutomations() {
+      return db
+        .select()
+        .from(schema.automation)
+        .where(
+          and(eq(schema.automation.enabled, true), eq(schema.automation.triggerType, "file_watch")),
+        );
     },
 
     async getAutomation(id) {
@@ -530,8 +548,59 @@ export function createPgRepository(connectionString: string): DbRepository {
       return row;
     },
 
+    async setAutomationWatchCheckedAt(id, lastWatchCheckAt) {
+      const [row] = await db
+        .update(schema.automation)
+        .set({ lastWatchCheckAt })
+        .where(eq(schema.automation.id, id))
+        .returning();
+      if (!row) throw new Error(`Automation not found: ${id}`);
+      return row;
+    },
+
     async deleteAutomation(id) {
       await db.delete(schema.automation).where(eq(schema.automation.id, id));
+    },
+
+    async createSkill({ workspaceId, name, description, kind, config, sensitive, enabled }) {
+      const [row] = await db
+        .insert(schema.skill)
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          name,
+          description,
+          kind,
+          config,
+          sensitive: sensitive ?? true,
+          enabled: enabled ?? true,
+        })
+        .returning();
+      if (!row) throw new Error("Failed to create skill");
+      return row;
+    },
+
+    async listSkillsByWorkspace(workspaceId) {
+      return db.select().from(schema.skill).where(eq(schema.skill.workspaceId, workspaceId));
+    },
+
+    async getSkill(id) {
+      const row = await db.query.skill.findFirst({ where: eq(schema.skill.id, id) });
+      return row ?? null;
+    },
+
+    async setSkillEnabled(id, enabled) {
+      const [row] = await db
+        .update(schema.skill)
+        .set({ enabled })
+        .where(eq(schema.skill.id, id))
+        .returning();
+      if (!row) throw new Error(`Skill not found: ${id}`);
+      return row;
+    },
+
+    async deleteSkill(id) {
+      await db.delete(schema.skill).where(eq(schema.skill.id, id));
     },
 
     async createApprovalRequest({

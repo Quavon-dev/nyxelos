@@ -3,6 +3,7 @@ import { streamChat } from "@nyxel/model-providers";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { resolveAgentRuntimeConfig } from "../auto-agent";
+import { getKnowledgeBaseContextForPrompt } from "../knowledge-base";
 import { getInstalledProvidersForWorkspace } from "../models";
 import { buildToolsForAgent } from "../tools";
 
@@ -15,8 +16,9 @@ const bodySchema = z.object({
  * POST /api/chat/stream — persists the user message, resolves the system
  * prompt and tool set for this chat (workspace custom instructions, plus —
  * if the chat is bound to an agent — the agent's own system prompt and its
- * assigned skills/MCP tools), streams the model's reply token by token (see
- * ARCHITECTURE.md sections 6, 8, and 14), then persists the full assistant
+ * assigned skills/MCP tools, plus the workspace's auto-injected knowledge-base
+ * context — see ADR-0013), streams the model's reply token by token (see
+ * ARCHITECTURE.md sections 6, 8, 9, and 14), then persists the full assistant
  * reply once streaming ends. Plain fetch-friendly streaming response rather
  * than a tRPC subscription, per the streaming architecture decision.
  */
@@ -39,10 +41,12 @@ export function registerChatStreamRoute(app: Hono) {
       chat.agentId ? db.getAgent(chat.agentId) : Promise.resolve(null),
     ]);
     const agent = storedAgent ? await resolveAgentRuntimeConfig(storedAgent) : null;
+    const knowledgeBaseContext = await getKnowledgeBaseContextForPrompt(chat.workspaceId);
 
     const systemPrompt =
-      [workspace?.customInstructions, agent?.systemPrompt].filter(Boolean).join("\n\n") ||
-      undefined;
+      [workspace?.customInstructions, agent?.systemPrompt, knowledgeBaseContext]
+        .filter(Boolean)
+        .join("\n\n") || undefined;
     const tools = agent ? await buildToolsForAgent(agent, { chatId }) : undefined;
     const modelId = agent?.modelId ?? chat.modelId;
     const installedProviders = await getInstalledProvidersForWorkspace(chat.workspaceId);

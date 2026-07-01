@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   Archive,
+  Blocks,
   Bot,
   ClipboardCheck,
   Clock,
@@ -59,6 +60,7 @@ export function AppSidebar() {
           icon: NotebookPen,
         },
         { href: `/workspace/${workspaceId}/agents`, label: "Agents", icon: Bot },
+        { href: `/workspace/${workspaceId}/skills`, label: "Skills", icon: Blocks },
         { href: `/workspace/${workspaceId}/mcp-servers`, label: "MCP Servers", icon: Plug },
         { href: `/workspace/${workspaceId}/automations`, label: "Automations", icon: Clock },
         {

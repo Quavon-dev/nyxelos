@@ -1,4 +1,4 @@
-import { readFile as fsReadFile, writeFile as fsWriteFile } from "node:fs/promises";
+import { readFile as fsReadFile, readdir as fsReadDir, writeFile as fsWriteFile } from "node:fs/promises";
 import path from "node:path";
 import type { SkillContext, SkillDefinition, SkillPermissions } from "./types";
 
@@ -50,7 +50,21 @@ function createContext(permissions: SkillPermissions): SkillContext {
     writeFile: async (filePath, content) => {
       await fsWriteFile(assertPathAllowed(permissions, filePath), content, "utf-8");
     },
+    readDir: async (dirPath) => {
+      const entries = await fsReadDir(assertPathAllowed(permissions, dirPath), {
+        withFileTypes: true,
+      });
+      return entries.map((entry) => ({ name: entry.name, isDirectory: entry.isDirectory() }));
+    },
   };
+}
+
+/** Exported so callers that build skills dynamically (e.g. the DB-backed
+ * skills in apps/server/src/skills-dynamic.ts) get the same permission-
+ * checked fetch/file context as statically-defined skills, instead of
+ * re-implementing the host/path allow-list checks. */
+export function createSkillContext(permissions: SkillPermissions): SkillContext {
+  return createContext(permissions);
 }
 
 /**

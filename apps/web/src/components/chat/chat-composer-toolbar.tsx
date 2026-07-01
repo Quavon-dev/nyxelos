@@ -283,90 +283,129 @@ export function ChatComposerToolbar({
           </DropdownMenu>
         )}
 
-      {mode === "compact" && (
-        <>
-          <button
-            type="button"
-            onClick={() =>
-              attachedFile ? onAttachedFileChange(null) : fileInputRef.current?.click()
-            }
-            className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-full transition-colors",
-              attachedFile
-                ? "bg-primary/15 text-primary hover:bg-primary/20"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
-            )}
-            aria-label={
-              attachedFile ? `Remove attached file (${attachedFile.name})` : "Attach a file"
-            }
-            title={attachedFile ? `Attached: ${attachedFile.name}` : "Attach a file"}
-          >
-            <Paperclip className="size-4" />
-          </button>
+        {mode === "compact" && (
+          <>
+            <button
+              type="button"
+              onClick={() =>
+                attachedFile ? onAttachedFileChange(null) : fileInputRef.current?.click()
+              }
+              className={cn(
+                "flex size-8 shrink-0 items-center justify-center rounded-full transition-colors",
+                attachedFile
+                  ? "bg-primary/15 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+              aria-label={
+                attachedFile ? `Remove attached file (${attachedFile.name})` : "Attach a file"
+              }
+              title={attachedFile ? `Attached: ${attachedFile.name}` : "Attach a file"}
+            >
+              <Paperclip className="size-4" />
+            </button>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label="More tool options"
+                >
+                  <Settings2 className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
+                  <Search className="size-4" />
+                  File search
+                  {attachedFile && <Check className="ml-auto size-3.5" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setSkillsPinned(true);
+                    if (!effective.skillsEnabled) commit({ skillsEnabled: true });
+                  }}
+                >
+                  <Sparkles className="size-4" />
+                  Skills
+                  {skillsPinned && <Check className="ml-auto size-3.5" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setArtifactsPinned((v) => !v)}>
+                  <Blocks className="size-4" />
+                  Artifacts
+                  {artifactsPinned && <Check className="ml-auto size-3.5" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setMcpOpen(true)}>
+                  <Plug className="size-4" />
+                  MCP Server
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {attachedFile && (
               <button
                 type="button"
-                className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                aria-label="More tool options"
+                onClick={() => onAttachedFileChange(null)}
+                className={pillClass(true)}
+                title="Remove attached file"
               >
-                <Settings2 className="size-4" />
+                <Search className="size-3.5" />
+                {attachedFile.name}
+                <X className="size-3 opacity-70" />
               </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
-                <Search className="size-4" />
-                File search
-                {attachedFile && <Check className="ml-auto size-3.5" />}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => {
-                  setSkillsPinned(true);
-                  if (!effective.skillsEnabled) commit({ skillsEnabled: true });
-                }}
-              >
-                <Sparkles className="size-4" />
-                Skills
-                {skillsPinned && <Check className="ml-auto size-3.5" />}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setArtifactsPinned((v) => !v)}>
-                <Blocks className="size-4" />
-                Artifacts
-                {artifactsPinned && <Check className="ml-auto size-3.5" />}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setMcpOpen(true)}>
-                <Plug className="size-4" />
-                MCP Server
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            )}
 
-          {attachedFile && (
+            {skillsPinned && (
+              <button
+                type="button"
+                onClick={() => commit({ skillsEnabled: !effective.skillsEnabled })}
+                className={pillClass(skillsActive)}
+              >
+                <Sparkles className="size-3.5" />
+                Skills
+              </button>
+            )}
+
+            {artifactsPinned && (
+              <Popover open={artifactsOpen} onOpenChange={setArtifactsOpen}>
+                <PopoverTrigger asChild>
+                  <button type="button" className={pillClass(artifacts.length > 0)}>
+                    <Blocks className="size-3.5" />
+                    Artifacts
+                    <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
+                      {artifacts.length}
+                    </Badge>
+                    <ChevronDown className="size-3 opacity-60" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-80">
+                  <ArtifactsList artifacts={artifacts} />
+                </PopoverContent>
+              </Popover>
+            )}
+          </>
+        )}
+
+        {mode === "full" && (
+          <>
             <button
               type="button"
-              onClick={() => onAttachedFileChange(null)}
-              className={pillClass(true)}
-              title="Remove attached file"
+              onClick={() =>
+                attachedFile ? onAttachedFileChange(null) : fileInputRef.current?.click()
+              }
+              className={pillClass(Boolean(attachedFile))}
+              title={attachedFile ? "Remove attached file" : "Attach a text file as context"}
             >
               <Search className="size-3.5" />
-              {attachedFile.name}
-              <X className="size-3 opacity-70" />
+              {attachedFile ? attachedFile.name : "File search"}
+              {attachedFile && <X className="size-3 opacity-70" />}
             </button>
-          )}
 
-          {skillsPinned && (
-            <button
-              type="button"
-              onClick={() => commit({ skillsEnabled: !effective.skillsEnabled })}
-              className={pillClass(skillsActive)}
-            >
+            <button type="button" onClick={toggleSkills} className={pillClass(skillsActive)}>
               <Sparkles className="size-3.5" />
               Skills
             </button>
-          )}
 
-          {artifactsPinned && (
             <Popover open={artifactsOpen} onOpenChange={setArtifactsOpen}>
               <PopoverTrigger asChild>
                 <button type="button" className={pillClass(artifacts.length > 0)}>
@@ -382,151 +421,112 @@ export function ChatComposerToolbar({
                 <ArtifactsList artifacts={artifacts} />
               </PopoverContent>
             </Popover>
-          )}
-        </>
-      )}
+          </>
+        )}
 
-      {mode === "full" && (
-        <>
-          <button
-            type="button"
-            onClick={() =>
-              attachedFile ? onAttachedFileChange(null) : fileInputRef.current?.click()
-            }
-            className={pillClass(Boolean(attachedFile))}
-            title={attachedFile ? "Remove attached file" : "Attach a text file as context"}
-          >
-            <Search className="size-3.5" />
-            {attachedFile ? attachedFile.name : "File search"}
-            {attachedFile && <X className="size-3 opacity-70" />}
-          </button>
-
-          <button type="button" onClick={toggleSkills} className={pillClass(skillsActive)}>
-            <Sparkles className="size-3.5" />
-            Skills
-          </button>
-
-          <Popover open={artifactsOpen} onOpenChange={setArtifactsOpen}>
-            <PopoverTrigger asChild>
-              <button type="button" className={pillClass(artifacts.length > 0)}>
-                <Blocks className="size-3.5" />
-                Artifacts
-                <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
-                  {artifacts.length}
-                </Badge>
-                <ChevronDown className="size-3 opacity-60" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-80">
-              <ArtifactsList artifacts={artifacts} />
-            </PopoverContent>
-          </Popover>
-        </>
-      )}
-
-      <Popover open={mcpOpen} onOpenChange={setMcpOpen}>
-        <PopoverTrigger asChild>
-          <button type="button" className={pillClass(mcpCustomized)}>
-            <Plug className="size-3.5" />
-            {mcpSummary}
-            <ChevronDown className="size-3 opacity-60" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-80">
-          <div className="flex items-center justify-between">
-            <p className="font-medium">MCP servers for this chat</p>
-            {mcpCustomized && (
-              <button
-                type="button"
-                onClick={() => onToolSelectionChange(null)}
-                className="text-xs text-muted-foreground underline-offset-2 hover:underline"
-              >
-                Reset
-              </button>
-            )}
-          </div>
-          <p className="-mt-2 mb-2 text-xs text-muted-foreground">
-            By default this chat can reach every connected server. Uncheck any it shouldn't use.
-          </p>
-          <div className="max-h-72 space-y-1 overflow-y-auto">
-            {servers.length === 0 && (
-              <p className="text-xs text-muted-foreground">No MCP servers configured yet.</p>
-            )}
-            {servers.map((server) => {
-              const checked = effective.mcpServerIds.includes(server.id);
-              const expanded = expandedServerId === server.id;
-              return (
-                <div key={server.id} className="rounded-md">
-                  <div className="flex items-center gap-2 rounded-md px-1 py-1.5 hover:bg-muted/60">
-                    <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted">
-                      <Plug className="size-3.5 text-muted-foreground" />
-                    </div>
-                    <div className="flex flex-1 items-center gap-1.5 truncate">
-                      <span className="truncate text-sm font-medium">{server.name}</span>
-                      <span
-                        className={cn(
-                          "size-1.5 shrink-0 rounded-full",
-                          server.enabled ? "bg-emerald-500" : "bg-muted-foreground/40",
-                        )}
+        <Popover open={mcpOpen} onOpenChange={setMcpOpen}>
+          <PopoverTrigger asChild>
+            <button type="button" className={pillClass(mcpCustomized)}>
+              <Plug className="size-3.5" />
+              {mcpSummary}
+              <ChevronDown className="size-3 opacity-60" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-80">
+            <div className="flex items-center justify-between">
+              <p className="font-medium">MCP servers for this chat</p>
+              {mcpCustomized && (
+                <button
+                  type="button"
+                  onClick={() => onToolSelectionChange(null)}
+                  className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+            <p className="-mt-2 mb-2 text-xs text-muted-foreground">
+              By default this chat can reach every connected server. Uncheck any it shouldn't use.
+            </p>
+            <div className="max-h-72 space-y-1 overflow-y-auto">
+              {servers.length === 0 && (
+                <p className="text-xs text-muted-foreground">No MCP servers configured yet.</p>
+              )}
+              {servers.map((server) => {
+                const checked = effective.mcpServerIds.includes(server.id);
+                const expanded = expandedServerId === server.id;
+                return (
+                  <div key={server.id} className="rounded-md">
+                    <div className="flex items-center gap-2 rounded-md px-1 py-1.5 hover:bg-muted/60">
+                      <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted">
+                        <Plug className="size-3.5 text-muted-foreground" />
+                      </div>
+                      <div className="flex flex-1 items-center gap-1.5 truncate">
+                        <span className="truncate text-sm font-medium">{server.name}</span>
+                        <span
+                          className={cn(
+                            "size-1.5 shrink-0 rounded-full",
+                            server.enabled ? "bg-emerald-500" : "bg-muted-foreground/40",
+                          )}
+                        />
+                      </div>
+                      {checked && (
+                        <button
+                          type="button"
+                          onClick={() => setExpandedServerId(expanded ? null : server.id)}
+                          className="text-muted-foreground hover:text-foreground"
+                          aria-label="Choose individual tools"
+                        >
+                          {expanded ? (
+                            <ChevronDown className="size-3.5" />
+                          ) : (
+                            <ChevronRight className="size-3.5" />
+                          )}
+                        </button>
+                      )}
+                      <Checkbox
+                        checked={checked}
+                        disabled={!server.enabled}
+                        onCheckedChange={() => toggleServer(server.id)}
                       />
                     </div>
-                    {checked && (
-                      <button
-                        type="button"
-                        onClick={() => setExpandedServerId(expanded ? null : server.id)}
-                        className="text-muted-foreground hover:text-foreground"
-                        aria-label="Choose individual tools"
-                      >
-                        {expanded ? (
-                          <ChevronDown className="size-3.5" />
-                        ) : (
-                          <ChevronRight className="size-3.5" />
+                    {expanded && checked && (
+                      <div className="ml-9 space-y-1 border-l pl-3">
+                        {toolsQuery.isLoading && (
+                          <p className="text-xs text-muted-foreground">Loading tools…</p>
                         )}
-                      </button>
+                        {toolsQuery.data?.length === 0 && (
+                          <p className="text-xs text-muted-foreground">No tools exposed.</p>
+                        )}
+                        {toolsQuery.data?.map((mcpTool) => (
+                          <div key={mcpTool.name} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`${server.id}-${mcpTool.name}`}
+                              checked={isToolChecked(server.id, mcpTool.name)}
+                              onCheckedChange={() =>
+                                toggleTool(
+                                  server.id,
+                                  mcpTool.name,
+                                  (toolsQuery.data ?? []).map((t) => t.name),
+                                )
+                              }
+                            />
+                            <Label
+                              htmlFor={`${server.id}-${mcpTool.name}`}
+                              className="flex-1 truncate font-mono text-xs font-normal"
+                            >
+                              {mcpTool.name}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
                     )}
-                    <Checkbox
-                      checked={checked}
-                      disabled={!server.enabled}
-                      onCheckedChange={() => toggleServer(server.id)}
-                    />
                   </div>
-                  {expanded && checked && (
-                    <div className="ml-9 space-y-1 border-l pl-3">
-                      {toolsQuery.isLoading && (
-                        <p className="text-xs text-muted-foreground">Loading tools…</p>
-                      )}
-                      {toolsQuery.data?.length === 0 && (
-                        <p className="text-xs text-muted-foreground">No tools exposed.</p>
-                      )}
-                      {toolsQuery.data?.map((mcpTool) => (
-                        <div key={mcpTool.name} className="flex items-center gap-2">
-                          <Checkbox
-                            id={`${server.id}-${mcpTool.name}`}
-                            checked={isToolChecked(server.id, mcpTool.name)}
-                            onCheckedChange={() =>
-                              toggleTool(
-                                server.id,
-                                mcpTool.name,
-                                (toolsQuery.data ?? []).map((t) => t.name),
-                              )
-                            }
-                          />
-                          <Label
-                            htmlFor={`${server.id}-${mcpTool.name}`}
-                            className="flex-1 truncate font-mono text-xs font-normal"
-                          >
-                            {mcpTool.name}
-                          </Label>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </PopoverContent>
-      </Popover>
+                );
+              })}
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
       <div className="flex shrink-0 items-center gap-1">

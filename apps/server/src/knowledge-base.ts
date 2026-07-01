@@ -205,6 +205,73 @@ function summarizeAuditEntry(entry: AuditLogRecord) {
   return `- ${entry.actor} · ${entry.toolLabel} · ${entry.status}${clipped ? ` · ${clipped}` : ""}`;
 }
 
+const KNOWLEDGE_BASE_PROMPT_CONTEXT_MAX_CHARS = 6000;
+const KNOWLEDGE_BASE_PROMPT_SECTION_MAX_CHARS = 1500;
+const ALWAYS_INCLUDE_GROUP = "00-Meta";
+const RECENT_NOTES_TO_INCLUDE = 3;
+
+/**
+ * Builds the auto-injected knowledge-base block appended to every chat,
+ * automation, and scheduled-agent system prompt (see ARCHITECTURE.md section
+ * 9 and ADR-0013) — the living project memory should be something the model
+ * always has, not something it has to be asked to go read. Returns null when
+ * the workspace has disabled injection or the vault has no notes yet, so
+ * callers can skip the section entirely rather than appending an empty block.
+ *
+ * Kept deliberately small and cheap: a full note index (path + title, so the
+ * model at least knows what exists and can be pointed at it), plus the full
+ * text of "always relevant" notes (00-Meta/*, e.g. the project overview) and
+ * the handful of most recently modified notes — not the whole vault, which
+ * would blow the context budget as the knowledge base grows.
+ */
+export async function getKnowledgeBaseContextForPrompt(workspaceId: string): Promise<string | null> {
+  const db = getDb();
+  const config = await db.getKnowledgeBaseConfig(workspaceId);
+  if (config && !config.injectIntoPrompts) return null;
+
+  const vaultPath = config?.vaultPath ?? "knowledge-base";
+  const absoluteVaultPath = resolveVaultPath(vaultPath);
+  const documents = await loadVaultDocuments(vaultPath);
+  if (documents.length === 0) return null;
+
+  const index = documents
+    .slice()
+    .sort((a, b) => a.path.localeCompare(b.path))
+    .map((doc) => `- ${doc.path} — ${doc.title}`)
+    .join("\n");
+
+  const alwaysInclude = documents.filter((doc) => noteGroupFromPath(doc.path) === ALWAYS_INCLUDE_GROUP);
+  const alwaysIncludePaths = new Set(alwaysInclude.map((doc) => doc.path));
+  const recent = documents
+    .slice()
+    .sort((a, b) => b.modifiedAt.getTime() - a.modifiedAt.getTime())
+    .filter((doc) => !alwaysIncludePaths.has(doc.path))
+    .slice(0, RECENT_NOTES_TO_INCLUDE);
+
+  const sections = await Promise.all(
+    [...alwaysInclude, ...recent].map(async (doc) => {
+      const content = await fs
+        .readFile(path.join(absoluteVaultPath, doc.path), "utf8")
+        .catch(() => "");
+      return `### ${doc.path}\n${content.slice(0, KNOWLEDGE_BASE_PROMPT_SECTION_MAX_CHARS)}`;
+    }),
+  );
+
+  const block = [
+    "## Knowledge base (living project memory)",
+    "The following is automatically supplied from this workspace's knowledge-base vault, not something the user typed. Treat it as background context; prefer more specific or more recent information from the conversation itself if the two conflict.",
+    "",
+    "### Note index",
+    index,
+    "",
+    ...sections,
+  ].join("\n");
+
+  return block.length > KNOWLEDGE_BASE_PROMPT_CONTEXT_MAX_CHARS
+    ? `${block.slice(0, KNOWLEDGE_BASE_PROMPT_CONTEXT_MAX_CHARS)}\n…(truncated)`
+    : block;
+}
+
 export async function getKnowledgeBaseOverview(workspaceId: string) {
   const db = getDb();
   const config = (await db.getKnowledgeBaseConfig(workspaceId)) ?? {
@@ -213,6 +280,7 @@ export async function getKnowledgeBaseOverview(workspaceId: string) {
     obsidianRestUrl: "http://127.0.0.1:27124/",
     obsidianApiKey: null,
     docsAgentEnabled: true,
+    injectIntoPrompts: true,
     lastDocsSyncAt: null,
     lastDocsSyncError: null,
     updatedAt: new Date(0),

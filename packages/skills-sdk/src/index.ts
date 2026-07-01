@@ -1,5 +1,5 @@
 export { defineSkill } from "./define-skill";
-export { SkillPermissionError, SkillRegistry } from "./runtime";
+export { createSkillContext, SkillPermissionError, SkillRegistry } from "./runtime";
 export { getCurrentTimeSkill } from "./skills/get-current-time";
 export { createWebFetchSkill } from "./skills/web-fetch";
 export { createWriteNoteSkill } from "./skills/write-note";

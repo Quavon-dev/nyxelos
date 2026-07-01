@@ -14,7 +14,7 @@ import { ensureMcpServerConnected, mcpManager } from "../mcp-runtime";
 import { getInstalledProvidersForWorkspace } from "../models";
 import { importProviderSourceToWorkspace, listProviderImportSources } from "../provider-imports";
 import { computeNextRunAt, runAutomation } from "../scheduler";
-import { skillRegistry } from "../skills-registry";
+import { listSkillCatalogForWorkspace } from "../skills-resolve";
 import { publicProcedure, router } from "./trpc";
 
 const autonomyLevelSchema = z.enum(["chat", "assisted", "autonomous", "super_agent"]);
@@ -22,6 +22,15 @@ const mcpTransportSchema = z.enum(["stdio", "http"]);
 const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);
 const installationModeSchema = z.enum(["pc", "server"]);
 const modelProviderKindSchema = z.enum(["anthropic", "openai", "openai_compatible"]);
+const skillKindSchema = z.enum([
+  "http_fetch",
+  "file_read",
+  "file_write",
+  "file_list",
+  "kb_search",
+  "custom_code",
+]);
+const automationTriggerTypeSchema = z.enum(["cron", "file_watch"]);
 const AUTOMATABLE_LEVELS = new Set(["autonomous", "super_agent"]);
 
 export const appRouter = router({
@@ -172,17 +181,44 @@ export const appRouter = router({
   }),
 
   skills: router({
-    // Read-only catalog for now — see ARCHITECTURE.md section 8 for the
-    // planned per-workspace skill marketplace.
-    list: publicProcedure.query(() =>
-      skillRegistry.list().map((skill) => ({
-        id: skill.id,
-        name: skill.name,
-        description: skill.description,
-        permissions: skill.permissions,
-        sensitive: skill.sensitive,
-      })),
-    ),
+    // The full catalog for a workspace: process-wide hand-written skills
+    // ("builtin") plus this workspace's DB-backed dynamic skills ("custom")
+    // created through the Skills tab. See ADR-0013 and skills-resolve.ts.
+    list: publicProcedure
+      .input(z.object({ workspaceId: z.string() }))
+      .query(({ input }) => listSkillCatalogForWorkspace(input.workspaceId)),
+    create: publicProcedure
+      .input(
+        z.object({
+          workspaceId: z.string(),
+          name: z.string().min(1),
+          description: z.string().min(1),
+          kind: skillKindSchema,
+          // Shape depends on `kind` — see apps/server/src/skills-dynamic.ts's
+          // doc comment for the expected fields per kind.
+          config: z.record(z.string(), z.unknown()).default({}),
+          sensitive: z.boolean().optional(),
+          enabled: z.boolean().optional(),
+        }),
+      )
+      .mutation(({ input }) => {
+        // Read-only kinds default to not needing approval; anything that can
+        // write or run arbitrary code defaults to sensitive, matching the
+        // "unmarked skill is treated as if it could do something
+        // irreversible" default from packages/skills-sdk. Callers can still
+        // override explicitly via `sensitive`.
+        const defaultSensitive = input.kind === "file_write" || input.kind === "custom_code";
+        return getDb().createSkill({
+          ...input,
+          sensitive: input.sensitive ?? defaultSensitive,
+        });
+      }),
+    setEnabled: publicProcedure
+      .input(z.object({ id: z.string(), enabled: z.boolean() }))
+      .mutation(({ input }) => getDb().setSkillEnabled(input.id, input.enabled)),
+    delete: publicProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ input }) => getDb().deleteSkill(input.id)),
   }),
 
   workspaces: router({
@@ -334,7 +370,10 @@ export const appRouter = router({
           workspaceId: z.string(),
           agentId: z.string(),
           name: z.string().min(1),
-          cronExpression: z.string().min(1),
+          triggerType: automationTriggerTypeSchema.default("cron"),
+          cronExpression: z.string().optional(),
+          watchPath: z.string().optional(),
+          watchGlob: z.string().optional(),
           prompt: z.string().min(1),
           enabled: z.boolean().optional(),
         }),
@@ -348,6 +387,21 @@ export const appRouter = router({
             `Agent "${agent.name}" has autonomy level "${agent.autonomyLevel}" — only "autonomous" or "super_agent" agents can be scheduled.`,
           );
         }
+
+        if (input.triggerType === "file_watch") {
+          if (!input.watchPath) {
+            throw new Error('A file-watch automation needs "watchPath".');
+          }
+          return db.createAutomation({
+            ...input,
+            cronExpression: "",
+            nextRunAt: null,
+          });
+        }
+
+        if (!input.cronExpression) {
+          throw new Error('A cron automation needs "cronExpression".');
+        }
         const nextRunAt = computeNextRunAt(input.cronExpression, new Date());
         if (!nextRunAt)
           throw new Error(`"${input.cronExpression}" is not a valid cron expression.`);
@@ -360,10 +414,14 @@ export const appRouter = router({
         if (input.enabled) {
           // Re-enabling: recompute nextRunAt from "now" rather than resuming
           // whatever stale schedule was in place before it was disabled.
+          // File-watch automations have no cron schedule to recompute — the
+          // scheduler's file-poll loop re-triggers them by lastWatchCheckAt.
           const automation = await db.getAutomation(input.id);
           if (!automation) throw new Error(`Unknown automation: ${input.id}`);
-          const nextRunAt = computeNextRunAt(automation.cronExpression, new Date());
-          await db.setAutomationNextRun(input.id, nextRunAt);
+          if (automation.triggerType === "cron") {
+            const nextRunAt = computeNextRunAt(automation.cronExpression, new Date());
+            await db.setAutomationNextRun(input.id, nextRunAt);
+          }
         }
         return db.setAutomationEnabled(input.id, input.enabled);
       }),
@@ -411,6 +469,7 @@ export const appRouter = router({
           obsidianRestUrl: z.string().url().nullable().optional(),
           obsidianApiKey: z.string().nullable().optional(),
           docsAgentEnabled: z.boolean().optional(),
+          injectIntoPrompts: z.boolean().optional(),
         }),
       )
       .mutation(({ input }) =>
@@ -420,6 +479,7 @@ export const appRouter = router({
           obsidianRestUrl: input.obsidianRestUrl ?? null,
           obsidianApiKey: input.obsidianApiKey ?? null,
           docsAgentEnabled: input.docsAgentEnabled,
+          injectIntoPrompts: input.injectIntoPrompts,
         }),
       ),
     documents: publicProcedure

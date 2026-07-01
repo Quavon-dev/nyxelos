@@ -11,6 +11,16 @@ export type ApprovalKind = "skill" | "mcp";
 export type AuditActor = "chat" | "automation" | "approval" | "delegate";
 export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
 
+export type SkillKind =
+  | "http_fetch"
+  | "file_read"
+  | "file_write"
+  | "file_list"
+  | "kb_search"
+  | "custom_code";
+
+export type AutomationTriggerType = "cron" | "file_watch";
+
 export interface WorkspaceRecord {
   id: string;
   name: string;
@@ -73,11 +83,27 @@ export interface AutomationRecord {
   workspaceId: string;
   agentId: string;
   name: string;
+  triggerType: AutomationTriggerType;
   cronExpression: string;
+  watchPath: string | null;
+  watchGlob: string | null;
+  lastWatchCheckAt: Date | null;
   prompt: string;
   enabled: boolean;
   lastRunAt: Date | null;
   nextRunAt: Date | null;
+  createdAt: Date;
+}
+
+export interface SkillRecord {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description: string;
+  kind: SkillKind;
+  config: Record<string, unknown>;
+  sensitive: boolean;
+  enabled: boolean;
   createdAt: Date;
 }
 
@@ -132,6 +158,7 @@ export interface KnowledgeBaseConfigRecord {
   obsidianRestUrl: string | null;
   obsidianApiKey: string | null;
   docsAgentEnabled: boolean;
+  injectIntoPrompts: boolean;
   lastDocsSyncAt: Date | null;
   lastDocsSyncError: string | null;
   updatedAt: Date;
@@ -247,6 +274,7 @@ export interface DbRepository {
     obsidianRestUrl?: string | null;
     obsidianApiKey?: string | null;
     docsAgentEnabled?: boolean;
+    injectIntoPrompts?: boolean;
   }): Promise<KnowledgeBaseConfigRecord>;
   updateKnowledgeBaseSyncStatus(input: {
     workspaceId: string;
@@ -258,13 +286,20 @@ export interface DbRepository {
     workspaceId: string;
     agentId: string;
     name: string;
-    cronExpression: string;
+    triggerType?: AutomationTriggerType;
+    cronExpression?: string;
+    watchPath?: string | null;
+    watchGlob?: string | null;
     prompt: string;
     enabled?: boolean;
     nextRunAt?: Date | null;
   }): Promise<AutomationRecord>;
   listAutomationsByWorkspace(workspaceId: string): Promise<AutomationRecord[]>;
   listDueAutomations(now: Date): Promise<AutomationRecord[]>;
+  /** Enabled automations with triggerType "file_watch" — polled by the
+   * scheduler independently of listDueAutomations (which is nextRunAt/cron
+   * only). See ADR-0013. */
+  listFileWatchAutomations(): Promise<AutomationRecord[]>;
   getAutomation(id: string): Promise<AutomationRecord | null>;
   updateAutomationRun(input: {
     id: string;
@@ -273,7 +308,22 @@ export interface DbRepository {
   }): Promise<AutomationRecord>;
   setAutomationNextRun(id: string, nextRunAt: Date | null): Promise<AutomationRecord>;
   setAutomationEnabled(id: string, enabled: boolean): Promise<AutomationRecord>;
+  setAutomationWatchCheckedAt(id: string, lastWatchCheckAt: Date): Promise<AutomationRecord>;
   deleteAutomation(id: string): Promise<void>;
+
+  createSkill(input: {
+    workspaceId: string;
+    name: string;
+    description: string;
+    kind: SkillKind;
+    config: Record<string, unknown>;
+    sensitive?: boolean;
+    enabled?: boolean;
+  }): Promise<SkillRecord>;
+  listSkillsByWorkspace(workspaceId: string): Promise<SkillRecord[]>;
+  getSkill(id: string): Promise<SkillRecord | null>;
+  setSkillEnabled(id: string, enabled: boolean): Promise<SkillRecord>;
+  deleteSkill(id: string): Promise<void>;
 
   createApprovalRequest(input: {
     workspaceId: string;

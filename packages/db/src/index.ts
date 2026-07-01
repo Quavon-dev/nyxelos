@@ -10,6 +10,7 @@ export type {
   AuditLogRecord,
   AuditStatus,
   AutomationRecord,
+  AutomationTriggerType,
   ChatRecord,
   DbRepository,
   InstallationMode,
@@ -21,6 +22,8 @@ export type {
   MessageRole,
   ModelInstallationRecord,
   ModelProviderKind,
+  SkillKind,
+  SkillRecord,
   UserRecord,
   WorkspaceRecord,
 } from "./repo/types";

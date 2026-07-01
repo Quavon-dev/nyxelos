@@ -1,10 +1,11 @@
 import type { AgentRecord } from "@nyxel/db";
 import { getDb } from "@nyxel/db";
+import { createSkillContext } from "@nyxel/skills-sdk";
 import { dynamicTool, jsonSchema, type ToolSet, tool } from "ai";
 import { logAudit } from "./audit";
 import { buildDelegateToAgentTool } from "./delegation";
 import { ensureMcpServerConnected, mcpManager } from "./mcp-runtime";
-import { skillRegistry } from "./skills-registry";
+import { resolveSkillDefinition } from "./skills-resolve";
 
 export interface AgentRunContext {
   /** Set when this run is a live chat turn. */
@@ -58,7 +59,10 @@ export async function buildToolsForAgent(
   const actor = actorFor(ctx);
 
   for (const skillId of agent.skillIds) {
-    const skill = skillRegistry.get(skillId);
+    // Checks the process-wide hand-written registry first, then this
+    // workspace's DB-backed dynamic skills (Skills tab) — see
+    // apps/server/src/skills-resolve.ts and ADR-0013.
+    const skill = await resolveSkillDefinition(agent.workspaceId, skillId);
     if (!skill) continue;
     tools[skill.id] = tool({
       description: skill.description,
@@ -89,7 +93,9 @@ export async function buildToolsForAgent(
         }
 
         try {
-          const output = await skillRegistry.run(skill.id, input);
+          const parsedInput = skill.inputSchema.parse(input);
+          const skillCtx = createSkillContext(skill.permissions);
+          const output = await skill.run(parsedInput, skillCtx);
           await logAudit({
             workspaceId: agent.workspaceId,
             agentId: agent.id,

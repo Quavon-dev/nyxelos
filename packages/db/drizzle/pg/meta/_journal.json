@@ -57,6 +57,13 @@
       "when": 1782910200000,
       "tag": "0007_chat_archive_controls",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782911111516,
+      "tag": "0008_loving_marauders",
+      "breakpoints": true
     }
   ]
 }

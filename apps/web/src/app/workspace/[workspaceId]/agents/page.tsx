@@ -61,8 +61,8 @@ export default function AgentsPage() {
     queryFn: () => trpcClient.models.list.query({ workspaceId }),
   });
   const skillsQuery = useQuery({
-    queryKey: ["skills", "list"],
-    queryFn: () => trpcClient.skills.list.query(),
+    queryKey: ["skills", "list", workspaceId],
+    queryFn: () => trpcClient.skills.list.query({ workspaceId }),
   });
   const mcpServersQuery = useQuery({
     queryKey: ["mcpServers", workspaceId],

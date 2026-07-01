@@ -18,6 +18,8 @@ export interface SkillContext {
   /** Restricted to `permissions.filesystem`. */
   readFile: (path: string) => Promise<string>;
   writeFile: (path: string, content: string) => Promise<void>;
+  /** Restricted to `permissions.filesystem`. Lists immediate children of a directory. */
+  readDir: (path: string) => Promise<{ name: string; isDirectory: boolean }[]>;
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: skill input/output shapes are necessarily varied; call sites get full type safety back through SkillRegistry.run's generic overloads.

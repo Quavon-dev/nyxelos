@@ -38,6 +38,20 @@ export const auditStatus = pgEnum("audit_status", [
   "rejected",
 ]);
 
+/** See ../sqlite/app.ts and packages/skills-sdk — DB-backed skills built from
+ * a declarative `kind` + JSON `config` instead of hand-written TypeScript, so
+ * the "Skills" tab can create them at runtime. */
+export const skillKind = pgEnum("skill_kind", [
+  "http_fetch",
+  "file_read",
+  "file_write",
+  "file_list",
+  "kb_search",
+  "custom_code",
+]);
+
+export const automationTriggerType = pgEnum("automation_trigger_type", ["cron", "file_watch"]);
+
 /** A workspace is the top-level category a user sorts chats, agents, and
  * automations into (e.g. "Work", "Personal"). See ARCHITECTURE.md section 5. */
 export const installation = pgTable("installation", {
@@ -124,9 +138,32 @@ export const knowledgeBaseConfig = pgTable("knowledge_base_config", {
   obsidianRestUrl: text("obsidian_rest_url"),
   obsidianApiKey: text("obsidian_api_key"),
   docsAgentEnabled: boolean("docs_agent_enabled").notNull().default(true),
+  // Whether getKnowledgeBaseContextForPrompt() output is appended to every
+  // chat/automation system prompt for this workspace. Default on. See
+  // apps/server/src/knowledge-base.ts.
+  injectIntoPrompts: boolean("inject_into_prompts").notNull().default(true),
   lastDocsSyncAt: timestamp("last_docs_sync_at"),
   lastDocsSyncError: text("last_docs_sync_error"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** A user-defined skill, built from a declarative `kind` instead of
+ * hand-written TypeScript. Complements (does not replace) the process-wide
+ * hardcoded skills in apps/server/src/skills-registry.ts — both are merged
+ * at tool-build time. See ADR-0013. */
+export const skill = pgTable("skill", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  kind: skillKind("kind").notNull(),
+  // Shape depends on `kind` — see apps/server/src/skills-dynamic.ts.
+  config: jsonb("config").notNull().default({}).$type<Record<string, unknown>>(),
+  sensitive: boolean("sensitive").notNull().default(true),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const chat = pgTable("chat", {
@@ -163,7 +200,16 @@ export const automation = pgTable("automation", {
     .notNull()
     .references(() => agent.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  cronExpression: text("cron_expression").notNull(),
+  // "cron" (default, existing behavior) or "file_watch". See ADR-0013.
+  triggerType: automationTriggerType("trigger_type").notNull().default("cron"),
+  // Required when triggerType is "cron"; empty string when "file_watch".
+  cronExpression: text("cron_expression").notNull().default(""),
+  // Only meaningful when triggerType is "file_watch" — an absolute or
+  // repo-relative directory to poll, and an optional suffix filter (e.g.
+  // ".md") applied to changed file names.
+  watchPath: text("watch_path"),
+  watchGlob: text("watch_glob"),
+  lastWatchCheckAt: timestamp("last_watch_check_at"),
   // The instruction sent as the "user" turn on every scheduled run — the
   // agent's systemPrompt stays its persona, this is "what to do right now".
   prompt: text("prompt").notNull(),

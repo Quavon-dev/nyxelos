@@ -15,6 +15,19 @@ export type ApprovalKind = "skill" | "mcp";
 export type AuditActor = "chat" | "automation" | "approval" | "delegate";
 export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
 
+/** See ../pg/app.ts and packages/skills-sdk — DB-backed skills built from a
+ * declarative `kind` + JSON `config` instead of hand-written TypeScript, so
+ * the "Skills" tab can create them at runtime. */
+export type SkillKind =
+  | "http_fetch"
+  | "file_read"
+  | "file_write"
+  | "file_list"
+  | "kb_search"
+  | "custom_code";
+
+export type AutomationTriggerType = "cron" | "file_watch";
+
 /** Mirrors ../pg/app.ts. See ARCHITECTURE.md section 5 for the domain model. */
 export const installation = sqliteTable("installation", {
   id: text("id").primaryKey(),
@@ -97,9 +110,38 @@ export const knowledgeBaseConfig = sqliteTable("knowledge_base_config", {
   obsidianRestUrl: text("obsidian_rest_url"),
   obsidianApiKey: text("obsidian_api_key"),
   docsAgentEnabled: integer("docs_agent_enabled", { mode: "boolean" }).notNull().default(true),
+  // Whether getKnowledgeBaseContextForPrompt() output is appended to every
+  // chat/automation system prompt for this workspace. Default on — the goal
+  // is that the model always has the living knowledge base, not just on
+  // request. See apps/server/src/knowledge-base.ts.
+  injectIntoPrompts: integer("inject_into_prompts", { mode: "boolean" }).notNull().default(true),
   lastDocsSyncAt: integer("last_docs_sync_at", { mode: "timestamp" }),
   lastDocsSyncError: text("last_docs_sync_error"),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+/** A user-defined skill, built from a declarative `kind` instead of
+ * hand-written TypeScript. Complements (does not replace) the process-wide
+ * hardcoded skills in apps/server/src/skills-registry.ts — both are merged
+ * at tool-build time. See ADR-0013. */
+export const skill = sqliteTable("skill", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  kind: text("kind").notNull().$type<SkillKind>(),
+  // Shape depends on `kind` — see apps/server/src/skills-dynamic.ts:
+  // http_fetch: { allowedHosts: string[] }
+  // file_read / file_list: { allowedDirs: string[] }
+  // file_write: { allowedDirs: string[] }
+  // kb_search: {}
+  // custom_code: { allowedHosts: string[], allowedDirs: string[], code: string }
+  config: text("config", { mode: "json" }).notNull().default({}).$type<Record<string, unknown>>(),
+  sensitive: integer("sensitive", { mode: "boolean" }).notNull().default(true),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
 export const chat = sqliteTable("chat", {
@@ -133,7 +175,16 @@ export const automation = sqliteTable("automation", {
     .notNull()
     .references(() => agent.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  cronExpression: text("cron_expression").notNull(),
+  // "cron" (default, existing behavior) or "file_watch". See ADR-0013.
+  triggerType: text("trigger_type").notNull().default("cron").$type<AutomationTriggerType>(),
+  // Required when triggerType is "cron"; empty string when "file_watch".
+  cronExpression: text("cron_expression").notNull().default(""),
+  // Only meaningful when triggerType is "file_watch" — an absolute or
+  // repo-relative directory to poll, and an optional glob-ish suffix filter
+  // (e.g. ".md") applied to changed file names.
+  watchPath: text("watch_path"),
+  watchGlob: text("watch_glob"),
+  lastWatchCheckAt: integer("last_watch_check_at", { mode: "timestamp" }),
   prompt: text("prompt").notNull(),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   lastRunAt: integer("last_run_at", { mode: "timestamp" }),

@@ -1,6 +1,6 @@
 import type { AgentRecord } from "@nyxel/db";
 import { getDb } from "@nyxel/db";
-import { skillRegistry } from "./skills-registry";
+import { listSkillCatalogForWorkspace } from "./skills-resolve";
 
 const AUTO_AGENT_NAME_PREFIX = "Auto assistant";
 
@@ -26,11 +26,11 @@ export async function getWorkspaceDefaultToolIds(workspaceId: string): Promise<{
   const db = getDb();
   const [servers, skills] = await Promise.all([
     db.listMcpServersByWorkspace(workspaceId),
-    Promise.resolve(skillRegistry.list()),
+    listSkillCatalogForWorkspace(workspaceId),
   ]);
 
   return {
-    skillIds: skills.map((skill) => skill.id),
+    skillIds: skills.filter((skill) => skill.enabled).map((skill) => skill.id),
     mcpServerIds: servers.filter((server) => server.enabled).map((server) => server.id),
   };
 }

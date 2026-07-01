@@ -26,7 +26,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { trpcClient } from "@/lib/trpc";
+import { type AutomationTriggerType, trpcClient } from "@/lib/trpc";
+
+const TRIGGER_TYPES: { value: AutomationTriggerType; label: string }[] = [
+  { value: "cron", label: "Schedule (cron)" },
+  { value: "file_watch", label: "File change" },
+];
 
 const CRON_PRESETS = [
   { label: "Every 5 minutes (testing)", value: "*/5 * * * *" },
@@ -61,7 +66,10 @@ export default function AutomationsPage() {
 
   const [name, setName] = useState("");
   const [agentId, setAgentId] = useState("");
+  const [triggerType, setTriggerType] = useState<AutomationTriggerType>("cron");
   const [cronExpression, setCronExpression] = useState(CRON_PRESETS[1]?.value ?? "");
+  const [watchPath, setWatchPath] = useState("");
+  const [watchGlob, setWatchGlob] = useState("");
   const [prompt, setPrompt] = useState("");
 
   const invalidate = () =>
@@ -69,11 +77,22 @@ export default function AutomationsPage() {
 
   const createAutomation = useMutation({
     mutationFn: () =>
-      trpcClient.automations.create.mutate({ workspaceId, agentId, name, cronExpression, prompt }),
+      trpcClient.automations.create.mutate({
+        workspaceId,
+        agentId,
+        name,
+        triggerType,
+        cronExpression: triggerType === "cron" ? cronExpression : undefined,
+        watchPath: triggerType === "file_watch" ? watchPath : undefined,
+        watchGlob: triggerType === "file_watch" && watchGlob ? watchGlob : undefined,
+        prompt,
+      }),
     onSuccess: () => {
       invalidate();
       setName("");
       setPrompt("");
+      setWatchPath("");
+      setWatchGlob("");
     },
   });
 
@@ -151,7 +170,9 @@ export default function AutomationsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">
-                        {automation.cronExpression}
+                        {automation.triggerType === "file_watch"
+                          ? `watch: ${automation.watchPath ?? "?"}${automation.watchGlob ? ` (${automation.watchGlob})` : ""}`
+                          : automation.cronExpression}
                       </TableCell>
                       <TableCell>
                         <Badge
@@ -249,15 +270,18 @@ export default function AutomationsPage() {
                 </div>
 
                 <div className="grid gap-2">
-                  <Label>Schedule preset</Label>
-                  <Select value={cronExpression} onValueChange={setCronExpression}>
+                  <Label>Trigger</Label>
+                  <Select
+                    value={triggerType}
+                    onValueChange={(v) => setTriggerType(v as AutomationTriggerType)}
+                  >
                     <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {CRON_PRESETS.map((preset) => (
-                        <SelectItem key={preset.value} value={preset.value}>
-                          {preset.label}
+                      {TRIGGER_TYPES.map((t) => (
+                        <SelectItem key={t.value} value={t.value}>
+                          {t.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -265,16 +289,64 @@ export default function AutomationsPage() {
                 </div>
               </div>
 
-              <div className="grid gap-2">
-                <Label htmlFor="automation-cron">Cron expression</Label>
-                <Input
-                  id="automation-cron"
-                  placeholder="Or a custom cron expression"
-                  value={cronExpression}
-                  onChange={(e) => setCronExpression(e.target.value)}
-                  className="font-mono"
-                />
-              </div>
+              {triggerType === "cron" ? (
+                <>
+                  <div className="grid gap-2">
+                    <Label>Schedule preset</Label>
+                    <Select value={cronExpression} onValueChange={setCronExpression}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CRON_PRESETS.map((preset) => (
+                          <SelectItem key={preset.value} value={preset.value}>
+                            {preset.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="automation-cron">Cron expression</Label>
+                    <Input
+                      id="automation-cron"
+                      placeholder="Or a custom cron expression"
+                      value={cronExpression}
+                      onChange={(e) => setCronExpression(e.target.value)}
+                      className="font-mono"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="grid gap-2">
+                    <Label htmlFor="automation-watch-path">Directory to watch</Label>
+                    <Input
+                      id="automation-watch-path"
+                      placeholder="e.g. knowledge-base or /absolute/path"
+                      value={watchPath}
+                      onChange={(e) => setWatchPath(e.target.value)}
+                      className="font-mono"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Checked every 30s. The agent runs when a file under this directory changes,
+                      with the list of changed files appended to the prompt.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="automation-watch-glob">File suffix filter (optional)</Label>
+                    <Input
+                      id="automation-watch-glob"
+                      placeholder="e.g. .md"
+                      value={watchGlob}
+                      onChange={(e) => setWatchGlob(e.target.value)}
+                      className="font-mono"
+                    />
+                  </div>
+                </>
+              )}
 
               <div className="grid gap-2">
                 <Label htmlFor="automation-prompt">Prompt</Label>
@@ -291,7 +363,11 @@ export default function AutomationsPage() {
                 <Button
                   onClick={() => createAutomation.mutate()}
                   disabled={
-                    createAutomation.isPending || !name || !agentId || !cronExpression || !prompt
+                    createAutomation.isPending ||
+                    !name ||
+                    !agentId ||
+                    !prompt ||
+                    (triggerType === "cron" ? !cronExpression : !watchPath)
                   }
                 >
                   {createAutomation.isPending ? "Creating…" : "Create automation"}

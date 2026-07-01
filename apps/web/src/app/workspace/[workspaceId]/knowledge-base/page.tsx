@@ -96,6 +96,7 @@ export default function KnowledgeBasePage() {
   const [obsidianRestUrl, setObsidianRestUrl] = useState("http://127.0.0.1:27124/");
   const [obsidianApiKey, setObsidianApiKey] = useState("");
   const [docsAgentEnabled, setDocsAgentEnabled] = useState(true);
+  const [injectIntoPrompts, setInjectIntoPrompts] = useState(true);
 
   useEffect(() => {
     const config = overviewQuery.data?.config;
@@ -103,6 +104,7 @@ export default function KnowledgeBasePage() {
     setVaultPath(config.vaultPath);
     setObsidianRestUrl(config.obsidianRestUrl ?? "http://127.0.0.1:27124/");
     setDocsAgentEnabled(config.docsAgentEnabled);
+    setInjectIntoPrompts(config.injectIntoPrompts);
   }, [overviewQuery.data?.config]);
 
   const invalidate = () => {
@@ -120,6 +122,7 @@ export default function KnowledgeBasePage() {
         obsidianRestUrl: obsidianRestUrl || null,
         obsidianApiKey: obsidianApiKey || undefined,
         docsAgentEnabled,
+        injectIntoPrompts,
       }),
     onSuccess: invalidate,
   });
@@ -177,6 +180,21 @@ export default function KnowledgeBasePage() {
                 id="docs-agent-enabled"
                 checked={docsAgentEnabled}
                 onCheckedChange={setDocsAgentEnabled}
+              />
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div className="space-y-0.5">
+                <Label htmlFor="inject-into-prompts">Always give the model this context</Label>
+                <p className="text-xs text-muted-foreground">
+                  Appends a compact note index + recent notes to every chat, agent, and automation
+                  system prompt in this workspace.
+                </p>
+              </div>
+              <Switch
+                id="inject-into-prompts"
+                checked={injectIntoPrompts}
+                onCheckedChange={setInjectIntoPrompts}
               />
             </div>
 

@@ -1,8 +1,9 @@
 import type { ApprovalRequestRecord } from "@nyxel/db";
 import { getDb } from "@nyxel/db";
+import { createSkillContext } from "@nyxel/skills-sdk";
 import { logAudit } from "./audit";
 import { ensureMcpServerConnected, mcpManager } from "./mcp-runtime";
-import { skillRegistry } from "./skills-registry";
+import { resolveSkillDefinition } from "./skills-resolve";
 
 /**
  * Runs the real action behind a pending approval once a human decides on it.
@@ -41,7 +42,10 @@ export async function resolveApprovalDecision(
     let output: unknown;
     if (approval.kind === "skill") {
       if (!approval.skillId) throw new Error("Approval request is missing skillId.");
-      output = await skillRegistry.run(approval.skillId, approval.input);
+      const skill = await resolveSkillDefinition(approval.workspaceId, approval.skillId);
+      if (!skill) throw new Error(`Skill no longer exists or is disabled: ${approval.skillId}`);
+      const parsedInput = skill.inputSchema.parse(approval.input);
+      output = await skill.run(parsedInput, createSkillContext(skill.permissions));
     } else {
       if (!approval.mcpServerId || !approval.mcpToolName) {
         throw new Error("Approval request is missing its MCP server/tool.");
