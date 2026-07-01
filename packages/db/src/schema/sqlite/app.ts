@@ -140,6 +140,12 @@ export const workspace = sqliteTable("workspace", {
 		.notNull()
 		.default("assisted")
 		.$type<AgentAutonomyLevel>(),
+	// Applied to every new chat created in this workspace — see
+	// resolveChatToolPolicy in apps/server/src/trpc/router.ts. Null means "use
+	// the global DEFAULT_CHAT_TOOL_POLICY".
+	defaultToolPolicy: text("default_tool_policy", {
+		mode: "json",
+	}).$type<ChatToolPolicy>(),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

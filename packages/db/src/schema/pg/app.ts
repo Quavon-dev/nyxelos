@@ -153,6 +153,16 @@ export const workspace = pgTable("workspace", {
 	defaultAutonomyLevel: agentAutonomyLevel("default_autonomy_level")
 		.notNull()
 		.default("assisted"),
+	// Applied to every new chat created in this workspace — see
+	// resolveChatToolPolicy in apps/server/src/trpc/router.ts. Null means "use
+	// the global DEFAULT_CHAT_TOOL_POLICY".
+	defaultToolPolicy: jsonb("default_tool_policy").$type<{
+		mode: "default" | "automatic" | "auto";
+		approveFileWrites: boolean;
+		approveFileDeletes: boolean;
+		approveCustomCode: boolean;
+		approveMcpTools: boolean;
+	}>(),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
