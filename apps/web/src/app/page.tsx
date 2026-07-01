@@ -55,7 +55,9 @@ export default function HomePage() {
     <div className="mx-auto max-w-2xl space-y-6 p-8">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Nyxel</h1>
-        <p className="text-muted-foreground">Self-hosted agentic OS — Phase 1 scaffold.</p>
+        <p className="text-muted-foreground">
+          Self-hosted agentic OS — Phase 2 (agents, skills, autonomy).
+        </p>
       </div>
 
       {workspaceId && (
@@ -74,6 +76,24 @@ export default function HomePage() {
             href={`/workspace/${workspaceId}/mcp-servers`}
           >
             MCP servers
+          </Link>
+          <Link
+            className="underline underline-offset-4"
+            href={`/workspace/${workspaceId}/automations`}
+          >
+            Automations
+          </Link>
+          <Link
+            className="underline underline-offset-4"
+            href={`/workspace/${workspaceId}/approvals`}
+          >
+            Approvals
+          </Link>
+          <Link
+            className="underline underline-offset-4"
+            href={`/workspace/${workspaceId}/audit-log`}
+          >
+            Audit log
           </Link>
         </nav>
       )}

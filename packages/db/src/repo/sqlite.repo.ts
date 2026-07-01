@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, desc, eq, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../schema/sqlite";
 import type { DbRepository } from "./types";
@@ -166,6 +166,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
       autonomyLevel,
       skillIds,
       mcpServerIds,
+      delegateAgentIds,
     }) {
       const row = db
         .insert(schema.agent)
@@ -178,6 +179,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
           autonomyLevel: autonomyLevel ?? "chat",
           skillIds: skillIds ?? [],
           mcpServerIds: mcpServerIds ?? [],
+          delegateAgentIds: delegateAgentIds ?? [],
           createdAt: new Date(),
         })
         .returning()
@@ -227,6 +229,201 @@ export function createSqliteRepository(filePath: string): DbRepository {
 
     async deleteMcpServer(id) {
       db.delete(schema.mcpServer).where(eq(schema.mcpServer.id, id)).run();
+    },
+
+    async createAutomation({
+      workspaceId,
+      agentId,
+      name,
+      cronExpression,
+      prompt,
+      enabled,
+      nextRunAt,
+    }) {
+      const row = db
+        .insert(schema.automation)
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          agentId,
+          name,
+          cronExpression,
+          prompt,
+          enabled: enabled ?? true,
+          nextRunAt: nextRunAt ?? null,
+          createdAt: new Date(),
+        })
+        .returning()
+        .get();
+      return row;
+    },
+
+    async listAutomationsByWorkspace(workspaceId) {
+      return db
+        .select()
+        .from(schema.automation)
+        .where(eq(schema.automation.workspaceId, workspaceId))
+        .all();
+    },
+
+    async listDueAutomations(now) {
+      return db
+        .select()
+        .from(schema.automation)
+        .where(and(eq(schema.automation.enabled, true), lte(schema.automation.nextRunAt, now)))
+        .all();
+    },
+
+    async getAutomation(id) {
+      const row = db.select().from(schema.automation).where(eq(schema.automation.id, id)).get();
+      return row ?? null;
+    },
+
+    async updateAutomationRun({ id, lastRunAt, nextRunAt }) {
+      const row = db
+        .update(schema.automation)
+        .set({ lastRunAt, nextRunAt })
+        .where(eq(schema.automation.id, id))
+        .returning()
+        .get();
+      if (!row) throw new Error(`Automation not found: ${id}`);
+      return row;
+    },
+
+    async setAutomationNextRun(id, nextRunAt) {
+      const row = db
+        .update(schema.automation)
+        .set({ nextRunAt })
+        .where(eq(schema.automation.id, id))
+        .returning()
+        .get();
+      if (!row) throw new Error(`Automation not found: ${id}`);
+      return row;
+    },
+
+    async setAutomationEnabled(id, enabled) {
+      const row = db
+        .update(schema.automation)
+        .set({ enabled })
+        .where(eq(schema.automation.id, id))
+        .returning()
+        .get();
+      if (!row) throw new Error(`Automation not found: ${id}`);
+      return row;
+    },
+
+    async deleteAutomation(id) {
+      db.delete(schema.automation).where(eq(schema.automation.id, id)).run();
+    },
+
+    async createApprovalRequest({
+      workspaceId,
+      agentId,
+      chatId,
+      automationId,
+      kind,
+      skillId,
+      mcpServerId,
+      mcpToolName,
+      toolLabel,
+      input,
+    }) {
+      const row = db
+        .insert(schema.approvalRequest)
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          agentId,
+          chatId: chatId ?? null,
+          automationId: automationId ?? null,
+          kind,
+          skillId: skillId ?? null,
+          mcpServerId: mcpServerId ?? null,
+          mcpToolName: mcpToolName ?? null,
+          toolLabel,
+          input,
+          status: "pending",
+          createdAt: new Date(),
+        })
+        .returning()
+        .get();
+      return row;
+    },
+
+    async listApprovalsByWorkspace(workspaceId, status) {
+      const condition = status
+        ? and(
+            eq(schema.approvalRequest.workspaceId, workspaceId),
+            eq(schema.approvalRequest.status, status),
+          )
+        : eq(schema.approvalRequest.workspaceId, workspaceId);
+      return db
+        .select()
+        .from(schema.approvalRequest)
+        .where(condition)
+        .orderBy(desc(schema.approvalRequest.createdAt))
+        .all();
+    },
+
+    async getApprovalRequest(id) {
+      const row = db
+        .select()
+        .from(schema.approvalRequest)
+        .where(eq(schema.approvalRequest.id, id))
+        .get();
+      return row ?? null;
+    },
+
+    async resolveApprovalRequest({ id, status, resultOutput, errorMessage }) {
+      const row = db
+        .update(schema.approvalRequest)
+        .set({ status, resultOutput, errorMessage: errorMessage ?? null, resolvedAt: new Date() })
+        .where(eq(schema.approvalRequest.id, id))
+        .returning()
+        .get();
+      if (!row) throw new Error(`Approval request not found: ${id}`);
+      return row;
+    },
+
+    async createAuditLog({
+      workspaceId,
+      agentId,
+      chatId,
+      automationId,
+      actor,
+      toolLabel,
+      input,
+      output,
+      status,
+    }) {
+      const row = db
+        .insert(schema.auditLog)
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          agentId: agentId ?? null,
+          chatId: chatId ?? null,
+          automationId: automationId ?? null,
+          actor,
+          toolLabel,
+          input: input ?? null,
+          output: output ?? null,
+          status,
+          createdAt: new Date(),
+        })
+        .returning()
+        .get();
+      return row;
+    },
+
+    async listAuditLogByWorkspace(workspaceId, limit = 100) {
+      return db
+        .select()
+        .from(schema.auditLog)
+        .where(eq(schema.auditLog.workspaceId, workspaceId))
+        .orderBy(desc(schema.auditLog.createdAt))
+        .limit(limit)
+        .all();
     },
   };
 }

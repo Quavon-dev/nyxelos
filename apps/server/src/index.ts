@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { auth } from "./auth";
 import { registerChatStreamRoute } from "./routes/chat-stream";
+import { startScheduler } from "./scheduler";
 import { createContext } from "./trpc/context";
 import { appRouter } from "./trpc/router";
 
@@ -33,6 +34,7 @@ app.use(
 );
 
 registerChatStreamRoute(app);
+startScheduler();
 
 app.get("/", (c) => c.json({ name: "nyxel-server", status: "ok" }));
 

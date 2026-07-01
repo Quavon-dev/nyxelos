@@ -21,6 +21,7 @@
     "@trpc/server": "latest",
     "ai": "latest",
     "better-auth": "latest",
+    "cron-parser": "latest",
     "hono": "latest",
     "zod": "latest"
   },

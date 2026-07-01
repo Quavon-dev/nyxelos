@@ -15,6 +15,23 @@ export const agentAutonomyLevel = pgEnum("agent_autonomy_level", [
 
 export const mcpTransport = pgEnum("mcp_transport", ["stdio", "http"]);
 
+/** See ADR-0009: pending approvals are resolved out-of-band, not by pausing
+ * the model's tool-calling loop mid-stream. */
+export const approvalStatus = pgEnum("approval_status", ["pending", "approved", "rejected"]);
+
+export const approvalKind = pgEnum("approval_kind", ["skill", "mcp"]);
+
+/** Who/what caused a logged action. See ARCHITECTURE.md section 5 ("Every
+ * action by every agent is logged in the audit log"). */
+export const auditActor = pgEnum("audit_actor", ["chat", "automation", "approval", "delegate"]);
+
+export const auditStatus = pgEnum("audit_status", [
+  "success",
+  "error",
+  "pending_approval",
+  "rejected",
+]);
+
 /** A workspace is the top-level category a user sorts chats, agents, and
  * automations into (e.g. "Work", "Personal"). See ARCHITECTURE.md section 5. */
 export const workspace = pgTable("workspace", {
@@ -40,6 +57,9 @@ export const agent = pgTable("agent", {
   autonomyLevel: agentAutonomyLevel("autonomy_level").notNull().default("chat"),
   skillIds: jsonb("skill_ids").notNull().default([]).$type<string[]>(),
   mcpServerIds: jsonb("mcp_server_ids").notNull().default([]).$type<string[]>(),
+  // Only meaningful for autonomyLevel "super_agent" — the whitelist of other
+  // agent ids this agent may delegate subtasks to. See ADR-0011.
+  delegateAgentIds: jsonb("delegate_agent_ids").notNull().default([]).$type<string[]>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -77,5 +97,71 @@ export const message = pgTable("message", {
     .references(() => chat.id, { onDelete: "cascade" }),
   role: messageRole("role").notNull(),
   content: text("content").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/** A scheduled, unattended run of an "autonomous"/"super_agent" agent. See
+ * ADR-0010 — a DB-backed cron poll rather than a queue, matching the
+ * project's PC-mode-first constraint (no Redis requirement). */
+export const automation = pgTable("automation", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  agentId: text("agent_id")
+    .notNull()
+    .references(() => agent.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  cronExpression: text("cron_expression").notNull(),
+  // The instruction sent as the "user" turn on every scheduled run — the
+  // agent's systemPrompt stays its persona, this is "what to do right now".
+  prompt: text("prompt").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  lastRunAt: timestamp("last_run_at"),
+  nextRunAt: timestamp("next_run_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/** A tool call deferred for human approval instead of executed immediately.
+ * See ADR-0009 for why this is a defer-and-resolve record rather than a
+ * paused model generation. */
+export const approvalRequest = pgTable("approval_request", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  agentId: text("agent_id")
+    .notNull()
+    .references(() => agent.id, { onDelete: "cascade" }),
+  chatId: text("chat_id").references(() => chat.id, { onDelete: "set null" }),
+  automationId: text("automation_id").references(() => automation.id, { onDelete: "set null" }),
+  kind: approvalKind("kind").notNull(),
+  skillId: text("skill_id"),
+  mcpServerId: text("mcp_server_id"),
+  mcpToolName: text("mcp_tool_name"),
+  toolLabel: text("tool_label").notNull(),
+  input: jsonb("input").notNull().$type<Record<string, unknown>>(),
+  status: approvalStatus("status").notNull().default("pending"),
+  resultOutput: jsonb("result_output").$type<unknown>(),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+});
+
+/** Immutable record of every tool/agent action taken, satisfying the "every
+ * action by every agent is logged" requirement (ARCHITECTURE.md section 5). */
+export const auditLog = pgTable("audit_log", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  agentId: text("agent_id").references(() => agent.id, { onDelete: "set null" }),
+  chatId: text("chat_id").references(() => chat.id, { onDelete: "set null" }),
+  automationId: text("automation_id").references(() => automation.id, { onDelete: "set null" }),
+  actor: auditActor("actor").notNull(),
+  toolLabel: text("tool_label").notNull(),
+  input: jsonb("input").$type<unknown>(),
+  output: jsonb("output").$type<unknown>(),
+  status: auditStatus("status").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

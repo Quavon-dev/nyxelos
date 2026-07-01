@@ -10,6 +10,8 @@ export const getCurrentTimeSkill = defineSkill({
     timeZone: z.string().optional().describe('IANA time zone, e.g. "Europe/Berlin"'),
   }),
   permissions: { network: [], filesystem: [] },
+  // Pure read of the system clock — no side effects, never needs approval.
+  sensitive: false,
   async run({ timeZone }) {
     const now = new Date();
     return {

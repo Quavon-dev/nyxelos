@@ -1,12 +1,16 @@
 import { getDb } from "@nyxel/db";
 import { listAvailableModels } from "@nyxel/model-providers";
 import { z } from "zod";
+import { resolveApprovalDecision } from "../approvals";
 import { ensureMcpServerConnected, mcpManager } from "../mcp-runtime";
+import { computeNextRunAt, runAutomation } from "../scheduler";
 import { skillRegistry } from "../skills-registry";
 import { publicProcedure, router } from "./trpc";
 
 const autonomyLevelSchema = z.enum(["chat", "assisted", "autonomous", "super_agent"]);
 const mcpTransportSchema = z.enum(["stdio", "http"]);
+const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);
+const AUTOMATABLE_LEVELS = new Set(["autonomous", "super_agent"]);
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({ ok: true, name: "nyxel-server" })),
@@ -26,6 +30,7 @@ export const appRouter = router({
         name: skill.name,
         description: skill.description,
         permissions: skill.permissions,
+        sensitive: skill.sensitive,
       })),
     ),
   }),
@@ -88,6 +93,8 @@ export const appRouter = router({
           autonomyLevel: autonomyLevelSchema.optional(),
           skillIds: z.array(z.string()).optional(),
           mcpServerIds: z.array(z.string()).optional(),
+          // Only meaningful for autonomyLevel "super_agent" — see ADR-0011.
+          delegateAgentIds: z.array(z.string()).optional(),
         }),
       )
       .mutation(({ input }) => getDb().createAgent(input)),
@@ -121,6 +128,81 @@ export const appRouter = router({
       await ensureMcpServerConnected(server);
       return mcpManager.listTools(server.id);
     }),
+  }),
+
+  automations: router({
+    list: publicProcedure
+      .input(z.object({ workspaceId: z.string() }))
+      .query(({ input }) => getDb().listAutomationsByWorkspace(input.workspaceId)),
+    create: publicProcedure
+      .input(
+        z.object({
+          workspaceId: z.string(),
+          agentId: z.string(),
+          name: z.string().min(1),
+          cronExpression: z.string().min(1),
+          prompt: z.string().min(1),
+          enabled: z.boolean().optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const db = getDb();
+        const agent = await db.getAgent(input.agentId);
+        if (!agent) throw new Error(`Unknown agent: ${input.agentId}`);
+        if (!AUTOMATABLE_LEVELS.has(agent.autonomyLevel)) {
+          throw new Error(
+            `Agent "${agent.name}" has autonomy level "${agent.autonomyLevel}" — only "autonomous" or "super_agent" agents can be scheduled.`,
+          );
+        }
+        const nextRunAt = computeNextRunAt(input.cronExpression, new Date());
+        if (!nextRunAt)
+          throw new Error(`"${input.cronExpression}" is not a valid cron expression.`);
+        return db.createAutomation({ ...input, nextRunAt });
+      }),
+    setEnabled: publicProcedure
+      .input(z.object({ id: z.string(), enabled: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const db = getDb();
+        if (input.enabled) {
+          // Re-enabling: recompute nextRunAt from "now" rather than resuming
+          // whatever stale schedule was in place before it was disabled.
+          const automation = await db.getAutomation(input.id);
+          if (!automation) throw new Error(`Unknown automation: ${input.id}`);
+          const nextRunAt = computeNextRunAt(automation.cronExpression, new Date());
+          await db.setAutomationNextRun(input.id, nextRunAt);
+        }
+        return db.setAutomationEnabled(input.id, input.enabled);
+      }),
+    delete: publicProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ input }) => getDb().deleteAutomation(input.id)),
+    runNow: publicProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+      const db = getDb();
+      const automation = await db.getAutomation(input.id);
+      if (!automation) throw new Error(`Unknown automation: ${input.id}`);
+      await runAutomation(automation);
+      const updated = await db.getAutomation(input.id);
+      if (!updated) throw new Error(`Automation disappeared during run: ${input.id}`);
+      return updated;
+    }),
+  }),
+
+  approvals: router({
+    list: publicProcedure
+      .input(z.object({ workspaceId: z.string(), status: approvalStatusSchema.optional() }))
+      .query(({ input }) => getDb().listApprovalsByWorkspace(input.workspaceId, input.status)),
+    approve: publicProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ input }) => resolveApprovalDecision(input.id, "approved")),
+    reject: publicProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ input }) => resolveApprovalDecision(input.id, "rejected")),
+  }),
+
+  auditLog: router({
+    list: publicProcedure
+      .input(z.object({ workspaceId: z.string(), limit: z.number().min(1).max(500).optional() }))
+      .query(({ input }) => getDb().listAuditLogByWorkspace(input.workspaceId, input.limit)),
   }),
 });
 

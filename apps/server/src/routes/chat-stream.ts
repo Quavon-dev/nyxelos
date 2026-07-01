@@ -40,7 +40,7 @@ export function registerChatStreamRoute(app: Hono) {
     const systemPrompt =
       [workspace?.customInstructions, agent?.systemPrompt].filter(Boolean).join("\n\n") ||
       undefined;
-    const tools = agent ? await buildToolsForAgent(agent) : undefined;
+    const tools = agent ? await buildToolsForAgent(agent, { chatId }) : undefined;
     const modelId = agent?.modelId ?? chat.modelId;
 
     await db.addMessage({ chatId, role: "user", content: message });

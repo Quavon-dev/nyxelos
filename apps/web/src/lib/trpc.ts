@@ -49,6 +49,7 @@ export type AgentSummary = {
   autonomyLevel: AutonomyLevel;
   skillIds: string[];
   mcpServerIds: string[];
+  delegateAgentIds: string[];
   createdAt: Date;
 };
 
@@ -57,6 +58,59 @@ export type SkillSummary = {
   name: string;
   description: string;
   permissions: { network: string[]; filesystem: string[] };
+  sensitive: boolean;
+};
+
+export type AutomationSummary = {
+  id: string;
+  workspaceId: string;
+  agentId: string;
+  name: string;
+  cronExpression: string;
+  prompt: string;
+  enabled: boolean;
+  lastRunAt: Date | null;
+  nextRunAt: Date | null;
+  createdAt: Date;
+};
+
+export type ApprovalStatus = "pending" | "approved" | "rejected";
+export type ApprovalKind = "skill" | "mcp";
+
+export type ApprovalSummary = {
+  id: string;
+  workspaceId: string;
+  agentId: string;
+  chatId: string | null;
+  automationId: string | null;
+  kind: ApprovalKind;
+  skillId: string | null;
+  mcpServerId: string | null;
+  mcpToolName: string | null;
+  toolLabel: string;
+  input: Record<string, unknown>;
+  status: ApprovalStatus;
+  resultOutput: unknown;
+  errorMessage: string | null;
+  createdAt: Date;
+  resolvedAt: Date | null;
+};
+
+export type AuditActor = "chat" | "automation" | "approval" | "delegate";
+export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
+
+export type AuditLogSummary = {
+  id: string;
+  workspaceId: string;
+  agentId: string | null;
+  chatId: string | null;
+  automationId: string | null;
+  actor: AuditActor;
+  toolLabel: string;
+  input: unknown;
+  output: unknown;
+  status: AuditStatus;
+  createdAt: Date;
 };
 
 export type McpServerSummary = {
@@ -139,6 +193,7 @@ type NyxelTrpcClient = {
         autonomyLevel?: AutonomyLevel;
         skillIds?: string[];
         mcpServerIds?: string[];
+        delegateAgentIds?: string[];
       }): Promise<AgentSummary>;
     };
   };
@@ -161,6 +216,46 @@ type NyxelTrpcClient = {
     };
     listTools: {
       query(input: { id: string }): Promise<McpToolSummary[]>;
+    };
+  };
+  automations: {
+    list: {
+      query(input: { workspaceId: string }): Promise<AutomationSummary[]>;
+    };
+    create: {
+      mutate(input: {
+        workspaceId: string;
+        agentId: string;
+        name: string;
+        cronExpression: string;
+        prompt: string;
+        enabled?: boolean;
+      }): Promise<AutomationSummary>;
+    };
+    setEnabled: {
+      mutate(input: { id: string; enabled: boolean }): Promise<AutomationSummary>;
+    };
+    delete: {
+      mutate(input: { id: string }): Promise<void>;
+    };
+    runNow: {
+      mutate(input: { id: string }): Promise<AutomationSummary>;
+    };
+  };
+  approvals: {
+    list: {
+      query(input: { workspaceId: string; status?: ApprovalStatus }): Promise<ApprovalSummary[]>;
+    };
+    approve: {
+      mutate(input: { id: string }): Promise<ApprovalSummary>;
+    };
+    reject: {
+      mutate(input: { id: string }): Promise<ApprovalSummary>;
+    };
+  };
+  auditLog: {
+    list: {
+      query(input: { workspaceId: string; limit?: number }): Promise<AuditLogSummary[]>;
     };
   };
 };

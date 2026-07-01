@@ -39,6 +39,7 @@ export default function AgentsPage() {
   const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>("assisted");
   const [skillIds, setSkillIds] = useState<string[]>([]);
   const [mcpServerIds, setMcpServerIds] = useState<string[]>([]);
+  const [delegateAgentIds, setDelegateAgentIds] = useState<string[]>([]);
 
   const createAgent = useMutation({
     mutationFn: () =>
@@ -50,6 +51,7 @@ export default function AgentsPage() {
         autonomyLevel,
         skillIds,
         mcpServerIds,
+        delegateAgentIds: autonomyLevel === "super_agent" ? delegateAgentIds : undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agents", workspaceId] });
@@ -57,6 +59,7 @@ export default function AgentsPage() {
       setSystemPrompt("");
       setSkillIds([]);
       setMcpServerIds([]);
+      setDelegateAgentIds([]);
     },
   });
 
@@ -89,6 +92,11 @@ export default function AgentsPage() {
               <div className="text-muted-foreground">{agent.modelId}</div>
               {agent.skillIds.length > 0 && (
                 <div className="text-muted-foreground">Skills: {agent.skillIds.join(", ")}</div>
+              )}
+              {agent.delegateAgentIds.length > 0 && (
+                <div className="text-muted-foreground">
+                  Delegates to {agent.delegateAgentIds.length} agent(s)
+                </div>
               )}
             </li>
           ))}
@@ -142,7 +150,11 @@ export default function AgentsPage() {
                   checked={skillIds.includes(skill.id)}
                   onChange={() => toggle(skillIds, skill.id, setSkillIds)}
                 />
-                {skill.name} — <span className="text-muted-foreground">{skill.description}</span>
+                {skill.name}
+                {skill.sensitive && (
+                  <span className="text-xs text-muted-foreground">(needs approval)</span>
+                )}
+                — <span className="text-muted-foreground">{skill.description}</span>
               </label>
             ))}
           </div>
@@ -161,6 +173,28 @@ export default function AgentsPage() {
                 {server.name} ({server.transport})
               </label>
             ))}
+          </div>
+        )}
+
+        {autonomyLevel === "super_agent" && (
+          <div className="space-y-1">
+            <div className="text-sm font-medium">Delegate to (super-agent only)</div>
+            {agentsQuery.data && agentsQuery.data.length > 0 ? (
+              agentsQuery.data.map((a) => (
+                <label key={a.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={delegateAgentIds.includes(a.id)}
+                    onChange={() => toggle(delegateAgentIds, a.id, setDelegateAgentIds)}
+                  />
+                  {a.name} ({a.autonomyLevel})
+                </label>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No other agents in this workspace yet to delegate to.
+              </p>
+            )}
           </div>
         )}
 

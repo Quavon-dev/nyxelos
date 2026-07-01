@@ -4,6 +4,11 @@ export type AgentAutonomyLevel = "chat" | "assisted" | "autonomous" | "super_age
 
 export type McpTransport = "stdio" | "http";
 
+export type ApprovalStatus = "pending" | "approved" | "rejected";
+export type ApprovalKind = "skill" | "mcp";
+export type AuditActor = "chat" | "automation" | "approval" | "delegate";
+export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
+
 export interface WorkspaceRecord {
   id: string;
   name: string;
@@ -36,6 +41,54 @@ export interface AgentRecord {
   autonomyLevel: AgentAutonomyLevel;
   skillIds: string[];
   mcpServerIds: string[];
+  /** Only meaningful for autonomyLevel "super_agent" — see ADR-0011. */
+  delegateAgentIds: string[];
+  createdAt: Date;
+}
+
+export interface AutomationRecord {
+  id: string;
+  workspaceId: string;
+  agentId: string;
+  name: string;
+  cronExpression: string;
+  prompt: string;
+  enabled: boolean;
+  lastRunAt: Date | null;
+  nextRunAt: Date | null;
+  createdAt: Date;
+}
+
+export interface ApprovalRequestRecord {
+  id: string;
+  workspaceId: string;
+  agentId: string;
+  chatId: string | null;
+  automationId: string | null;
+  kind: ApprovalKind;
+  skillId: string | null;
+  mcpServerId: string | null;
+  mcpToolName: string | null;
+  toolLabel: string;
+  input: Record<string, unknown>;
+  status: ApprovalStatus;
+  resultOutput: unknown;
+  errorMessage: string | null;
+  createdAt: Date;
+  resolvedAt: Date | null;
+}
+
+export interface AuditLogRecord {
+  id: string;
+  workspaceId: string;
+  agentId: string | null;
+  chatId: string | null;
+  automationId: string | null;
+  actor: AuditActor;
+  toolLabel: string;
+  input: unknown;
+  output: unknown;
+  status: AuditStatus;
   createdAt: Date;
 }
 
@@ -91,6 +144,7 @@ export interface DbRepository {
     autonomyLevel?: AgentAutonomyLevel;
     skillIds?: string[];
     mcpServerIds?: string[];
+    delegateAgentIds?: string[];
   }): Promise<AgentRecord>;
   listAgentsByWorkspace(workspaceId: string): Promise<AgentRecord[]>;
   getAgent(agentId: string): Promise<AgentRecord | null>;
@@ -106,4 +160,62 @@ export interface DbRepository {
   listMcpServersByWorkspace(workspaceId: string): Promise<McpServerRecord[]>;
   getMcpServer(id: string): Promise<McpServerRecord | null>;
   deleteMcpServer(id: string): Promise<void>;
+
+  createAutomation(input: {
+    workspaceId: string;
+    agentId: string;
+    name: string;
+    cronExpression: string;
+    prompt: string;
+    enabled?: boolean;
+    nextRunAt?: Date | null;
+  }): Promise<AutomationRecord>;
+  listAutomationsByWorkspace(workspaceId: string): Promise<AutomationRecord[]>;
+  listDueAutomations(now: Date): Promise<AutomationRecord[]>;
+  getAutomation(id: string): Promise<AutomationRecord | null>;
+  updateAutomationRun(input: {
+    id: string;
+    lastRunAt: Date;
+    nextRunAt: Date | null;
+  }): Promise<AutomationRecord>;
+  setAutomationNextRun(id: string, nextRunAt: Date | null): Promise<AutomationRecord>;
+  setAutomationEnabled(id: string, enabled: boolean): Promise<AutomationRecord>;
+  deleteAutomation(id: string): Promise<void>;
+
+  createApprovalRequest(input: {
+    workspaceId: string;
+    agentId: string;
+    chatId?: string | null;
+    automationId?: string | null;
+    kind: ApprovalKind;
+    skillId?: string | null;
+    mcpServerId?: string | null;
+    mcpToolName?: string | null;
+    toolLabel: string;
+    input: Record<string, unknown>;
+  }): Promise<ApprovalRequestRecord>;
+  listApprovalsByWorkspace(
+    workspaceId: string,
+    status?: ApprovalStatus,
+  ): Promise<ApprovalRequestRecord[]>;
+  getApprovalRequest(id: string): Promise<ApprovalRequestRecord | null>;
+  resolveApprovalRequest(input: {
+    id: string;
+    status: "approved" | "rejected";
+    resultOutput?: unknown;
+    errorMessage?: string | null;
+  }): Promise<ApprovalRequestRecord>;
+
+  createAuditLog(input: {
+    workspaceId: string;
+    agentId?: string | null;
+    chatId?: string | null;
+    automationId?: string | null;
+    actor: AuditActor;
+    toolLabel: string;
+    input?: unknown;
+    output?: unknown;
+    status: AuditStatus;
+  }): Promise<AuditLogRecord>;
+  listAuditLogByWorkspace(workspaceId: string, limit?: number): Promise<AuditLogRecord[]>;
 }

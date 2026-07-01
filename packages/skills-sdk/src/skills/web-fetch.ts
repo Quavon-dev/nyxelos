@@ -14,6 +14,8 @@ export function createWebFetchSkill(allowedHosts: string[]) {
       "Fetches a URL and returns the response body as text, truncated to 4000 characters. Restricted to a fixed allow-list of hosts.",
     inputSchema: z.object({ url: z.string().url() }),
     permissions: { network: allowedHosts, filesystem: [] },
+    // A GET against a fixed allow-list of hosts — read-only, no state change.
+    sensitive: false,
     async run({ url }, ctx) {
       const res = await ctx.fetch(url);
       const text = await res.text();

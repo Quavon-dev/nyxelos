@@ -3,6 +3,13 @@ export { getDb } from "./client";
 export type {
   AgentAutonomyLevel,
   AgentRecord,
+  ApprovalKind,
+  ApprovalRequestRecord,
+  ApprovalStatus,
+  AuditActor,
+  AuditLogRecord,
+  AuditStatus,
+  AutomationRecord,
   ChatRecord,
   DbRepository,
   McpServerRecord,

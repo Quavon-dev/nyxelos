@@ -28,5 +28,15 @@ export interface SkillDefinition<TInput = any, TOutput = any> {
   description: string;
   inputSchema: z.ZodType<TInput>;
   permissions: SkillPermissions;
+  /**
+   * Whether calling this skill has a real-world side effect (writing a file,
+   * sending something, changing state) as opposed to only reading data. The
+   * approval workflow (ADR-0009) defers every sensitive tool call for human
+   * approval instead of running it immediately — see
+   * apps/server/src/tools.ts. Defaults to `true` (safest default: an
+   * unmarked skill is treated as if it could do something irreversible)
+   * wherever a skill omits this field.
+   */
+  sensitive: boolean;
   run: (input: TInput, ctx: SkillContext) => Promise<TOutput>;
 }

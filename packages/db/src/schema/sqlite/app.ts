@@ -8,6 +8,11 @@ export type AgentAutonomyLevel = "chat" | "assisted" | "autonomous" | "super_age
 
 export type McpTransport = "stdio" | "http";
 
+export type ApprovalStatus = "pending" | "approved" | "rejected";
+export type ApprovalKind = "skill" | "mcp";
+export type AuditActor = "chat" | "automation" | "approval" | "delegate";
+export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
+
 /** Mirrors ../pg/app.ts. See ARCHITECTURE.md section 5 for the domain model. */
 export const workspace = sqliteTable("workspace", {
   id: text("id").primaryKey(),
@@ -30,6 +35,10 @@ export const agent = sqliteTable("agent", {
   autonomyLevel: text("autonomy_level").notNull().default("chat").$type<AgentAutonomyLevel>(),
   skillIds: text("skill_ids", { mode: "json" }).notNull().default([]).$type<string[]>(),
   mcpServerIds: text("mcp_server_ids", { mode: "json" }).notNull().default([]).$type<string[]>(),
+  delegateAgentIds: text("delegate_agent_ids", { mode: "json" })
+    .notNull()
+    .default([])
+    .$type<string[]>(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -65,5 +74,61 @@ export const message = sqliteTable("message", {
     .references(() => chat.id, { onDelete: "cascade" }),
   role: text("role").notNull().$type<MessageRole>(),
   content: text("content").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const automation = sqliteTable("automation", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  agentId: text("agent_id")
+    .notNull()
+    .references(() => agent.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  cronExpression: text("cron_expression").notNull(),
+  prompt: text("prompt").notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  lastRunAt: integer("last_run_at", { mode: "timestamp" }),
+  nextRunAt: integer("next_run_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const approvalRequest = sqliteTable("approval_request", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  agentId: text("agent_id")
+    .notNull()
+    .references(() => agent.id, { onDelete: "cascade" }),
+  chatId: text("chat_id").references(() => chat.id, { onDelete: "set null" }),
+  automationId: text("automation_id").references(() => automation.id, { onDelete: "set null" }),
+  kind: text("kind").notNull().$type<ApprovalKind>(),
+  skillId: text("skill_id"),
+  mcpServerId: text("mcp_server_id"),
+  mcpToolName: text("mcp_tool_name"),
+  toolLabel: text("tool_label").notNull(),
+  input: text("input", { mode: "json" }).notNull().$type<Record<string, unknown>>(),
+  status: text("status").notNull().default("pending").$type<ApprovalStatus>(),
+  resultOutput: text("result_output", { mode: "json" }).$type<unknown>(),
+  errorMessage: text("error_message"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  resolvedAt: integer("resolved_at", { mode: "timestamp" }),
+});
+
+export const auditLog = sqliteTable("audit_log", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  agentId: text("agent_id").references(() => agent.id, { onDelete: "set null" }),
+  chatId: text("chat_id").references(() => chat.id, { onDelete: "set null" }),
+  automationId: text("automation_id").references(() => automation.id, { onDelete: "set null" }),
+  actor: text("actor").notNull().$type<AuditActor>(),
+  toolLabel: text("tool_label").notNull(),
+  input: text("input", { mode: "json" }).$type<unknown>(),
+  output: text("output", { mode: "json" }).$type<unknown>(),
+  status: text("status").notNull().$type<AuditStatus>(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
