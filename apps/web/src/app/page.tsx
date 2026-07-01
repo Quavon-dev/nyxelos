@@ -196,9 +196,10 @@ export default function HomePage() {
                 install.mutate();
               }}
             >
-              <label className="block space-y-2 text-sm">
+              <label className="block space-y-2 text-sm" htmlFor="owner-name">
                 <span>Owner name</span>
                 <Input
+                  id="owner-name"
                   onChange={(event) =>
                     setForm((current) => ({ ...current, ownerName: event.target.value }))
                   }
@@ -208,9 +209,10 @@ export default function HomePage() {
                 />
               </label>
 
-              <label className="block space-y-2 text-sm">
+              <label className="block space-y-2 text-sm" htmlFor="owner-email">
                 <span>Owner email</span>
                 <Input
+                  id="owner-email"
                   onChange={(event) =>
                     setForm((current) => ({ ...current, ownerEmail: event.target.value }))
                   }
@@ -221,9 +223,10 @@ export default function HomePage() {
                 />
               </label>
 
-              <label className="block space-y-2 text-sm">
+              <label className="block space-y-2 text-sm" htmlFor="owner-password">
                 <span>Owner password</span>
                 <Input
+                  id="owner-password"
                   minLength={8}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, ownerPassword: event.target.value }))
@@ -235,9 +238,10 @@ export default function HomePage() {
                 />
               </label>
 
-              <label className="block space-y-2 text-sm">
+              <label className="block space-y-2 text-sm" htmlFor="workspace-name">
                 <span>Primary workspace</span>
                 <Input
+                  id="workspace-name"
                   onChange={(event) =>
                     setForm((current) => ({ ...current, workspaceName: event.target.value }))
                   }
@@ -246,9 +250,10 @@ export default function HomePage() {
                 />
               </label>
 
-              <label className="block space-y-2 text-sm">
+              <label className="block space-y-2 text-sm" htmlFor="app-url">
                 <span>Public app URL</span>
                 <Input
+                  id="app-url"
                   onChange={(event) =>
                     setForm((current) => ({ ...current, appUrl: event.target.value }))
                   }

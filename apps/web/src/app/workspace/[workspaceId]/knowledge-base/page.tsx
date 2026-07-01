@@ -36,6 +36,7 @@ function GraphPreview({
   return (
     <div className="overflow-x-auto">
       <svg viewBox="0 0 440 360" className="h-[360px] w-full min-w-[440px] rounded-md border">
+        <title>Knowledge base document graph</title>
         {edges.map((edge) => {
           const source = byId.get(edge.source);
           const target = byId.get(edge.target);
