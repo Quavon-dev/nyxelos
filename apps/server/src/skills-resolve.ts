@@ -178,3 +178,112 @@ export async function deleteFileSkill(input: {
 }): Promise<void> {
 	await rm(skillFilePath(input.workspaceId, input.slug), { force: true });
 }
+
+/** GitHub repos known to publish Anthropic-format Agent Skills (a SKILL.md
+ * per skill). Search is scoped to these so results are trustworthy skill
+ * definitions rather than arbitrary markdown files named SKILL.md. */
+const KNOWN_SKILL_LIBRARIES = [
+	"anthropics/skills",
+	"anthropics/claude-code",
+	"obra/superpowers",
+];
+
+export interface SkillLibraryResult {
+	name: string;
+	description: string;
+	repo: string;
+	path: string;
+	rawUrl: string;
+	htmlUrl: string;
+}
+
+interface RepoTreeEntry {
+	path: string;
+	type: string;
+}
+
+const TREE_CACHE_TTL_MS = 5 * 60 * 1000;
+const treeCache = new Map<string, { fetchedAt: number; entries: RepoTreeEntry[] }>();
+
+/** Lists every SKILL.md in a known repo via the git trees API (works
+ * unauthenticated, unlike GitHub's code search API which now requires a
+ * token). Cached briefly per repo since a search fans out across every
+ * known library on each keystroke-driven query. */
+async function listSkillFilesInRepo(repo: string): Promise<RepoTreeEntry[]> {
+	const cached = treeCache.get(repo);
+	if (cached && Date.now() - cached.fetchedAt < TREE_CACHE_TTL_MS) {
+		return cached.entries;
+	}
+	const res = await fetch(
+		`https://api.github.com/repos/${repo}/git/trees/HEAD?recursive=1`,
+		{
+			headers: {
+				Accept: "application/vnd.github+json",
+				"User-Agent": "nyxel-skills-import",
+			},
+		},
+	);
+	if (!res.ok) return [];
+	const data = (await res.json()) as { tree: RepoTreeEntry[] };
+	const entries = data.tree.filter(
+		(entry) => entry.type === "blob" && /skill\.md$/i.test(entry.path),
+	);
+	treeCache.set(repo, { fetchedAt: Date.now(), entries });
+	return entries;
+}
+
+/** Searches the known skill libraries for SKILL.md files whose path matches
+ * `query` (case-insensitive substring — these repos name each skill's
+ * directory after what it does, e.g. `skills/pdf/SKILL.md`). */
+export async function searchSkillLibrary(
+	query: string,
+): Promise<SkillLibraryResult[]> {
+	const trimmed = query.trim().toLowerCase();
+	if (!trimmed) return [];
+
+	const perRepo = await Promise.all(
+		KNOWN_SKILL_LIBRARIES.map(async (repo) => {
+			const entries = await listSkillFilesInRepo(repo);
+			return entries
+				.filter((entry) => entry.path.toLowerCase().includes(trimmed))
+				.map((entry) => {
+					const skillDir = entry.path.split("/").slice(-2, -1)[0] ?? entry.path;
+					return {
+						name: skillDir,
+						description: `${repo} — ${entry.path}`,
+						repo,
+						path: entry.path,
+						rawUrl: `https://raw.githubusercontent.com/${repo}/HEAD/${entry.path}`,
+						htmlUrl: `https://github.com/${repo}/blob/HEAD/${entry.path}`,
+					};
+				});
+		}),
+	);
+	return perRepo.flat().slice(0, 20);
+}
+
+/** Imports a skill from a raw SKILL.md URL (a search result's `rawUrl`, or
+ * any URL the user pastes directly) by fetching it and parsing the same
+ * frontmatter format used by hand-authored skills. */
+export async function importSkillFromUrl(input: {
+	workspaceId: string;
+	url: string;
+}): Promise<SkillCatalogEntry> {
+	const res = await fetch(input.url);
+	if (!res.ok) {
+		throw new Error(`Failed to fetch ${input.url}: ${res.status} ${res.statusText}`);
+	}
+	const raw = await res.text();
+	const parsed = parseSkillMarkdown(raw);
+	if (!parsed.name || !parsed.description || !parsed.body) {
+		throw new Error(
+			"URL doesn't look like a valid SKILL.md — missing name, description, or body frontmatter",
+		);
+	}
+	return createFileSkill({
+		workspaceId: input.workspaceId,
+		name: parsed.name,
+		description: parsed.description,
+		body: parsed.body,
+	});
+}

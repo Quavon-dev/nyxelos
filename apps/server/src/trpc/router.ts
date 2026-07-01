@@ -44,7 +44,9 @@ import {
 import {
 	createFileSkill,
 	deleteFileSkill,
+	importSkillFromUrl,
 	listSkillCatalog,
+	searchSkillLibrary,
 	updateFileSkill,
 } from "../skills-resolve";
 import { seedBuiltinToolsForWorkspace } from "../tools-builtin-seed";
@@ -457,6 +459,12 @@ export const appRouter = router({
 		delete: publicProcedure
 			.input(z.object({ workspaceId: z.string(), slug: z.string() }))
 			.mutation(({ input }) => deleteFileSkill(input)),
+		searchLibrary: publicProcedure
+			.input(z.object({ query: z.string() }))
+			.query(({ input }) => searchSkillLibrary(input.query)),
+		importFromUrl: publicProcedure
+			.input(z.object({ workspaceId: z.string(), url: z.string().url() }))
+			.mutation(({ input }) => importSkillFromUrl(input)),
 	}),
 
 	tools: router({

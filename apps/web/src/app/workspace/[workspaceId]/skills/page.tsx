@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Blocks, Lock, Sparkles } from "lucide-react";
+import { Blocks, Download, Lock, Search, Sparkles, Trash2 } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { PageHeader, StatCard } from "@/components/page-header";
@@ -14,6 +14,14 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -25,7 +33,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { type SkillSummary, trpcClient } from "@/lib/trpc";
+import { type SkillLibraryResult, type SkillSummary, trpcClient } from "@/lib/trpc";
 
 export default function SkillsPage() {
 	const params = useParams<{ workspaceId: string }>();
@@ -90,6 +98,34 @@ export default function SkillsPage() {
 		mutationFn: (slug: string) =>
 			trpcClient.skills.delete.mutate({ workspaceId, slug }),
 		onSuccess: invalidate,
+	});
+
+	const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<SkillSummary | null>(null);
+
+	const [importUrl, setImportUrl] = useState("");
+	const importFromUrl = useMutation({
+		mutationFn: (url: string) =>
+			trpcClient.skills.importFromUrl.mutate({ workspaceId, url }),
+		onSuccess: () => {
+			invalidate();
+			setImportUrl("");
+		},
+	});
+
+	const [librarySearch, setLibrarySearch] = useState("");
+	const [searchResults, setSearchResults] = useState<SkillLibraryResult[]>([]);
+	const searchLibrary = useMutation({
+		mutationFn: (query: string) =>
+			trpcClient.skills.searchLibrary.query({ query }),
+		onSuccess: (results) => setSearchResults(results),
+	});
+	const importFromLibrary = useMutation({
+		mutationFn: (url: string) =>
+			trpcClient.skills.importFromUrl.mutate({ workspaceId, url }),
+		onSuccess: (_, url) => {
+			invalidate();
+			setSearchResults((prev) => prev.filter((r) => r.rawUrl !== url));
+		},
 	});
 
 	const isEditing = Boolean(editingSlug);
@@ -182,12 +218,11 @@ export default function SkillsPage() {
 															Edit
 														</Button>
 														<Button
-															variant="ghost"
+															variant="destructive"
 															size="sm"
-															onClick={() =>
-																skill.slug && deleteSkill.mutate(skill.slug)
-															}
+															onClick={() => setDeleteConfirmTarget(skill)}
 														>
+															<Trash2 className="size-4" />
 															Delete
 														</Button>
 													</div>
@@ -203,6 +238,120 @@ export default function SkillsPage() {
 							</Table>
 						</div>
 					)}
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Import a skill</CardTitle>
+					<CardDescription>
+						Pull a skill from a known skill library on GitHub, or import any
+						SKILL.md by URL. Imported skills land as custom, file-based
+						skills — edit or delete them like any other.
+					</CardDescription>
+				</CardHeader>
+				<CardContent className="space-y-6">
+					<div className="grid gap-2">
+						<Label htmlFor="skill-import-url">Import from URL</Label>
+						<div className="flex gap-2">
+							<Input
+								id="skill-import-url"
+								value={importUrl}
+								onChange={(e) => setImportUrl(e.target.value)}
+								placeholder="https://raw.githubusercontent.com/org/repo/HEAD/skills/foo/SKILL.md"
+							/>
+							<Button
+								onClick={() => importFromUrl.mutate(importUrl)}
+								disabled={importFromUrl.isPending || !importUrl}
+							>
+								<Download className="size-4" />
+								{importFromUrl.isPending ? "Importing…" : "Import"}
+							</Button>
+						</div>
+						{importFromUrl.isError && (
+							<p className="text-sm text-destructive">
+								{(importFromUrl.error as Error).message}
+							</p>
+						)}
+					</div>
+
+					<div className="grid gap-2 border-t pt-4">
+						<Label htmlFor="skill-library-search">
+							Search known skill libraries
+						</Label>
+						<div className="flex gap-2">
+							<Input
+								id="skill-library-search"
+								value={librarySearch}
+								onChange={(e) => setLibrarySearch(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter" && librarySearch) {
+										searchLibrary.mutate(librarySearch);
+									}
+								}}
+								placeholder="e.g. commit message, pdf, code review"
+							/>
+							<Button
+								variant="outline"
+								onClick={() => searchLibrary.mutate(librarySearch)}
+								disabled={searchLibrary.isPending || !librarySearch}
+							>
+								<Search className="size-4" />
+								{searchLibrary.isPending ? "Searching…" : "Search"}
+							</Button>
+						</div>
+						{searchLibrary.isError && (
+							<p className="text-sm text-destructive">
+								{(searchLibrary.error as Error).message}
+							</p>
+						)}
+
+						{searchResults.length > 0 && (
+							<div className="mt-2 rounded-lg border">
+								<Table>
+									<TableHeader>
+										<TableRow className="hover:bg-transparent">
+											<TableHead>Name</TableHead>
+											<TableHead>Source</TableHead>
+											<TableHead className="w-[100px]">Actions</TableHead>
+										</TableRow>
+									</TableHeader>
+									<TableBody>
+										{searchResults.map((result) => (
+											<TableRow key={result.rawUrl}>
+												<TableCell className="font-medium">
+													{result.name}
+												</TableCell>
+												<TableCell className="text-muted-foreground">
+													{result.repo}
+												</TableCell>
+												<TableCell>
+													<Button
+														variant="ghost"
+														size="sm"
+														onClick={() =>
+															importFromLibrary.mutate(result.rawUrl)
+														}
+														disabled={
+															importFromLibrary.isPending &&
+															importFromLibrary.variables === result.rawUrl
+														}
+													>
+														Import
+													</Button>
+												</TableCell>
+											</TableRow>
+										))}
+									</TableBody>
+								</Table>
+							</div>
+						)}
+						{searchLibrary.isSuccess && searchResults.length === 0 && (
+							<p className="text-sm text-muted-foreground">
+								No matching skills found.
+							</p>
+						)}
+					</div>
 				</CardContent>
 			</Card>
 
@@ -282,6 +431,35 @@ export default function SkillsPage() {
 					</div>
 				</CardContent>
 			</Card>
+
+			<Dialog
+				open={Boolean(deleteConfirmTarget)}
+				onOpenChange={(open) => !open && setDeleteConfirmTarget(null)}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Delete skill</DialogTitle>
+						<DialogDescription>
+							This permanently deletes &quot;{deleteConfirmTarget?.name}&quot;. Agents
+							referencing it will simply skip it. This action cannot be undone.
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter showCloseButton>
+						<Button
+							variant="destructive"
+							onClick={() => {
+								if (deleteConfirmTarget?.slug) {
+									deleteSkill.mutate(deleteConfirmTarget.slug);
+									setDeleteConfirmTarget(null);
+								}
+							}}
+							disabled={deleteSkill.isPending}
+						>
+							Delete
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }

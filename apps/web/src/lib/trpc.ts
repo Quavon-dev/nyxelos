@@ -358,6 +358,17 @@ export type SkillSummary = {
 	body?: string;
 };
 
+/** One SKILL.md hit from searching the known skill libraries on GitHub —
+ * `rawUrl` is what gets passed to `skills.importFromUrl`. */
+export type SkillLibraryResult = {
+	name: string;
+	description: string;
+	repo: string;
+	path: string;
+	rawUrl: string;
+	htmlUrl: string;
+};
+
 export type AutomationTriggerType = "cron" | "file_watch";
 export type AutomationRunStatus = "success" | "error" | "pending_approval";
 
@@ -627,6 +638,12 @@ type NyxelTrpcClient = {
 		};
 		delete: {
 			mutate(input: { workspaceId: string; slug: string }): Promise<void>;
+		};
+		searchLibrary: {
+			query(input: { query: string }): Promise<SkillLibraryResult[]>;
+		};
+		importFromUrl: {
+			mutate(input: { workspaceId: string; url: string }): Promise<SkillSummary>;
 		};
 	};
 	tools: {
