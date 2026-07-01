@@ -36,7 +36,11 @@ import {
 	listProviderImportSources,
 } from "../provider-imports";
 import { computeNextRunAt, runAutomation } from "../scheduler";
-import { executeManagedTask, startTaskExecutionIfIdle } from "../agent-runtime";
+import {
+	cancelAgentRun,
+	executeManagedTask,
+	startTaskExecutionIfIdle,
+} from "../agent-runtime";
 import {
 	createFileSkill,
 	deleteFileSkill,
@@ -764,6 +768,45 @@ export const appRouter = router({
 				}),
 			)
 			.mutation(({ input: { id, ...input } }) => getDb().updateAgent(id, input)),
+		delete: publicProcedure
+			.input(z.object({ id: z.string() }))
+			.mutation(async ({ input }) => {
+				const db = getDb();
+				const agent = await db.getAgent(input.id);
+				if (!agent) throw new Error(`Unknown agent: ${input.id}`);
+
+				const automations = await db.listAutomationsByWorkspace(agent.workspaceId);
+				const blockingAutomations = automations.filter((a) => a.agentId === input.id);
+				if (blockingAutomations.length > 0) {
+					throw new Error(
+						`This agent is used by ${blockingAutomations.length} automation(s) (${blockingAutomations
+							.map((a) => a.name)
+							.join(", ")}) — delete or reassign those first.`,
+					);
+				}
+
+				const runs = await db.listAgentRunsByAgent(input.id);
+				const hasActiveRun = runs.some(
+					(run) =>
+						run.status === "pending" ||
+						run.status === "running" ||
+						run.status === "waiting_approval",
+				);
+				if (hasActiveRun) {
+					throw new Error(
+						"This agent has a run in progress — stop it before deleting the agent.",
+					);
+				}
+
+				await db.deleteAgent(input.id);
+				return { ok: true };
+			}),
+		// Bulk-cleans the "Chat — custom tools" one-off agents that pile up from
+		// repeatedly changing a chat's tool/model selection (see chat/[chatId]
+		// page.tsx's forkAgent) — only removes ones no chat currently points at.
+		cleanupUnusedChatAgents: publicProcedure
+			.input(z.object({ workspaceId: z.string() }))
+			.mutation(({ input }) => getDb().deleteUnusedChatAgents(input.workspaceId)),
 	}),
 
 	tasks: router({
@@ -922,11 +965,25 @@ export const appRouter = router({
 		cancel: publicProcedure
 			.input(z.object({ taskId: z.string() }))
 			.mutation(async ({ input }) => {
-				const task = await getDb().updateTask(input.taskId, {
+				const db = getDb();
+				// If an agent run is still live, abort its in-flight model call
+				// (cancelAgentRun) instead of just flipping the task's status —
+				// otherwise the run keeps streaming in the background and can
+				// overwrite the "cancelled" status once it finishes.
+				const runs = await db.listAgentRunsByTask(input.taskId);
+				const activeRun = runs.find((r) => r.status === "running");
+				if (activeRun) {
+					await cancelAgentRun(activeRun.id);
+					const task = await db.getTask(input.taskId);
+					if (!task) throw new Error(`Unknown task: ${input.taskId}`);
+					return task;
+				}
+
+				const task = await db.updateTask(input.taskId, {
 					status: "cancelled",
 					completedAt: new Date(),
 				});
-				await getDb().createTaskEvent({
+				await db.createTaskEvent({
 					taskId: task.id,
 					workspaceId: task.workspaceId,
 					kind: "failed",
@@ -1008,6 +1065,15 @@ export const appRouter = router({
 		listByTask: publicProcedure
 			.input(z.object({ taskId: z.string() }))
 			.query(({ input }) => getDb().listAgentRunsByTask(input.taskId)),
+		listByAgent: publicProcedure
+			.input(z.object({ agentId: z.string() }))
+			.query(({ input }) => getDb().listAgentRunsByAgent(input.agentId)),
+		listActive: publicProcedure
+			.input(z.object({ workspaceId: z.string() }))
+			.query(({ input }) => getDb().listActiveAgentRunsByWorkspace(input.workspaceId)),
+		cancel: publicProcedure
+			.input(z.object({ runId: z.string() }))
+			.mutation(({ input }) => cancelAgentRun(input.runId)),
 	}),
 
 	mcpServers: router({

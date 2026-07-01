@@ -824,6 +824,12 @@ type NyxelTrpcClient = {
 				delegateAgentIds?: string[];
 			}): Promise<AgentSummary>;
 		};
+		delete: {
+			mutate(input: { id: string }): Promise<{ ok: boolean }>;
+		};
+		cleanupUnusedChatAgents: {
+			mutate(input: { workspaceId: string }): Promise<number>;
+		};
 	};
 	tasks: {
 		list: {
@@ -845,6 +851,7 @@ type NyxelTrpcClient = {
 				assignedAgentId?: string | null;
 				title: string;
 				instruction: string;
+				modelId?: string | null;
 				priority?: TaskPriority;
 				input?: Record<string, unknown>;
 			}): Promise<TaskSummary>;
@@ -853,6 +860,12 @@ type NyxelTrpcClient = {
 			mutate(input: {
 				taskId: string;
 				assignedAgentId: string | null;
+			}): Promise<TaskSummary>;
+		};
+		setModel: {
+			mutate(input: {
+				taskId: string;
+				modelId: string | null;
 			}): Promise<TaskSummary>;
 		};
 		complete: {
@@ -877,6 +890,15 @@ type NyxelTrpcClient = {
 	agentRuns: {
 		listByTask: {
 			query(input: { taskId: string }): Promise<AgentRunSummary[]>;
+		};
+		listByAgent: {
+			query(input: { agentId: string }): Promise<AgentRunSummary[]>;
+		};
+		listActive: {
+			query(input: { workspaceId: string }): Promise<AgentRunSummary[]>;
+		};
+		cancel: {
+			mutate(input: { runId: string }): Promise<AgentRunSummary>;
 		};
 	};
 	mcpServers: {

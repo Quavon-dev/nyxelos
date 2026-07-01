@@ -15,6 +15,46 @@ export interface ExecutionPlan {
 	completionCheck: string;
 }
 
+/** In-memory registry of the abort controller backing each live run —
+ * process-local, so a run started before a server restart can no longer be
+ * aborted in-flight (cancelAgentRun still marks it cancelled in the DB). */
+const activeRunControllers = new Map<string, AbortController>();
+
+/** Aborts the in-flight model call for a run (best-effort — a no-op on the
+ * abort itself if the run isn't live in this process) and always marks the
+ * run/task cancelled in the DB so the UI reflects it immediately. */
+export async function cancelAgentRun(runId: string): Promise<AgentRunRecord> {
+	activeRunControllers.get(runId)?.abort();
+
+	const db = getDb();
+	const run = await db.getAgentRun(runId);
+	if (!run) throw new Error(`Unknown agent run: ${runId}`);
+
+	const updated = await db.updateAgentRun(runId, {
+		status: "cancelled",
+		completedAt: new Date(),
+	});
+	if (run.taskId) {
+		const task = await db.getTask(run.taskId);
+		if (task && task.status !== "completed" && task.status !== "cancelled") {
+			await db.updateTask(run.taskId, {
+				status: "cancelled",
+				completedAt: new Date(),
+			});
+			await db.createTaskEvent({
+				taskId: run.taskId,
+				workspaceId: run.workspaceId,
+				agentRunId: run.id,
+				agentId: run.agentId,
+				kind: "status_changed",
+				message: "Run cancelled by user.",
+				payload: { status: "cancelled" },
+			});
+		}
+	}
+	return updated;
+}
+
 function extractJsonObject(text: string): Record<string, unknown> | null {
 	const fenced = text.match(/```json\s*([\s\S]*?)```/i);
 	const candidate = fenced?.[1] ?? text;
@@ -87,6 +127,7 @@ async function planTask(
 	agent: AgentRecord,
 	task: TaskRecord,
 	instructionOverride?: string,
+	abortSignal?: AbortSignal,
 ): Promise<ExecutionPlan> {
 	const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
 	const systemPrompt = await buildSystemPrompt(agent, true);
@@ -104,6 +145,7 @@ async function planTask(
 		systemPrompt,
 		installedProviders,
 		messages: [{ role: "user", content: planningPrompt }],
+		abortSignal,
 	});
 	const raw = await result.text;
   return toExecutionPlan(task, raw);
@@ -126,7 +168,11 @@ function buildTaskPrompt(task: TaskRecord, instructionOverride?: string): string
  * output onto the given agent run — so a task's "Agent runs" panel (which
  * just polls the row) shows the answer taking shape live instead of only
  * appearing once the whole run finishes. Throttled to avoid hammering the
- * DB on every token. */
+ * DB on every token. Cancellation is the caller's concern: pass `abortSignal`
+ * on `input` and it's forwarded to the model call as-is — this function
+ * doesn't own a controller, so it stays consistent with the single
+ * per-run controller `executeManagedTask` registers in
+ * `activeRunControllers`. */
 async function streamWithLiveUpdates(
 	input: Parameters<typeof streamChat>[0],
 	runId: string,
@@ -152,6 +198,7 @@ async function runDirectExecution(
 	task: TaskRecord,
 	run: AgentRunRecord,
 	instructionOverride?: string,
+	abortSignal?: AbortSignal,
 ): Promise<string> {
 	const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
 	const systemPrompt = await buildSystemPrompt(agent, true);
@@ -165,6 +212,7 @@ async function runDirectExecution(
 			systemPrompt,
 			installedProviders,
 			tools,
+			abortSignal,
 			messages: [
 				{ role: "user", content: buildTaskPrompt(task, instructionOverride) },
 			],
@@ -197,6 +245,42 @@ export async function executeManagedTask(input: {
 		startedAt: new Date(),
 	});
 
+	const controller = new AbortController();
+	activeRunControllers.set(run.id, controller);
+
+	try {
+		return await runManagedTask(input, task, run, controller.signal);
+	} catch (err) {
+		if (controller.signal.aborted) {
+			const cancelledTask = (await db.getTask(task.id)) ?? task;
+			const cancelledRun = (await db.getAgentRun(run.id)) ?? run;
+			return {
+				task: cancelledTask,
+				run: cancelledRun,
+				output: cancelledRun.finalOutput ?? "",
+			};
+		}
+		throw err;
+	} finally {
+		activeRunControllers.delete(run.id);
+	}
+}
+
+async function runManagedTask(
+	input: {
+		taskId: string;
+		agent: AgentRecord;
+		trigger: "task" | "automation" | "delegate" | "chat";
+		chatId?: string | null;
+		automationId?: string | null;
+		instructionOverride?: string;
+	},
+	task: TaskRecord,
+	run: AgentRunRecord,
+	abortSignal: AbortSignal,
+): Promise<{ task: TaskRecord; run: AgentRunRecord; output: string }> {
+	const db = getDb();
+
 	await db.updateTask(task.id, {
 		status: "planning",
 		startedAt: task.startedAt ?? new Date(),
@@ -221,7 +305,12 @@ export async function executeManagedTask(input: {
 		completedAt: null,
 		errorMessage: null,
 	};
-	const plan = await planTask(input.agent, activeTask, input.instructionOverride);
+	const plan = await planTask(
+		input.agent,
+		activeTask,
+		input.instructionOverride,
+		abortSignal,
+	);
 	await db.updateTask(task.id, {
 		status: "running",
 		plan: plan as unknown as Record<string, unknown>,
@@ -323,6 +412,7 @@ export async function executeManagedTask(input: {
 				systemPrompt,
 				installedProviders,
 				messages: [{ role: "user", content: synthesisPrompt }],
+				abortSignal,
 			},
 			run.id,
 		);
@@ -332,6 +422,7 @@ export async function executeManagedTask(input: {
 			task,
 			run,
 			input.instructionOverride,
+			abortSignal,
 		);
 	}
 
