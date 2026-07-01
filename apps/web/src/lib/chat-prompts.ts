@@ -7,6 +7,7 @@ export interface MultiSelectPrompt {
   kind: "multi_select";
   question: string;
   options: MultiSelectPromptOption[];
+  customLabel?: string;
 }
 
 export interface ParsedAssistantContent {
@@ -32,6 +33,11 @@ function isMultiSelectPrompt(value: unknown): value is MultiSelectPrompt {
   if (prompt.kind !== "multi_select") return false;
   if (typeof prompt.question !== "string" || !prompt.question.trim()) return false;
   if (!Array.isArray(prompt.options) || prompt.options.length === 0) return false;
+  if (
+    prompt.customLabel !== undefined &&
+    (typeof prompt.customLabel !== "string" || !prompt.customLabel.trim())
+  )
+    return false;
 
   return prompt.options.every((option) => {
     if (!option || typeof option !== "object") return false;

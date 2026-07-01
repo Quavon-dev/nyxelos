@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowUp } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
 	type AttachedFile,
 	ChatComposerToolbar,
@@ -48,40 +48,24 @@ export function ChatInput({
 	assistantPrompt: MultiSelectPrompt | null;
 }) {
 	const [value, setValue] = useState("");
-	const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([]);
+	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const promptKey = assistantPrompt
 		? `${assistantPrompt.question}:${assistantPrompt.options.map((option) => option.id).join(",")}`
 		: "none";
 
 	useEffect(() => {
-		if (promptKey !== "none") {
-			setSelectedOptionIds([]);
-		}
+		if (promptKey !== "none") setValue("");
 	}, [promptKey]);
 
 	function handleSubmit(e: React.FormEvent) {
 		e.preventDefault();
 		if (disabled) return;
 
-		const selectedLabels = assistantPrompt
-			? assistantPrompt.options
-					.filter((option) => selectedOptionIds.includes(option.id))
-					.map((option) => option.label)
-			: [];
-
-		if (!value.trim() && selectedLabels.length === 0 && !attachedFile) return;
+		if (!value.trim() && !attachedFile) return;
 
 		// Attachments are stored inline as a structured envelope so the chat can
 		// render them later without needing a separate upload backend yet.
-		const answerText =
-			assistantPrompt && selectedLabels.length > 0
-				? [
-						`Selected answers: ${selectedLabels.join("; ")}`,
-						value.trim() ? `Note: ${value.trim()}` : null,
-					]
-						.filter(Boolean)
-						.join("\n")
-				: value.trim();
+		const answerText = value.trim();
 
 		const outgoing = attachedFile
 			? serializeChatMessageContent(answerText, [attachedFile])
@@ -89,23 +73,14 @@ export function ChatInput({
 
 		onSend(outgoing);
 		setValue("");
-		setSelectedOptionIds([]);
 		onAttachedFileChange(null);
 	}
 
 	const placeholder = assistantPrompt
-		? "Add an optional note…"
+		? "Eigene Antwort schreiben…"
 		: assistantQuestion
 			? "Answer the question…"
 			: "Message Nyxel…";
-
-	function toggleOption(optionId: string) {
-		setSelectedOptionIds((current) =>
-			current.includes(optionId)
-				? current.filter((id) => id !== optionId)
-				: [...current, optionId],
-		);
-	}
 
 	return (
 		<form onSubmit={handleSubmit} className="pt-4">
@@ -114,10 +89,14 @@ export function ChatInput({
 					<MultiSelectPromptCard
 						prompt={assistantPrompt}
 						mode="interactive"
-						selectedIds={selectedOptionIds}
-						onToggle={toggleOption}
-						onClear={() => setSelectedOptionIds([])}
-						note="Die Auswahl wird zusammen mit einer optionalen Notiz als Antwort gespeichert."
+						onPickOption={(_, label) => {
+							setValue(label);
+							requestAnimationFrame(() => textareaRef.current?.focus());
+						}}
+						onChooseCustomAnswer={() =>
+							requestAnimationFrame(() => textareaRef.current?.focus())
+						}
+						note="Waehl einen Vorschlag oder tippe unten eine eigene Antwort."
 					/>
 				)}
 				{!assistantPrompt && assistantQuestion && (
@@ -127,6 +106,7 @@ export function ChatInput({
 					</div>
 				)}
 				<Textarea
+					ref={textareaRef}
 					value={value}
 					onChange={(e) => setValue(e.target.value)}
 					onKeyDown={(e) => {
@@ -137,7 +117,7 @@ export function ChatInput({
 					}}
 					placeholder={placeholder}
 					disabled={disabled}
-					rows={assistantPrompt ? 2 : 1}
+					rows={assistantPrompt ? 3 : 1}
 					className="max-h-40 min-h-9 resize-none border-0 p-1.5 shadow-none focus-visible:ring-0"
 				/>
 				<div className="flex items-center gap-2 px-0.5">
@@ -162,9 +142,7 @@ export function ChatInput({
 						type="submit"
 						disabled={
 							disabled ||
-							(!value.trim() &&
-								(!assistantPrompt || selectedOptionIds.length === 0) &&
-								!attachedFile)
+							(!value.trim() && !attachedFile)
 						}
 						className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
 					>

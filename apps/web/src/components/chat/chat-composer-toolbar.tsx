@@ -68,6 +68,8 @@ interface MessageLike {
 	content: string;
 }
 
+const CHAT_MODES = ["default", "automatic", "auto"] as const;
+
 const CHAT_MODE_LABEL: Record<ChatToolMode, string> = {
 	default: "Default",
 	automatic: "Auto Tools",
@@ -184,6 +186,7 @@ export function ChatComposerToolbar({
 	onAttachedFileChange,
 	onVoiceResult,
 	messages = [],
+	showContextWindow = true,
 }: {
 	workspaceId: string | undefined;
 	/** The model this chat/agent will actually send to — used to look up
@@ -199,6 +202,10 @@ export function ChatComposerToolbar({
 	onAttachedFileChange: (file: AttachedFile | null) => void;
 	onVoiceResult: (text: string) => void;
 	messages?: MessageLike[];
+	/** Context window usage only means something once a chat actually has
+	 * messages — the pre-chat composer (app/chat/page.tsx) has no thread yet,
+	 * so it stays hidden there and only appears inside an actual chat. */
+	showContextWindow?: boolean;
 }) {
 	const attachmentCapabilitiesQuery = useQuery({
 		queryKey: ["models", "capabilities", workspaceId, modelId],
@@ -300,6 +307,40 @@ export function ChatComposerToolbar({
 	function updateChatToolPolicy(patch: Partial<ChatToolPolicy>) {
 		onChatToolPolicyChange({ ...chatToolPolicy, ...patch });
 	}
+
+	function selectChatMode(modeValue: ChatToolMode) {
+		updateChatToolPolicy(
+			modeValue === "auto"
+				? {
+						mode: "auto",
+						approveFileWrites: false,
+						approveFileDeletes: false,
+						approveCustomCode: false,
+						approveMcpTools: false,
+					}
+				: { mode: modeValue },
+		);
+	}
+
+	// Lets the mode popover be driven like a numbered menu: while it's open,
+	// pressing 1/2/3 picks the matching mode and closes it — mirrors the
+	// Claude Code CLI's own permission-mode switcher.
+	useEffect(() => {
+		if (!modeOpen) return;
+		function handleKeyDown(event: KeyboardEvent) {
+			const index = Number(event.key) - 1;
+			if (!Number.isInteger(index) || index < 0 || index >= CHAT_MODES.length)
+				return;
+			const modeValue = CHAT_MODES[index];
+			if (!modeValue) return;
+			event.preventDefault();
+			selectChatMode(modeValue);
+			setModeOpen(false);
+		}
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [modeOpen]);
 
 	function toggleServer(serverId: string) {
 		const next = effective.mcpServerIds.includes(serverId)
@@ -665,49 +706,36 @@ export function ChatComposerToolbar({
 						<ChevronDown className="size-3 opacity-60" />
 					</button>
 				</PopoverTrigger>
-				<PopoverContent align="start" className="w-96 space-y-4">
-					<div className="space-y-1">
-						<p className="font-medium">Chat execution mode</p>
-						<p className="text-xs text-muted-foreground">
-							Choose how independently this chat should plan, gather context,
-							and use tools.
-						</p>
-					</div>
-					<div className="space-y-2">
-						{(["default", "automatic", "auto"] as const).map((modeValue) => {
+				<PopoverContent align="start" className="w-72 space-y-3">
+					<p className="px-1 text-xs font-medium text-muted-foreground">
+						Mode
+					</p>
+					<div className="space-y-0.5">
+						{CHAT_MODES.map((modeValue, index) => {
 							const selected = chatToolPolicy.mode === modeValue;
 							const option = CHAT_MODE_COPY[modeValue];
 							return (
 								<button
 									key={modeValue}
 									type="button"
-									onClick={() =>
-										updateChatToolPolicy(
-											modeValue === "auto"
-												? {
-														mode: "auto",
-														approveFileWrites: false,
-														approveFileDeletes: false,
-														approveCustomCode: false,
-														approveMcpTools: false,
-													}
-												: { mode: modeValue },
-										)
-									}
+									title={option.description}
+									onClick={() => {
+										selectChatMode(modeValue);
+										setModeOpen(false);
+									}}
 									className={cn(
-										"w-full rounded-lg border px-3 py-2 text-left transition-colors",
-										selected
-											? "border-primary bg-primary/5"
-											: "hover:bg-muted/60",
+										"flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
+										selected ? "bg-primary/10" : "hover:bg-muted/60",
 									)}
 								>
-									<div className="flex items-center gap-2 text-sm font-medium">
-										<span>{option.title}</span>
-										{selected && <Check className="size-3.5 text-primary" />}
-									</div>
-									<p className="mt-1 text-xs text-muted-foreground">
-										{option.description}
-									</p>
+									<span className="font-medium">{option.title}</span>
+									{selected ? (
+										<Check className="size-3.5 shrink-0 text-primary" />
+									) : (
+										<span className="flex size-5 shrink-0 items-center justify-center rounded border text-[11px] text-muted-foreground">
+											{index + 1}
+										</span>
+									)}
 								</button>
 							);
 						})}
@@ -947,7 +975,7 @@ export function ChatComposerToolbar({
 			</Popover>
 
 			<div className="flex shrink-0 items-center gap-1">
-				{mode === "compact" && (
+				{mode === "compact" && showContextWindow && (
 					<Popover open={contextOpen} onOpenChange={setContextOpen}>
 						<PopoverTrigger asChild>
 							<button
