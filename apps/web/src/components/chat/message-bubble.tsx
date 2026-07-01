@@ -1,6 +1,7 @@
 import { parseChatMessageContent } from "@/lib/chat-message";
 import { parseAssistantContent } from "@/lib/chat-prompts";
 import { cn } from "@/lib/utils";
+import { MarkdownContent } from "./markdown-content";
 import { MultiSelectPromptCard } from "./multi-select-prompt";
 
 export function MessageBubble({ sender, content }: { sender: string; content: string }) {
@@ -12,13 +13,15 @@ export function MessageBubble({ sender, content }: { sender: string; content: st
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[80%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
-          isUser ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
+          "max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
+          isUser
+            ? "whitespace-pre-wrap bg-primary text-primary-foreground"
+            : "bg-muted text-foreground",
         )}
       >
         {parsed?.prompt ? (
           <div className="space-y-2">
-            {body && <div>{body}</div>}
+            {body && <MarkdownContent content={body} />}
             <MultiSelectPromptCard prompt={parsed.prompt} mode="preview" />
           </div>
         ) : userAttachment ? (
@@ -57,8 +60,10 @@ export function MessageBubble({ sender, content }: { sender: string; content: st
               ))}
             </div>
           </div>
-        ) : (
+        ) : isUser ? (
           content
+        ) : (
+          <MarkdownContent content={content} />
         )}
       </div>
     </div>
