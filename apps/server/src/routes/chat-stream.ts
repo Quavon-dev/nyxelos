@@ -4,6 +4,8 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import { prepareMessageContentForModel } from "../attachment-processing";
 import { resolveAgentRuntimeConfig } from "../auto-agent";
+import type { AgentActivityStep } from "../chat-agent-activity";
+import { hasAgentActivity, serializeAgentActivity } from "../chat-agent-activity";
 import { summarizeChatMessageForModel } from "../chat-message";
 import {
 	getKnowledgeBaseContextForPrompt,
@@ -16,7 +18,7 @@ import {
 	buildStreamFailureResponse,
 	ensureVisibleAssistantResponse,
 } from "./chat-stream-response";
-import { encodeSseDataEvent, SSE_HEADERS } from "./chat-stream-sse";
+import { encodeSseEvent, SSE_HEADERS } from "./chat-stream-sse";
 
 const bodySchema = z.object({
 	chatId: z.string(),
@@ -172,11 +174,77 @@ export function registerChatStreamRoute(app: Hono) {
 		const stream = new ReadableStream<Uint8Array>({
 			async start(controller) {
 				let streamedText = "";
+				let reasoningText = "";
+				const steps: AgentActivityStep[] = [];
+				const stepIndexByCallId = new Map<string, number>();
+
+				function emit(event: Parameters<typeof encodeSseEvent>[0]) {
+					if (clientDisconnected) return;
+					controller.enqueue(encoder.encode(encodeSseEvent(event)));
+				}
+
+				function finalize(assistantText: string) {
+					const activity = { reasoning: reasoningText || undefined, steps };
+					return hasAgentActivity(activity)
+						? `${assistantText}\n\n${serializeAgentActivity(activity)}`
+						: assistantText;
+				}
+
 				try {
-					for await (const chunk of result.textStream) {
-						streamedText += chunk;
-						if (!clientDisconnected) {
-							controller.enqueue(encoder.encode(encodeSseDataEvent(chunk)));
+					for await (const part of result.fullStream) {
+						switch (part.type) {
+							case "text-delta":
+								streamedText += part.text;
+								emit({ type: "text", text: part.text });
+								break;
+							case "reasoning-delta":
+								reasoningText += part.text;
+								emit({ type: "reasoning", text: part.text });
+								break;
+							case "tool-call":
+								stepIndexByCallId.set(part.toolCallId, steps.length);
+								steps.push({
+									id: part.toolCallId,
+									name: part.toolName,
+									input: part.input,
+								});
+								emit({
+									type: "tool-call",
+									id: part.toolCallId,
+									name: part.toolName,
+									input: part.input,
+								});
+								break;
+							case "tool-result": {
+								const index = stepIndexByCallId.get(part.toolCallId);
+								const step = index === undefined ? undefined : steps[index];
+								if (step) step.output = part.output;
+								emit({
+									type: "tool-result",
+									id: part.toolCallId,
+									name: part.toolName,
+									output: part.output,
+								});
+								break;
+							}
+							case "tool-error": {
+								const index = stepIndexByCallId.get(part.toolCallId);
+								const step = index === undefined ? undefined : steps[index];
+								const message =
+									part.error instanceof Error
+										? part.error.message
+										: String(part.error);
+								if (step) step.error = message;
+								emit({
+									type: "tool-error",
+									id: part.toolCallId,
+									name: part.toolName,
+									error: message,
+								});
+								break;
+							}
+							default:
+								break;
 						}
 					}
 
@@ -184,22 +252,14 @@ export function registerChatStreamRoute(app: Hono) {
 						finalizedText.trim() ? finalizedText : streamedText,
 					);
 
-					if (
-						!clientDisconnected &&
-						assistantText &&
-						assistantText !== streamedText
-					) {
+					if (assistantText && assistantText !== streamedText) {
 						const missingSuffix = assistantText.startsWith(streamedText)
 							? assistantText.slice(streamedText.length)
 							: assistantText;
-						if (missingSuffix) {
-							controller.enqueue(
-								encoder.encode(encodeSseDataEvent(missingSuffix)),
-							);
-						}
+						if (missingSuffix) emit({ type: "text", text: missingSuffix });
 					}
 
-					await persistAssistantMessage(chatId, assistantText);
+					await persistAssistantMessage(chatId, finalize(assistantText));
 					triggerKnowledgeBaseSync(chat.workspaceId);
 					if (!clientDisconnected) {
 						controller.close();
@@ -221,16 +281,12 @@ export function registerChatStreamRoute(app: Hono) {
 						`Model stream failed mid-response for chat ${chatId}:`,
 						err,
 					);
-					await persistAssistantMessage(chatId, assistantText);
+					await persistAssistantMessage(chatId, finalize(assistantText));
 					triggerKnowledgeBaseSync(chat.workspaceId);
 					const missingSuffix = assistantText.startsWith(streamedText)
 						? assistantText.slice(streamedText.length)
 						: assistantText;
-					if (missingSuffix) {
-						controller.enqueue(
-							encoder.encode(encodeSseDataEvent(missingSuffix)),
-						);
-					}
+					if (missingSuffix) emit({ type: "text", text: missingSuffix });
 					controller.close();
 				}
 			},

@@ -10,6 +10,7 @@ import type {
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatTopBar } from "@/components/chat/chat-top-bar";
 import { MessageList } from "@/components/chat/message-list";
+import { parseChatMessageContent } from "@/lib/chat-message";
 import { parseAssistantContent } from "@/lib/chat-prompts";
 import {
 	type ChatToolPolicy,
@@ -192,7 +193,32 @@ export default function ChatPage() {
 		DEFAULT_CHAT_TOOL_POLICY,
 	);
 	const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
+	const [prefill, setPrefill] = useState<{ text: string; nonce: number } | null>(
+		null,
+	);
 	const initializedToolsRef = useRef(false);
+
+	// "Edit" on a past user turn (message-actions.tsx) just repopulates the
+	// composer with that text — there's no backend support for rewriting
+	// history in place, so the user re-sends it as a new turn.
+	function handleEditMessage(text: string) {
+		setPrefill({ text, nonce: Date.now() });
+	}
+
+	// "Regenerate" (message-actions.tsx) resends the latest user turn as a new
+	// turn rather than truly replacing the last reply in place, since the
+	// server has no delete-last-message endpoint. Attachments on that turn
+	// aren't replayed.
+	function handleRegenerate() {
+		const lastUserMessage = [...(messagesQuery.data ?? [])]
+			.reverse()
+			.find((m) => m.role === "user");
+		if (!lastUserMessage) return;
+		const text =
+			parseChatMessageContent(lastUserMessage.content)?.text ??
+			lastUserMessage.content;
+		sendMessageAndCheckApprovals(text);
+	}
 
 	// Seed the toolbar's displayed selection from the chat's current agent,
 	// once. "Auto assistant …" agents represent live workspace defaults (shown
@@ -395,6 +421,8 @@ export default function ChatPage() {
 					actingApprovalId={actingApprovalId}
 					onApproveApproval={(id) => approveApproval.mutate(id)}
 					onRejectApproval={(id) => rejectApproval.mutate(id)}
+					onEditMessage={handleEditMessage}
+					onRegenerate={handleRegenerate}
 				/>
 				{(error || forkAgent.isError || updateChatToolPolicy.isError) && (
 					<p className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -417,6 +445,7 @@ export default function ChatPage() {
 					messages={messagesQuery.data ?? []}
 					assistantQuestion={pendingQuestion}
 					assistantPrompt={pendingPrompt}
+					prefill={prefill ?? undefined}
 				/>
 			</div>
 		</div>

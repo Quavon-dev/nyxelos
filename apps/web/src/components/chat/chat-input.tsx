@@ -32,6 +32,7 @@ export function ChatInput({
 	messages,
 	assistantQuestion,
 	assistantPrompt,
+	prefill,
 }: {
 	onSend: (message: string) => void;
 	disabled?: boolean;
@@ -46,6 +47,10 @@ export function ChatInput({
 	messages: MessageLike[];
 	assistantQuestion: string | null;
 	assistantPrompt: MultiSelectPrompt | null;
+	/** Pushes text into the composer imperatively — e.g. the "edit" action on
+	 * a past user turn (see message-actions.tsx). Bump `nonce` on every call
+	 * so the effect fires even when the text repeats verbatim. */
+	prefill?: { text: string; nonce: number };
 }) {
 	const [value, setValue] = useState("");
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -56,6 +61,15 @@ export function ChatInput({
 	useEffect(() => {
 		if (promptKey !== "none") setValue("");
 	}, [promptKey]);
+
+	// The caller (see message-actions.tsx's "edit" action) always constructs a
+	// fresh `prefill` object with a new `nonce`, so depending on the object
+	// itself re-fires exactly on each edit request, not on unrelated renders.
+	useEffect(() => {
+		if (!prefill) return;
+		setValue(prefill.text);
+		requestAnimationFrame(() => textareaRef.current?.focus());
+	}, [prefill]);
 
 	// Attachments are stored inline as a structured envelope so the chat can
 	// render them later without needing a separate upload backend yet.

@@ -1,7 +1,11 @@
 import { Sparkles, User } from "lucide-react";
+import type { AgentActivityStep } from "@/lib/chat-agent-activity";
+import { parseAgentActivity } from "@/lib/chat-agent-activity";
 import { parseChatMessageContent } from "@/lib/chat-message";
 import { parseAssistantContent } from "@/lib/chat-prompts";
+import { AgentActivity } from "./agent-activity";
 import { MarkdownContent } from "./markdown-content";
+import { MessageActions } from "./message-actions";
 import { MultiSelectPromptCard } from "./multi-select-prompt";
 
 /** Document-style turn — avatar + name header above full-width content, no
@@ -12,15 +16,30 @@ export function MessageBubble({
 	sender,
 	content,
 	streaming = false,
+	reasoning,
+	steps,
+	onEdit,
+	onRegenerate,
 }: {
 	sender: string;
 	content: string;
 	streaming?: boolean;
+	/** Live reasoning text while streaming — for a persisted history message,
+	 * this is instead recovered from the trailing ```nyxel-activity block. */
+	reasoning?: string;
+	/** Live tool-call steps while streaming — same history note as above. */
+	steps?: AgentActivityStep[];
+	onEdit?: () => void;
+	onRegenerate?: () => void;
 }) {
 	const isUser = sender === "user";
 	const parsed = !isUser && !streaming ? parseAssistantContent(content) : null;
 	const userAttachment = isUser ? parseChatMessageContent(content) : null;
-	const body = parsed?.body || content;
+	const historyActivity = !isUser && !streaming ? parseAgentActivity(parsed?.body ?? content) : null;
+	const body = historyActivity?.body ?? parsed?.body ?? content;
+	const activityReasoning = streaming ? reasoning : historyActivity?.activity?.reasoning;
+	const activitySteps = streaming ? (steps ?? []) : (historyActivity?.activity?.steps ?? []);
+	const copyText = isUser ? (userAttachment?.text ?? content) : body;
 
 	return (
 		<div className="flex gap-3">
@@ -46,6 +65,10 @@ export function MessageBubble({
 				<p className="text-sm font-semibold leading-none">
 					{isUser ? "You" : "Nyxel"}
 				</p>
+
+				{!isUser && (activityReasoning || activitySteps.length > 0) && (
+					<AgentActivity reasoning={activityReasoning} steps={activitySteps} />
+				)}
 
 				<div className="text-[15px] leading-relaxed text-foreground">
 					{parsed?.prompt ? (
@@ -100,9 +123,18 @@ export function MessageBubble({
 					) : isUser ? (
 						<div className="whitespace-pre-wrap">{content}</div>
 					) : (
-						<MarkdownContent content={content} />
+						<MarkdownContent content={body} />
 					)}
 				</div>
+
+				{!streaming && (
+					<MessageActions
+						text={copyText}
+						isUser={isUser}
+						onEdit={onEdit}
+						onRegenerate={onRegenerate}
+					/>
+				)}
 			</div>
 		</div>
 	);

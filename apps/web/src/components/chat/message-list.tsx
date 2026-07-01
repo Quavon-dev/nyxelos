@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { parseChatMessageContent } from "@/lib/chat-message";
 import type { StreamingMessage } from "@/lib/use-chat-stream";
 import { ChatApprovalCard, type ChatApprovalItem } from "./chat-approval-card";
 import { ChatTaskCard, type ChatTaskItem } from "./chat-task-card";
@@ -35,6 +36,8 @@ export function MessageList({
   actingApprovalId = null,
   onApproveApproval,
   onRejectApproval,
+  onEditMessage,
+  onRegenerate,
 }: {
   messages: Message[];
   streamingMessage: StreamingMessage | null;
@@ -49,8 +52,18 @@ export function MessageList({
   actingApprovalId?: string | null;
   onApproveApproval?: (id: string) => void;
   onRejectApproval?: (id: string) => void;
+  /** Populates the composer with a prior user turn's text — only offered on
+   * the latest user message (see the "edit" action in message-actions.tsx). */
+  onEditMessage?: (content: string) => void;
+  /** Resends the latest user turn — only offered on the latest assistant
+   * reply, and only once no new turn is already streaming. */
+  onRegenerate?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const lastUserMessageId = [...messages].reverse().find((m) => m.role === "user")?.id;
+  const lastAssistantMessageId = [...messages]
+    .reverse()
+    .find((m) => m.role === "assistant")?.id;
 
   // Messages, approvals, and tasks are separate queries (chats.messages vs.
   // approvals.list vs. tasks.list), so they're merged into one timeline here
@@ -75,11 +88,30 @@ export function MessageList({
     <div ref={containerRef} className="flex-1 space-y-6 overflow-y-auto py-4">
       {timeline.map((item) => {
         if (item.kind === "message") {
+          const isLastUser =
+            item.message.role === "user" && item.message.id === lastUserMessageId;
+          const isLastAssistant =
+            item.message.role === "assistant" &&
+            item.message.id === lastAssistantMessageId;
           return (
             <MessageBubble
               key={item.message.id}
               sender={item.message.role}
               content={item.message.content}
+              onEdit={
+                isLastUser && onEditMessage
+                  ? () =>
+                      onEditMessage(
+                        parseChatMessageContent(item.message.content)?.text ??
+                          item.message.content,
+                      )
+                  : undefined
+              }
+              onRegenerate={
+                isLastAssistant && onRegenerate && !streamingMessage
+                  ? onRegenerate
+                  : undefined
+              }
             />
           );
         }
@@ -104,6 +136,8 @@ export function MessageList({
           sender="assistant"
           content={streamingMessage.content || "…"}
           streaming
+          reasoning={streamingMessage.reasoning}
+          steps={streamingMessage.steps}
         />
       )}
     </div>
