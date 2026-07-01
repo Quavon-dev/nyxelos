@@ -2,7 +2,9 @@ import { describe, expect, it } from "bun:test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repoRoot = path.resolve(fileURLToPath(new URL("../../../", import.meta.url)));
+const repoRoot = path.resolve(
+	fileURLToPath(new URL("../../../", import.meta.url)),
+);
 const serverRoot = fileURLToPath(new URL("../", import.meta.url));
 
 describe("skillRegistry workspace sandbox", () => {
