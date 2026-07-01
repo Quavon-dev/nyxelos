@@ -1,14 +1,14 @@
 import path from "node:path";
-import type { SkillRecord } from "@nyxel/db";
+import type { ToolRecord } from "@nyxel/db";
 import { createSkillContext, type SkillDefinition } from "@nyxel/skills-sdk";
 import { z } from "zod";
 import { listKnowledgeBaseDocuments } from "./knowledge-base";
 
 /**
- * Turns a DB-backed SkillRecord (created through the "Skills" tab) into the
+ * Turns a DB-backed ToolRecord (created through the workspace tools tab) into the
  * same SkillDefinition shape as the hand-written skills in
  * packages/skills-sdk/src/skills — so apps/server/src/tools.ts can run both
- * kinds through one code path. See ADR-0013.
+ * kinds through one code path.
  *
  * Config shape per kind (validated loosely — a malformed config degrades to
  * "no permissions" rather than throwing, so one bad skill can't break tool
@@ -22,8 +22,8 @@ import { listKnowledgeBaseDocuments } from "./knowledge-base";
  *   custom_code: { allowedHosts: string[], allowedDirs: string[], code: string }
  *                `code` is the body of an async function `(input, ctx) => { ... }`.
  */
-export function buildDynamicSkillDefinition(
-	record: SkillRecord,
+export function buildDynamicToolDefinition(
+	record: ToolRecord,
 ): SkillDefinition {
 	const config = record.config ?? {};
 	const stringArray = (value: unknown): string[] =>
@@ -181,7 +181,7 @@ export function buildDynamicSkillDefinition(
 		}
 
 		default:
-			// Exhaustiveness guard — a future SkillKind added to the DB schema
+			// Exhaustiveness guard — a future ToolKind added to the DB schema
 			// without a case here degrades to a no-op rather than crashing tool
 			// building for the whole agent.
 			return {
@@ -189,7 +189,7 @@ export function buildDynamicSkillDefinition(
 				inputSchema: z.record(z.string(), z.unknown()).default({}),
 				permissions: { network: [], filesystem: [] },
 				async run() {
-					throw new Error(`Unsupported skill kind: ${record.kind}`);
+					throw new Error(`Unsupported tool kind: ${record.kind}`);
 				},
 			};
 	}

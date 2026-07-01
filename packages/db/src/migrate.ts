@@ -87,7 +87,14 @@ async function main() {
 	await migrateDatabase();
 }
 
-main().catch((err) => {
-	console.error(err);
-	process.exit(1);
-});
+// Only run as a CLI entrypoint (`bun run src/migrate.ts` / the `migrate`
+// script) — this module is also imported as a library from
+// apps/server/src/index.ts via the `@nyxel/db/migrate` export, and running
+// main() unconditionally on import raced migrateDatabase() against itself
+// on two separate connections to the same SQLite file.
+if (import.meta.main) {
+	main().catch((err) => {
+		console.error(err);
+		process.exit(1);
+	});
+}

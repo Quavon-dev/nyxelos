@@ -15,7 +15,7 @@ export type ModelProviderKind = "anthropic" | "openai" | "openai_compatible";
 export type McpTransport = "stdio" | "http";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
-export type ApprovalKind = "skill" | "mcp";
+export type ApprovalKind = "skill" | "tool" | "mcp";
 export type AuditActor = "chat" | "automation" | "approval" | "delegate";
 export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
 export type ChatToolMode = "default" | "automatic" | "auto";
@@ -61,10 +61,10 @@ export type ChatToolPolicy = {
 	approveMcpTools: boolean;
 };
 
-/** See ../pg/app.ts and packages/skills-sdk — DB-backed skills built from a
+/** See ../pg/app.ts and packages/skills-sdk — DB-backed tools built from a
  * declarative `kind` + JSON `config` instead of hand-written TypeScript, so
- * the "Skills" tab can create them at runtime. */
-export type SkillKind =
+ * the workspace tools section can create them at runtime. */
+export type ToolKind =
 	| "http_fetch"
 	| "file_read"
 	| "file_write"
@@ -130,11 +130,15 @@ export const agent = sqliteTable("agent", {
 		.notNull()
 		.default("chat")
 		.$type<AgentAutonomyLevel>(),
-	skillIds: text("skill_ids", { mode: "json" })
+	mcpServerIds: text("mcp_server_ids", { mode: "json" })
 		.notNull()
 		.default([])
 		.$type<string[]>(),
-	mcpServerIds: text("mcp_server_ids", { mode: "json" })
+	toolIds: text("tool_ids", { mode: "json" })
+		.notNull()
+		.default([])
+		.$type<string[]>(),
+	skillIds: text("skill_ids", { mode: "json" })
 		.notNull()
 		.default([])
 		.$type<string[]>(),
@@ -187,18 +191,18 @@ export const knowledgeBaseConfig = sqliteTable("knowledge_base_config", {
 	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
-/** A user-defined skill, built from a declarative `kind` instead of
- * hand-written TypeScript. Complements (does not replace) the process-wide
- * hardcoded skills in apps/server/src/skills-registry.ts — both are merged
- * at tool-build time. See ADR-0013. */
-export const skill = sqliteTable("skill", {
+/** A user-defined tool, built from a declarative `kind` instead of
+ * hand-written TypeScript. Complements the process-wide hardcoded skills in
+ * apps/server/src/skills-registry.ts — both are merged at tool-build time,
+ * but they remain separate concepts. */
+export const tool = sqliteTable("tool", {
 	id: text("id").primaryKey(),
 	workspaceId: text("workspace_id")
 		.notNull()
 		.references(() => workspace.id, { onDelete: "cascade" }),
 	name: text("name").notNull(),
 	description: text("description").notNull(),
-	kind: text("kind").notNull().$type<SkillKind>(),
+	kind: text("kind").notNull().$type<ToolKind>(),
 	// Shape depends on `kind` — see apps/server/src/skills-dynamic.ts:
 	// http_fetch: { allowedHosts: string[] }
 	// file_read / file_list: { allowedDirs: string[] }
@@ -397,6 +401,7 @@ export const approvalRequest = sqliteTable("approval_request", {
 	}),
 	kind: text("kind").notNull().$type<ApprovalKind>(),
 	skillId: text("skill_id"),
+	toolId: text("tool_id"),
 	mcpServerId: text("mcp_server_id"),
 	mcpToolName: text("mcp_tool_name"),
 	toolLabel: text("tool_label").notNull(),

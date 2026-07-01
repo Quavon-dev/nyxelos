@@ -42,7 +42,7 @@ export const approvalStatus = pgEnum("approval_status", [
 	"rejected",
 ]);
 
-export const approvalKind = pgEnum("approval_kind", ["skill", "mcp"]);
+export const approvalKind = pgEnum("approval_kind", ["skill", "tool", "mcp"]);
 export const chatToolMode = pgEnum("chat_tool_mode", [
 	"default",
 	"automatic",
@@ -111,10 +111,10 @@ export const agentRunStatus = pgEnum("agent_run_status", [
 	"cancelled",
 ]);
 
-/** See ../sqlite/app.ts and packages/skills-sdk — DB-backed skills built from
+/** See ../sqlite/app.ts and packages/skills-sdk — DB-backed tools built from
  * a declarative `kind` + JSON `config` instead of hand-written TypeScript, so
- * the "Skills" tab can create them at runtime. */
-export const skillKind = pgEnum("skill_kind", [
+ * the workspace tools section can create them at runtime. */
+export const toolKind = pgEnum("tool_kind", [
 	"http_fetch",
 	"file_read",
 	"file_write",
@@ -168,8 +168,9 @@ export const modelInstallation = pgTable("model_installation", {
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-/** A saved agent configuration: system prompt, model, and which skills/MCP
- * servers it may call. See ARCHITECTURE.md sections 5-6. */
+/** A saved agent configuration: system prompt, model, and which runtime
+ * skills, workspace tools, and MCP servers it may call. See ARCHITECTURE.md
+ * sections 5-6. */
 export const agent = pgTable("agent", {
 	id: text("id").primaryKey(),
 	workspaceId: text("workspace_id")
@@ -181,8 +182,9 @@ export const agent = pgTable("agent", {
 	goalTemplate: text("goal_template"),
 	modelId: text("model_id").notNull(),
 	autonomyLevel: agentAutonomyLevel("autonomy_level").notNull().default("chat"),
-	skillIds: jsonb("skill_ids").notNull().default([]).$type<string[]>(),
 	mcpServerIds: jsonb("mcp_server_ids").notNull().default([]).$type<string[]>(),
+	toolIds: jsonb("tool_ids").notNull().default([]).$type<string[]>(),
+	skillIds: jsonb("skill_ids").notNull().default([]).$type<string[]>(),
 	// Optional per-tool allow-list, entries shaped "serverId::toolName". Null
 	// (the default) means "every tool from every server in mcpServerIds" —
 	// this only narrows that set, it never grants access beyond it.
@@ -230,19 +232,19 @@ export const knowledgeBaseConfig = pgTable("knowledge_base_config", {
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-/** A user-defined skill, built from a declarative `kind` instead of
- * hand-written TypeScript. Complements (does not replace) the process-wide
- * hardcoded skills in apps/server/src/skills-registry.ts — both are merged
- * at tool-build time. See ADR-0013. */
-export const skill = pgTable("skill", {
+/** A user-defined tool, built from a declarative `kind` instead of
+ * hand-written TypeScript. Complements the process-wide hardcoded skills in
+ * apps/server/src/skills-registry.ts — both are merged at tool-build time,
+ * but they remain separate concepts. */
+export const tool = pgTable("tool", {
 	id: text("id").primaryKey(),
 	workspaceId: text("workspace_id")
 		.notNull()
 		.references(() => workspace.id, { onDelete: "cascade" }),
 	name: text("name").notNull(),
 	description: text("description").notNull(),
-	kind: skillKind("kind").notNull(),
-	// Shape depends on `kind` — see apps/server/src/skills-dynamic.ts.
+	kind: toolKind("kind").notNull(),
+	// Shape depends on `kind` — see apps/server/src/tools-dynamic.ts.
 	config: jsonb("config")
 		.notNull()
 		.default({})
@@ -445,6 +447,7 @@ export const approvalRequest = pgTable("approval_request", {
 	}),
 	kind: approvalKind("kind").notNull(),
 	skillId: text("skill_id"),
+	toolId: text("tool_id"),
 	mcpServerId: text("mcp_server_id"),
 	mcpToolName: text("mcp_tool_name"),
 	toolLabel: text("tool_label").notNull(),

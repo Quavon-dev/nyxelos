@@ -148,9 +148,13 @@ export default function ChatPage() {
 		enabled: Boolean(chat?.agentId),
 	});
 	const skillsQuery = useQuery({
-		queryKey: ["skills", "list", workspaceId],
+		queryKey: ["skills", "list"],
+		queryFn: () => trpcClient.skills.list.query(),
+	});
+	const toolsQuery = useQuery({
+		queryKey: ["tools", "list", workspaceId],
 		queryFn: () =>
-			trpcClient.skills.list.query({ workspaceId: workspaceId ?? "" }),
+			trpcClient.tools.list.query({ workspaceId: workspaceId ?? "" }),
 		enabled: Boolean(workspaceId),
 	});
 	const mcpServersQuery = useQuery({
@@ -201,6 +205,7 @@ export default function ChatPage() {
 		} else {
 			setToolSelection({
 				skillsEnabled: agent.skillIds.length > 0,
+				toolsEnabled: agent.toolIds.length > 0,
 				mcpServerIds: agent.mcpServerIds,
 				mcpToolFilter: agent.mcpToolFilter,
 			});
@@ -234,6 +239,9 @@ export default function ChatPage() {
 				autonomyLevel: "assisted",
 				skillIds: next.skillsEnabled
 					? (skillsQuery.data ?? []).map((s) => s.id)
+					: [],
+				toolIds: next.toolsEnabled
+					? (toolsQuery.data ?? []).filter((t) => t.enabled).map((t) => t.id)
 					: [],
 				mcpServerIds: next.mcpServerIds,
 				mcpToolFilter: next.mcpToolFilter,
@@ -318,6 +326,7 @@ export default function ChatPage() {
 	function defaultToolSelection(): ChatToolSelection {
 		return {
 			skillsEnabled: true,
+			toolsEnabled: true,
 			mcpServerIds: (mcpServersQuery.data ?? [])
 				.filter((s) => s.enabled)
 				.map((s) => s.id),

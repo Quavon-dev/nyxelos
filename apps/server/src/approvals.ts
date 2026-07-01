@@ -4,6 +4,7 @@ import { createSkillContext } from "@nyxel/skills-sdk";
 import { logAudit } from "./audit";
 import { ensureMcpServerConnected, mcpManager } from "./mcp-runtime";
 import { resolveSkillDefinition } from "./skills-resolve";
+import { resolveToolDefinition } from "./tools-resolve";
 
 /**
  * Runs the real action behind a pending approval once a human decides on it.
@@ -64,10 +65,23 @@ export async function resolveApprovalDecision(
     let output: unknown;
     if (approval.kind === "skill") {
       if (!approval.skillId) throw new Error("Approval request is missing skillId.");
-      const skill = await resolveSkillDefinition(approval.workspaceId, approval.skillId);
-      if (!skill) throw new Error(`Skill no longer exists or is disabled: ${approval.skillId}`);
+      const skill = resolveSkillDefinition(approval.skillId);
+      if (!skill) throw new Error(`Skill no longer exists: ${approval.skillId}`);
       const parsedInput = skill.inputSchema.parse(approval.input);
       output = await skill.run(parsedInput, createSkillContext(skill.permissions));
+    } else if (approval.kind === "tool") {
+      if (!approval.toolId) throw new Error("Approval request is missing toolId.");
+      const workspaceTool = await resolveToolDefinition(
+        approval.workspaceId,
+        approval.toolId,
+      );
+      if (!workspaceTool)
+        throw new Error(`Tool no longer exists or is disabled: ${approval.toolId}`);
+      const parsedInput = workspaceTool.inputSchema.parse(approval.input);
+      output = await workspaceTool.run(
+        parsedInput,
+        createSkillContext(workspaceTool.permissions),
+      );
     } else {
       if (!approval.mcpServerId || !approval.mcpToolName) {
         throw new Error("Approval request is missing its MCP server/tool.");

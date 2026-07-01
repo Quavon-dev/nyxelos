@@ -18,7 +18,7 @@ describe("shouldDeferToolForApproval", () => {
 	it("keeps default mode fully approval-gated for sensitive tools", () => {
 		expect(
 			shouldDeferToolForApproval(
-				{ kind: "skill", sensitive: true, skillKind: "file_write" },
+				{ kind: "tool", sensitive: true, toolKind: "file_write" },
 				DEFAULT_CHAT_TOOL_POLICY,
 			),
 		).toBe(true);
@@ -30,7 +30,7 @@ describe("shouldDeferToolForApproval", () => {
 	it("lets automatic mode run writes when that guardrail is disabled", () => {
 		expect(
 			shouldDeferToolForApproval(
-				{ kind: "skill", sensitive: true, skillKind: "file_write" },
+				{ kind: "tool", sensitive: true, toolKind: "file_write" },
 				policy({ approveFileWrites: false }),
 			),
 		).toBe(false);
@@ -39,7 +39,7 @@ describe("shouldDeferToolForApproval", () => {
 	it("still gates deletes when delete approval stays enabled", () => {
 		expect(
 			shouldDeferToolForApproval(
-				{ kind: "skill", sensitive: true, skillKind: "file_delete" },
+				{ kind: "tool", sensitive: true, toolKind: "file_delete" },
 				policy({ approveFileDeletes: true }),
 			),
 		).toBe(true);

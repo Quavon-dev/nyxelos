@@ -105,7 +105,10 @@ export type AgentSummary = {
 	goalTemplate: string | null;
 	modelId: string;
 	autonomyLevel: AutonomyLevel;
+	/** Real runtime skills (packages/skills-sdk), process-wide and read-only. */
 	skillIds: string[];
+	/** DB-backed, workspace-configurable tools — see tools.* below. */
+	toolIds: string[];
 	mcpServerIds: string[];
 	/** Entries shaped "serverId::toolName"; null means every tool from every
 	 * server in mcpServerIds. */
@@ -219,7 +222,7 @@ export type UserSummary = {
 	email: string;
 };
 
-export type SkillKind =
+export type ToolKind =
 	| "http_fetch"
 	| "file_read"
 	| "file_write"
@@ -228,15 +231,29 @@ export type SkillKind =
 	| "kb_search"
 	| "custom_code";
 
-export type SkillSummary = {
+/** A DB-backed, workspace-configurable tool (the old "Skills" tab concept —
+ * see docs/frontend-migration-tools-vs-skills.md). */
+export type ToolSummary = {
 	id: string;
 	name: string;
 	description: string;
 	permissions: { network: string[]; filesystem: string[] };
 	sensitive: boolean;
 	enabled: boolean;
-	source: "builtin" | "custom";
-	kind?: SkillKind;
+	source: "workspace";
+	kind: ToolKind;
+};
+
+/** A real runtime skill from packages/skills-sdk — process-wide, read-only,
+ * can't be created/edited/deleted from the UI. */
+export type SkillSummary = {
+	id: string;
+	name: string;
+	description: string;
+	permissions: { network: string[]; filesystem: string[] };
+	sensitive: boolean;
+	enabled: true;
+	source: "builtin";
 };
 
 export type AutomationTriggerType = "cron" | "file_watch";
@@ -259,7 +276,7 @@ export type AutomationSummary = {
 };
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
-export type ApprovalKind = "skill" | "mcp";
+export type ApprovalKind = "skill" | "tool" | "mcp";
 
 export type ApprovalSummary = {
 	id: string;
@@ -271,6 +288,7 @@ export type ApprovalSummary = {
 	agentRunId: string | null;
 	kind: ApprovalKind;
 	skillId: string | null;
+	toolId: string | null;
 	mcpServerId: string | null;
 	mcpToolName: string | null;
 	toolLabel: string;
@@ -482,22 +500,28 @@ type NyxelTrpcClient = {
 		};
 	};
 	skills: {
+		/** Read-only runtime skill catalog — process-wide, no workspace CRUD. */
 		list: {
-			query(input: { workspaceId: string }): Promise<SkillSummary[]>;
+			query(): Promise<SkillSummary[]>;
+		};
+	};
+	tools: {
+		list: {
+			query(input: { workspaceId: string }): Promise<ToolSummary[]>;
 		};
 		create: {
 			mutate(input: {
 				workspaceId: string;
 				name: string;
 				description: string;
-				kind: SkillKind;
+				kind: ToolKind;
 				config: Record<string, unknown>;
 				sensitive?: boolean;
 				enabled?: boolean;
-			}): Promise<SkillSummary>;
+			}): Promise<ToolSummary>;
 		};
 		setEnabled: {
-			mutate(input: { id: string; enabled: boolean }): Promise<SkillSummary>;
+			mutate(input: { id: string; enabled: boolean }): Promise<ToolSummary>;
 		};
 		delete: {
 			mutate(input: { id: string }): Promise<void>;
@@ -640,6 +664,7 @@ type NyxelTrpcClient = {
 				modelId: string;
 				autonomyLevel?: AutonomyLevel;
 				skillIds?: string[];
+				toolIds?: string[];
 				mcpServerIds?: string[];
 				mcpToolFilter?: string[] | null;
 				autoAttachWorkspaceTools?: boolean;
@@ -656,6 +681,7 @@ type NyxelTrpcClient = {
 				modelId?: string;
 				autonomyLevel?: AutonomyLevel;
 				skillIds?: string[];
+				toolIds?: string[];
 				mcpServerIds?: string[];
 				mcpToolFilter?: string[] | null;
 				delegateAgentIds?: string[];

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Blocks, Lock, Sparkles, Wrench } from "lucide-react";
+import { Lock, Wrench } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { PageHeader, StatCard } from "@/components/page-header";
@@ -33,60 +33,59 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { type SkillKind, trpcClient } from "@/lib/trpc";
+import { type ToolKind, trpcClient } from "@/lib/trpc";
 
-const SKILL_KINDS: { value: SkillKind; label: string; description: string }[] =
-	[
-		{
-			value: "http_fetch",
-			label: "HTTP fetch",
-			description:
-				"GET a URL from an allow-listed set of hosts and return the response text.",
-		},
-		{
-			value: "file_read",
-			label: "Read files",
-			description:
-				"Read a file's contents from an allow-listed set of directories.",
-		},
-		{
-			value: "file_list",
-			label: "List directory",
-			description:
-				"List the contents of a directory from an allow-listed set of directories.",
-		},
-		{
-			value: "file_write",
-			label: "Write files",
-			description:
-				"Write/overwrite a file under an allow-listed set of directories.",
-		},
-		{
-			value: "file_delete",
-			label: "Delete files",
-			description: "Delete a file under an allow-listed set of directories.",
-		},
-		{
-			value: "kb_search",
-			label: "Knowledge-base search",
-			description:
-				"Search this workspace's knowledge-base vault by title/path.",
-		},
-		{
-			value: "custom_code",
-			label: "Custom code",
-			description:
-				"Run a short JavaScript function with a permission-scoped fetch/file context.",
-		},
-	];
+const TOOL_KINDS: { value: ToolKind; label: string; description: string }[] = [
+	{
+		value: "http_fetch",
+		label: "HTTP fetch",
+		description:
+			"GET a URL from an allow-listed set of hosts and return the response text.",
+	},
+	{
+		value: "file_read",
+		label: "Read files",
+		description:
+			"Read a file's contents from an allow-listed set of directories.",
+	},
+	{
+		value: "file_list",
+		label: "List directory",
+		description:
+			"List the contents of a directory from an allow-listed set of directories.",
+	},
+	{
+		value: "file_write",
+		label: "Write files",
+		description:
+			"Write/overwrite a file under an allow-listed set of directories.",
+	},
+	{
+		value: "file_delete",
+		label: "Delete files",
+		description: "Delete a file under an allow-listed set of directories.",
+	},
+	{
+		value: "kb_search",
+		label: "Knowledge-base search",
+		description:
+			"Search this workspace's knowledge-base vault by title/path.",
+	},
+	{
+		value: "custom_code",
+		label: "Custom code",
+		description:
+			"Run a short JavaScript function with a permission-scoped fetch/file context.",
+	},
+];
 
-const DEFAULT_SENSITIVE_KINDS = new Set<SkillKind>([
+const DEFAULT_SENSITIVE_KINDS = new Set<ToolKind>([
 	"file_write",
 	"file_delete",
 	"custom_code",
 ]);
-const NEEDS_HOSTS = new Set<SkillKind>(["http_fetch", "custom_code"]);
-const NEEDS_DIRS = new Set<SkillKind>([
+const NEEDS_HOSTS = new Set<ToolKind>(["http_fetch", "custom_code"]);
+const NEEDS_DIRS = new Set<ToolKind>([
 	"file_read",
 	"file_list",
 	"file_write",
@@ -101,24 +100,24 @@ function splitList(value: string): string[] {
 		.filter(Boolean);
 }
 
-export default function SkillsPage() {
+export default function ToolsPage() {
 	const params = useParams<{ workspaceId: string }>();
 	const workspaceId = params.workspaceId;
 	const queryClient = useQueryClient();
 
-	const skillsQuery = useQuery({
-		queryKey: ["skills", "list", workspaceId],
-		queryFn: () => trpcClient.skills.list.query({ workspaceId }),
+	const toolsQuery = useQuery({
+		queryKey: ["tools", "list", workspaceId],
+		queryFn: () => trpcClient.tools.list.query({ workspaceId }),
 	});
 
 	const invalidate = () =>
 		queryClient.invalidateQueries({
-			queryKey: ["skills", "list", workspaceId],
+			queryKey: ["tools", "list", workspaceId],
 		});
 
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
-	const [kind, setKind] = useState<SkillKind>("http_fetch");
+	const [kind, setKind] = useState<ToolKind>("http_fetch");
 	const [allowedHosts, setAllowedHosts] = useState("");
 	const [allowedDirs, setAllowedDirs] = useState("");
 	const [code, setCode] = useState("");
@@ -128,14 +127,14 @@ export default function SkillsPage() {
 
 	const sensitive = sensitiveOverride ?? DEFAULT_SENSITIVE_KINDS.has(kind);
 
-	const createSkill = useMutation({
+	const createTool = useMutation({
 		mutationFn: () => {
 			const config: Record<string, unknown> = {};
 			if (NEEDS_HOSTS.has(kind)) config.allowedHosts = splitList(allowedHosts);
 			if (NEEDS_DIRS.has(kind)) config.allowedDirs = splitList(allowedDirs);
 			if (kind === "custom_code") config.code = code;
 
-			return trpcClient.skills.create.mutate({
+			return trpcClient.tools.create.mutate({
 				workspaceId,
 				name,
 				description,
@@ -157,132 +156,107 @@ export default function SkillsPage() {
 
 	const toggleEnabled = useMutation({
 		mutationFn: (input: { id: string; enabled: boolean }) =>
-			trpcClient.skills.setEnabled.mutate(input),
+			trpcClient.tools.setEnabled.mutate(input),
 		onSuccess: invalidate,
 	});
 
-	const deleteSkill = useMutation({
-		mutationFn: (id: string) => trpcClient.skills.delete.mutate({ id }),
+	const deleteTool = useMutation({
+		mutationFn: (id: string) => trpcClient.tools.delete.mutate({ id }),
 		onSuccess: invalidate,
 	});
 
-	const skills = skillsQuery.data ?? [];
-	const builtinSkills = skills.filter((s) => s.source === "builtin");
-	const customSkills = skills.filter((s) => s.source === "custom");
-	const kindMeta = SKILL_KINDS.find((k) => k.value === kind);
+	const tools = toolsQuery.data ?? [];
+	const kindMeta = TOOL_KINDS.find((k) => k.value === kind);
 
 	return (
 		<div className="mx-auto w-full max-w-4xl space-y-6 p-8">
 			<PageHeader
-				title="Skills"
-				description="Select which skills are available in this workspace, and create your own — HTTP fetch, file access, knowledge-base search, or custom code — with a declared permission profile."
+				title="Tools"
+				description="Workspace-configured tools agents can use — HTTP fetch, file access, knowledge-base search, or custom code — with a declared permission profile. For built-in runtime skills, see an agent's skill picker."
 			/>
 
-			<div className="grid gap-4 sm:grid-cols-3">
+			<div className="grid gap-4 sm:grid-cols-1">
 				<StatCard
-					label="Total skills"
-					value={skills.length}
-					icon={<Blocks className="size-4" />}
-				/>
-				<StatCard
-					label="Built-in"
-					value={builtinSkills.length}
-					icon={<Sparkles className="size-4" />}
-				/>
-				<StatCard
-					label="Custom"
-					value={customSkills.length}
+					label="Total tools"
+					value={tools.length}
 					icon={<Wrench className="size-4" />}
 				/>
 			</div>
 
 			<Card>
 				<CardHeader>
-					<CardTitle>Skill selection</CardTitle>
+					<CardTitle>Tool selection</CardTitle>
 					<CardDescription>
-						Built-in skills ship with Nyxel and can't be edited or removed.
-						Custom skills can be disabled or deleted here — agents that
-						reference a disabled skill simply skip it.
+						Tools can be disabled or deleted here — agents that reference a
+						disabled tool simply skip it.
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					{skills.length === 0 ? (
-						<p className="text-sm text-muted-foreground">No skills yet.</p>
+					{tools.length === 0 ? (
+						<p className="text-sm text-muted-foreground">No tools yet.</p>
 					) : (
 						<div className="rounded-lg border">
 							<Table>
 								<TableHeader>
 									<TableRow className="hover:bg-transparent">
 										<TableHead>Name</TableHead>
-										<TableHead>Source</TableHead>
+										<TableHead>Kind</TableHead>
 										<TableHead>Description</TableHead>
 										<TableHead>Permissions</TableHead>
 										<TableHead className="w-[160px]">Actions</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
-									{skills.map((skill) => (
-										<TableRow key={skill.id}>
+									{tools.map((toolItem) => (
+										<TableRow key={toolItem.id}>
 											<TableCell className="font-medium">
-												{skill.name}
-												{skill.sensitive && (
+												{toolItem.name}
+												{toolItem.sensitive && (
 													<Lock className="ml-1.5 inline size-3 text-muted-foreground" />
 												)}
 											</TableCell>
 											<TableCell>
 												<Badge
 													variant="outline"
-													className={
-														skill.source === "builtin"
-															? "border-0 bg-muted text-muted-foreground"
-															: "border-0 bg-violet-500/15 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"
-													}
+													className="border-0 bg-violet-500/15 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"
 												>
-													{skill.source === "builtin"
-														? "Built-in"
-														: (skill.kind ?? "custom")}
+													{toolItem.kind}
 												</Badge>
 											</TableCell>
 											<TableCell className="max-w-[240px] truncate text-muted-foreground">
-												{skill.description}
+												{toolItem.description}
 											</TableCell>
 											<TableCell className="max-w-[220px] truncate text-xs text-muted-foreground">
-												{skill.permissions.network.length > 0 &&
-													`net: ${skill.permissions.network.join(", ")}`}
-												{skill.permissions.network.length > 0 &&
-													skill.permissions.filesystem.length > 0 &&
+												{toolItem.permissions.network.length > 0 &&
+													`net: ${toolItem.permissions.network.join(", ")}`}
+												{toolItem.permissions.network.length > 0 &&
+													toolItem.permissions.filesystem.length > 0 &&
 													" · "}
-												{skill.permissions.filesystem.length > 0 &&
-													`fs: ${skill.permissions.filesystem.join(", ")}`}
-												{skill.permissions.network.length === 0 &&
-													skill.permissions.filesystem.length === 0 &&
+												{toolItem.permissions.filesystem.length > 0 &&
+													`fs: ${toolItem.permissions.filesystem.join(", ")}`}
+												{toolItem.permissions.network.length === 0 &&
+													toolItem.permissions.filesystem.length === 0 &&
 													"—"}
 											</TableCell>
 											<TableCell>
-												{skill.source === "custom" ? (
-													<div className="flex items-center gap-2">
-														<Switch
-															checked={skill.enabled}
-															onCheckedChange={(checked) =>
-																toggleEnabled.mutate({
-																	id: skill.id,
-																	enabled: checked,
-																})
-															}
-														/>
-														<Button
-															variant="ghost"
-															size="sm"
-															onClick={() => deleteSkill.mutate(skill.id)}
-														>
-															Delete
-														</Button>
-													</div>
-												) : (
-													<span className="text-xs text-muted-foreground">
-														Always on
-													</span>
-												)}
+												<div className="flex items-center gap-2">
+													<Switch
+														checked={toolItem.enabled}
+														onCheckedChange={(checked) =>
+															toggleEnabled.mutate({
+																id: toolItem.id,
+																enabled: checked,
+															})
+														}
+													/>
+													<Button
+														variant="ghost"
+														size="sm"
+														onClick={() => deleteTool.mutate(toolItem.id)}
+													>
+														Delete
+													</Button>
+												</div>
 											</TableCell>
 										</TableRow>
 									))}
@@ -295,18 +269,18 @@ export default function SkillsPage() {
 
 			<Card>
 				<CardHeader>
-					<CardTitle>Create a skill</CardTitle>
+					<CardTitle>Create a tool</CardTitle>
 					<CardDescription>
 						Pick a kind, describe what it does, and declare exactly which hosts
-						or directories it may touch. New skills default to needing approval
+						or directories it may touch. New tools default to needing approval
 						before they run unless you turn that off below.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-4">
 					<div className="grid gap-2">
-						<Label htmlFor="skill-name">Name</Label>
+						<Label htmlFor="tool-name">Name</Label>
 						<Input
-							id="skill-name"
+							id="tool-name"
 							value={name}
 							onChange={(e) => setName(e.target.value)}
 							placeholder="e.g. Read project logs"
@@ -314,24 +288,24 @@ export default function SkillsPage() {
 					</div>
 
 					<div className="grid gap-2">
-						<Label htmlFor="skill-description">Description</Label>
+						<Label htmlFor="tool-description">Description</Label>
 						<Textarea
-							id="skill-description"
+							id="tool-description"
 							value={description}
 							onChange={(e) => setDescription(e.target.value)}
-							placeholder="What this skill does and when an agent should use it — shown to the model."
+							placeholder="What this tool does and when an agent should use it — shown to the model."
 							rows={2}
 						/>
 					</div>
 
 					<div className="grid gap-2">
 						<Label>Kind</Label>
-						<Select value={kind} onValueChange={(v) => setKind(v as SkillKind)}>
+						<Select value={kind} onValueChange={(v) => setKind(v as ToolKind)}>
 							<SelectTrigger className="w-full">
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								{SKILL_KINDS.map((k) => (
+								{TOOL_KINDS.map((k) => (
 									<SelectItem key={k.value} value={k.value}>
 										{k.label}
 									</SelectItem>
@@ -347,9 +321,9 @@ export default function SkillsPage() {
 
 					{NEEDS_HOSTS.has(kind) && (
 						<div className="grid gap-2">
-							<Label htmlFor="skill-hosts">Allowed hosts</Label>
+							<Label htmlFor="tool-hosts">Allowed hosts</Label>
 							<Input
-								id="skill-hosts"
+								id="tool-hosts"
 								value={allowedHosts}
 								onChange={(e) => setAllowedHosts(e.target.value)}
 								placeholder="api.github.com, raw.githubusercontent.com"
@@ -363,9 +337,9 @@ export default function SkillsPage() {
 
 					{NEEDS_DIRS.has(kind) && (
 						<div className="grid gap-2">
-							<Label htmlFor="skill-dirs">Allowed directories</Label>
+							<Label htmlFor="tool-dirs">Allowed directories</Label>
 							<Input
-								id="skill-dirs"
+								id="tool-dirs"
 								value={allowedDirs}
 								onChange={(e) => setAllowedDirs(e.target.value)}
 								placeholder="/absolute/path/to/a/directory"
@@ -380,9 +354,9 @@ export default function SkillsPage() {
 
 					{kind === "custom_code" && (
 						<div className="grid gap-2">
-							<Label htmlFor="skill-code">Code</Label>
+							<Label htmlFor="tool-code">Code</Label>
 							<Textarea
-								id="skill-code"
+								id="tool-code"
 								value={code}
 								onChange={(e) => setCode(e.target.value)}
 								placeholder={
@@ -394,7 +368,7 @@ export default function SkillsPage() {
 							<p className="text-xs text-muted-foreground">
 								The body of an async function{" "}
 								<code>(input, ctx) =&gt; {"{ ... }"}</code>. Runs in-process
-								with the same permission checks as other skills (ADR-0007) — it
+								with the same permission checks as other tools (ADR-0007) — it
 								can still reach other APIs directly, so keep sensitive on unless
 								you're sure.
 							</p>
@@ -403,7 +377,7 @@ export default function SkillsPage() {
 
 					<div className="flex items-center justify-between rounded-lg border p-3">
 						<div className="space-y-0.5">
-							<Label htmlFor="skill-sensitive">
+							<Label htmlFor="tool-sensitive">
 								Requires approval before running
 							</Label>
 							<p className="text-xs text-muted-foreground">
@@ -412,7 +386,7 @@ export default function SkillsPage() {
 							</p>
 						</div>
 						<Switch
-							id="skill-sensitive"
+							id="tool-sensitive"
 							checked={sensitive}
 							onCheckedChange={(checked) => setSensitiveOverride(checked)}
 						/>
@@ -420,14 +394,14 @@ export default function SkillsPage() {
 
 					<div className="flex items-center gap-3 border-t pt-4">
 						<Button
-							onClick={() => createSkill.mutate()}
-							disabled={createSkill.isPending || !name || !description}
+							onClick={() => createTool.mutate()}
+							disabled={createTool.isPending || !name || !description}
 						>
-							{createSkill.isPending ? "Creating…" : "Create skill"}
+							{createTool.isPending ? "Creating…" : "Create tool"}
 						</Button>
-						{createSkill.isError && (
+						{createTool.isError && (
 							<p className="text-sm text-destructive">
-								{(createSkill.error as Error).message}
+								{(createTool.error as Error).message}
 							</p>
 						)}
 					</div>

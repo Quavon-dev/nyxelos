@@ -61,8 +61,12 @@ export default function AgentsPage() {
     queryFn: () => trpcClient.models.list.query({ workspaceId }),
   });
   const skillsQuery = useQuery({
-    queryKey: ["skills", "list", workspaceId],
-    queryFn: () => trpcClient.skills.list.query({ workspaceId }),
+    queryKey: ["skills", "list"],
+    queryFn: () => trpcClient.skills.list.query(),
+  });
+  const toolsQuery = useQuery({
+    queryKey: ["tools", "list", workspaceId],
+    queryFn: () => trpcClient.tools.list.query({ workspaceId }),
   });
   const mcpServersQuery = useQuery({
     queryKey: ["mcpServers", workspaceId],
@@ -78,6 +82,7 @@ export default function AgentsPage() {
   const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>("assisted");
   const [autoAttachWorkspaceTools, setAutoAttachWorkspaceTools] = useState(true);
   const [skillIds, setSkillIds] = useState<string[]>([]);
+  const [toolIds, setToolIds] = useState<string[]>([]);
   const [mcpServerIds, setMcpServerIds] = useState<string[]>([]);
   const [delegateAgentIds, setDelegateAgentIds] = useState<string[]>([]);
 
@@ -89,6 +94,7 @@ export default function AgentsPage() {
     setSystemPrompt("");
     setAutoAttachWorkspaceTools(true);
     setSkillIds([]);
+    setToolIds([]);
     setMcpServerIds([]);
     setDelegateAgentIds([]);
   }
@@ -103,6 +109,7 @@ export default function AgentsPage() {
     setAutonomyLevel(agent.autonomyLevel);
     setAutoAttachWorkspaceTools(false);
     setSkillIds(agent.skillIds);
+    setToolIds(agent.toolIds);
     setMcpServerIds(agent.mcpServerIds);
     setDelegateAgentIds(agent.delegateAgentIds);
   }
@@ -118,6 +125,7 @@ export default function AgentsPage() {
         modelId,
         autonomyLevel,
         skillIds: autoAttachWorkspaceTools ? undefined : skillIds,
+        toolIds: autoAttachWorkspaceTools ? undefined : toolIds,
         mcpServerIds: autoAttachWorkspaceTools ? undefined : mcpServerIds,
         autoAttachWorkspaceTools,
         delegateAgentIds: autonomyLevel === "super_agent" ? delegateAgentIds : undefined,
@@ -139,6 +147,7 @@ export default function AgentsPage() {
         modelId,
         autonomyLevel,
         skillIds,
+        toolIds,
         mcpServerIds,
         delegateAgentIds: autonomyLevel === "super_agent" ? delegateAgentIds : [],
       }),
@@ -164,7 +173,7 @@ export default function AgentsPage() {
     <div className="mx-auto w-full max-w-4xl space-y-6 p-8">
       <PageHeader
         title="Agents"
-        description="Saved configurations of system prompt, model, autonomy level, and attached skills/MCP tools."
+        description="Saved configurations of system prompt, model, autonomy level, and attached skills/tools/MCP servers."
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -198,6 +207,7 @@ export default function AgentsPage() {
                     <TableHead>Model</TableHead>
                     <TableHead>Autonomy</TableHead>
                     <TableHead>Skills</TableHead>
+                    <TableHead>Tools</TableHead>
                     <TableHead>Delegates</TableHead>
                     <TableHead className="w-[80px]" />
                   </TableRow>
@@ -212,7 +222,10 @@ export default function AgentsPage() {
                         <AutonomyBadge level={agent.autonomyLevel} />
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {agent.skillIds.length > 0 ? agent.skillIds.join(", ") : "—"}
+                        {agent.skillIds.length > 0 ? agent.skillIds.length : "—"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {agent.toolIds.length > 0 ? agent.toolIds.length : "—"}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {agent.delegateAgentIds.length > 0 ? agent.delegateAgentIds.length : "—"}
@@ -325,7 +338,7 @@ export default function AgentsPage() {
               />
               <Label htmlFor="auto-attach-tools" className="flex-1 font-normal">
                 <span className="font-medium text-foreground">
-                  Auto-attach all workspace skills and MCP servers
+                  Auto-attach all runtime skills, workspace tools, and MCP servers
                 </span>
                 <span className="block text-xs text-muted-foreground">
                   Keeps the agent tool-ready regardless of model. Sensitive actions still go
@@ -338,6 +351,9 @@ export default function AgentsPage() {
           {!autoAttachWorkspaceTools && skillsQuery.data && skillsQuery.data.length > 0 && (
             <div className="space-y-2">
               <Label>Skills</Label>
+              <p className="text-xs text-muted-foreground">
+                Real runtime skills — built-in, read-only.
+              </p>
               <div className="space-y-2 rounded-lg border p-3">
                 {skillsQuery.data.map((skill) => (
                   <div key={skill.id} className="flex items-start gap-2">
@@ -354,6 +370,36 @@ export default function AgentsPage() {
                       )}
                       <span className="block text-xs text-muted-foreground">
                         {skill.description}
+                      </span>
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!autoAttachWorkspaceTools && toolsQuery.data && toolsQuery.data.length > 0 && (
+            <div className="space-y-2">
+              <Label>Tools</Label>
+              <p className="text-xs text-muted-foreground">
+                Workspace-configured tools — manage these from the Tools page.
+              </p>
+              <div className="space-y-2 rounded-lg border p-3">
+                {toolsQuery.data.map((toolItem) => (
+                  <div key={toolItem.id} className="flex items-start gap-2">
+                    <Checkbox
+                      id={`tool-${toolItem.id}`}
+                      checked={toolIds.includes(toolItem.id)}
+                      onCheckedChange={() => toggle(toolIds, toolItem.id, setToolIds)}
+                      className="mt-0.5"
+                    />
+                    <Label htmlFor={`tool-${toolItem.id}`} className="flex-1 font-normal">
+                      <span className="font-medium text-foreground">{toolItem.name}</span>
+                      {toolItem.sensitive && (
+                        <span className="ml-1 text-xs text-muted-foreground">(needs approval)</span>
+                      )}
+                      <span className="block text-xs text-muted-foreground">
+                        {toolItem.description}
                       </span>
                     </Label>
                   </div>

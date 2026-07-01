@@ -1,4 +1,4 @@
-import type { AgentRecord, ChatToolPolicy, SkillKind } from "@nyxel/db";
+import type { AgentRecord, ChatToolPolicy, ToolKind } from "@nyxel/db";
 import { DEFAULT_CHAT_TOOL_POLICY, getDb } from "@nyxel/db";
 import {
 	createSkillContext,
@@ -19,6 +19,7 @@ import { buildDelegateToAgentTool } from "./delegation";
 import { buildWorkspaceManagementTools } from "./management-tools";
 import { ensureMcpServerConnected, mcpManager } from "./mcp-runtime";
 import { resolveSkillDefinition } from "./skills-resolve";
+import { resolveToolDefinition } from "./tools-resolve";
 
 export interface AgentRunContext {
 	/** Set when this run is a live chat turn. */
@@ -60,7 +61,7 @@ function pendingApprovalResult(approvalId: string, toolLabel: string) {
 	};
 }
 
-function classifyBuiltinSkillKind(skillId: string): SkillKind | null {
+function classifyBuiltinSkillKind(skillId: string): ToolKind | null {
 	switch (skillId) {
 		case "workspace_file_read":
 		case "workspace_file_read_range":
@@ -118,7 +119,11 @@ export function buildChatScopedBuiltinSkill(
 export function shouldDeferToolForApproval(
 	target:
 		| { kind: "mcp" }
-		| { kind: "skill"; sensitive: boolean; skillKind: SkillKind | null },
+		| {
+				kind: "skill" | "tool";
+				sensitive: boolean;
+				toolKind: ToolKind | null;
+		  },
 	policy: ChatToolPolicy | undefined,
 ): boolean {
 	const effectivePolicy = normalizeChatToolPolicy(policy);
@@ -137,7 +142,7 @@ export function shouldDeferToolForApproval(
 	if (effectivePolicy.mode === "default") return true;
 
 	// "automatic" mode — respect individual guardrail flags.
-	switch (target.skillKind) {
+	switch (target.toolKind) {
 		case "file_write":
 			return effectivePolicy.approveFileWrites;
 		case "file_delete":
@@ -151,14 +156,15 @@ export function shouldDeferToolForApproval(
 
 /**
  * Builds the AI SDK tool set an agent is allowed to call for one run: its
- * assigned skills (packages/skills-sdk), tools from its assigned, connected
- * MCP servers (packages/mcp-client), and — for super-agents — a
- * delegate_to_agent tool. Sensitive actions (skill.sensitive === true; every
+ * assigned runtime skills (packages/skills-sdk), workspace tools
+ * (DB-backed config), tools from its assigned, connected MCP servers
+ * (packages/mcp-client), and — for super-agents — a delegate_to_agent tool.
+ * Sensitive actions (skill.sensitive === true; tool.sensitive === true; every
  * MCP tool, since their side effects aren't declared) are deferred for
  * approval instead of executed immediately (ADR-0009). Unknown/removed
- * skills and unreachable MCP servers are skipped rather than failing the
- * whole run — a partially-degraded tool set is better than no response at
- * all. See ARCHITECTURE.md sections 6 and 8.
+ * skills/tools and unreachable MCP servers are skipped rather than failing
+ * the whole run — a partially-degraded tool set is better than no response at
+ * all.
  */
 export async function buildToolsForAgent(
 	agent: AgentRecord,
@@ -172,23 +178,18 @@ export async function buildToolsForAgent(
 		const chatScopedBuiltin = ctx.workingDirectory
 			? buildChatScopedBuiltinSkill(skillId, ctx.workingDirectory)
 			: null;
-		// Checks the process-wide hand-written registry first, then this
-		// workspace's DB-backed dynamic skills (Skills tab) — see
-		// apps/server/src/skills-resolve.ts and ADR-0013.
 		const skill =
 			chatScopedBuiltin ??
-			(await resolveSkillDefinition(agent.workspaceId, skillId));
+			resolveSkillDefinition(skillId);
 		if (!skill) continue;
 		tools[skill.id] = tool({
 			description: skill.description,
 			inputSchema: skill.inputSchema,
 			execute: async (input) => {
-				const skillRecord = await db.getSkill(skill.id);
-				const skillKind =
-					skillRecord?.kind ?? classifyBuiltinSkillKind(skill.id);
+				const skillKind = classifyBuiltinSkillKind(skill.id);
 				if (
 					shouldDeferToolForApproval(
-						{ kind: "skill", sensitive: skill.sensitive, skillKind },
+						{ kind: "skill", sensitive: skill.sensitive, toolKind: skillKind },
 						ctx.chatToolPolicy,
 					)
 				) {
@@ -201,6 +202,7 @@ export async function buildToolsForAgent(
 						agentRunId: ctx.agentRunId,
 						kind: "skill",
 						skillId: skill.id,
+						toolId: null,
 						toolLabel: skill.id,
 						input: input as Record<string, unknown>,
 					});
@@ -279,6 +281,117 @@ export async function buildToolsForAgent(
 							kind: "failed",
 							message: `Tool failed: ${skill.id}`,
 							payload: { toolLabel: skill.id, error: message },
+						});
+					}
+					throw err;
+				}
+			},
+		});
+	}
+
+	for (const toolId of agent.toolIds) {
+		const workspaceTool = await resolveToolDefinition(agent.workspaceId, toolId);
+		if (!workspaceTool) continue;
+		tools[workspaceTool.id] = tool({
+			description: workspaceTool.description,
+			inputSchema: workspaceTool.inputSchema,
+			execute: async (input) => {
+				const toolRecord = await db.getTool(workspaceTool.id);
+				const toolKind = toolRecord?.kind ?? classifyBuiltinSkillKind(workspaceTool.id);
+				if (
+					shouldDeferToolForApproval(
+						{ kind: "tool", sensitive: workspaceTool.sensitive, toolKind },
+						ctx.chatToolPolicy,
+					)
+				) {
+					const approval = await db.createApprovalRequest({
+						workspaceId: agent.workspaceId,
+						agentId: agent.id,
+						chatId: ctx.chatId,
+						automationId: ctx.automationId,
+						taskId: ctx.taskId,
+						agentRunId: ctx.agentRunId,
+						kind: "tool",
+						skillId: null,
+						toolId: workspaceTool.id,
+						toolLabel: workspaceTool.id,
+						input: input as Record<string, unknown>,
+					});
+					await logAudit({
+						workspaceId: agent.workspaceId,
+						agentId: agent.id,
+						chatId: ctx.chatId,
+						automationId: ctx.automationId,
+						actor,
+						toolLabel: workspaceTool.id,
+						input,
+						status: "pending_approval",
+					});
+					if (ctx.taskId) {
+						await db.createTaskEvent({
+							taskId: ctx.taskId,
+							workspaceId: agent.workspaceId,
+							agentRunId: ctx.agentRunId,
+							agentId: agent.id,
+							kind: "approval_waiting",
+							message: `Waiting for approval: ${workspaceTool.id}`,
+							payload: { approvalId: approval.id, toolLabel: workspaceTool.id },
+						});
+					}
+					return pendingApprovalResult(approval.id, workspaceTool.id);
+				}
+
+				try {
+					const parsedInput = workspaceTool.inputSchema.parse(input);
+					const toolCtx = createSkillContext(workspaceTool.permissions);
+					const output = await workspaceTool.run(parsedInput, toolCtx);
+					await logAudit({
+						workspaceId: agent.workspaceId,
+						agentId: agent.id,
+						chatId: ctx.chatId,
+						automationId: ctx.automationId,
+						actor,
+						toolLabel: workspaceTool.id,
+						input,
+						output,
+						status: "success",
+					});
+					if (ctx.taskId) {
+						await db.createTaskEvent({
+							taskId: ctx.taskId,
+							workspaceId: agent.workspaceId,
+							agentRunId: ctx.agentRunId,
+							agentId: agent.id,
+							kind: "tool_called",
+							message: `Tool succeeded: ${workspaceTool.id}`,
+							payload: {
+								toolLabel: workspaceTool.id,
+							},
+						});
+					}
+					return output;
+				} catch (err) {
+					const message = err instanceof Error ? err.message : String(err);
+					await logAudit({
+						workspaceId: agent.workspaceId,
+						agentId: agent.id,
+						chatId: ctx.chatId,
+						automationId: ctx.automationId,
+						actor,
+						toolLabel: workspaceTool.id,
+						input,
+						output: { error: message },
+						status: "error",
+					});
+					if (ctx.taskId) {
+						await db.createTaskEvent({
+							taskId: ctx.taskId,
+							workspaceId: agent.workspaceId,
+							agentRunId: ctx.agentRunId,
+							agentId: agent.id,
+							kind: "failed",
+							message: `Tool failed: ${workspaceTool.id}`,
+							payload: { toolLabel: workspaceTool.id, error: message },
 						});
 					}
 					throw err;

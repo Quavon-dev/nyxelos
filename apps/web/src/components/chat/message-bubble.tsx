@@ -11,12 +11,14 @@ import { MultiSelectPromptCard } from "./multi-select-prompt";
 export function MessageBubble({
 	sender,
 	content,
+	streaming = false,
 }: {
 	sender: string;
 	content: string;
+	streaming?: boolean;
 }) {
 	const isUser = sender === "user";
-	const parsed = !isUser ? parseAssistantContent(content) : null;
+	const parsed = !isUser && !streaming ? parseAssistantContent(content) : null;
 	const userAttachment = isUser ? parseChatMessageContent(content) : null;
 	const body = parsed?.body || content;
 
@@ -50,6 +52,10 @@ export function MessageBubble({
 						<div className="space-y-2">
 							{body && <MarkdownContent content={body} />}
 							<MultiSelectPromptCard prompt={parsed.prompt} mode="preview" />
+						</div>
+					) : streaming && !isUser ? (
+						<div className="whitespace-pre-wrap break-words">
+							{content || "…"}
 						</div>
 					) : userAttachment ? (
 						<div className="space-y-2">

@@ -81,8 +81,12 @@ export default function ChatLandingPage() {
 		enabled: Boolean(workspaceId),
 	});
 	const skillsQuery = useQuery({
-		queryKey: ["skills", "list", workspaceId],
-		queryFn: () => trpcClient.skills.list.query({ workspaceId: workspaceId! }),
+		queryKey: ["skills", "list"],
+		queryFn: () => trpcClient.skills.list.query(),
+	});
+	const toolsQuery = useQuery({
+		queryKey: ["tools", "list", workspaceId],
+		queryFn: () => trpcClient.tools.list.query({ workspaceId: workspaceId! }),
 		enabled: Boolean(workspaceId),
 	});
 
@@ -131,6 +135,9 @@ export default function ChatLandingPage() {
 					autonomyLevel: "assisted",
 					skillIds: toolSelection.skillsEnabled
 						? (skillsQuery.data ?? []).map((s) => s.id)
+						: [],
+					toolIds: toolSelection.toolsEnabled
+						? (toolsQuery.data ?? []).filter((t) => t.enabled).map((t) => t.id)
 						: [],
 					mcpServerIds: toolSelection.mcpServerIds,
 					mcpToolFilter: toolSelection.mcpToolFilter,

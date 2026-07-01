@@ -60,8 +60,9 @@ export async function buildWorkspaceManagementTools(
 				autonomyLevel: z
 					.enum(["chat", "assisted", "autonomous", "super_agent"])
 					.optional(),
-				skillIds: z.array(z.string()).optional(),
 				mcpServerIds: z.array(z.string()).optional(),
+				toolIds: z.array(z.string()).optional(),
+				skillIds: z.array(z.string()).optional(),
 				delegateAgentIds: z.array(z.string()).optional(),
 				autoAttachWorkspaceTools: z.boolean().default(true),
 			}),
@@ -70,6 +71,7 @@ export async function buildWorkspaceManagementTools(
 					? await getWorkspaceDefaultToolIds(workspaceId)
 					: {
 							skillIds: input.skillIds ?? [],
+							toolIds: input.toolIds ?? [],
 							mcpServerIds: input.mcpServerIds ?? [],
 						};
 				return db.createAgent({
@@ -87,6 +89,7 @@ export async function buildWorkspaceManagementTools(
 					modelId: input.modelId,
 					autonomyLevel: defaultAutonomyLevel(input),
 					skillIds: workspaceDefaults.skillIds,
+					toolIds: workspaceDefaults.toolIds,
 					mcpServerIds: workspaceDefaults.mcpServerIds,
 					delegateAgentIds: input.delegateAgentIds ?? [],
 				});
@@ -106,8 +109,9 @@ export async function buildWorkspaceManagementTools(
 				autonomyLevel: z
 					.enum(["chat", "assisted", "autonomous", "super_agent"])
 					.optional(),
-				skillIds: z.array(z.string()).optional(),
 				mcpServerIds: z.array(z.string()).optional(),
+				toolIds: z.array(z.string()).optional(),
+				skillIds: z.array(z.string()).optional(),
 				delegateAgentIds: z.array(z.string()).optional(),
 			}),
 			execute: async ({ agentId, ...input }) => db.updateAgent(agentId, input),

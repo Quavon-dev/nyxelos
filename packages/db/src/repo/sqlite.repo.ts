@@ -698,8 +698,9 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			goalTemplate,
 			modelId,
 			autonomyLevel,
-			skillIds,
 			mcpServerIds,
+			toolIds,
+			skillIds,
 			mcpToolFilter,
 			delegateAgentIds,
 		}) {
@@ -714,8 +715,9 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					goalTemplate: goalTemplate ?? null,
 					modelId,
 					autonomyLevel: autonomyLevel ?? "chat",
-					skillIds: skillIds ?? [],
 					mcpServerIds: mcpServerIds ?? [],
+					toolIds: toolIds ?? [],
+					skillIds: skillIds ?? [],
 					mcpToolFilter: mcpToolFilter ?? null,
 					delegateAgentIds: delegateAgentIds ?? [],
 					createdAt: new Date(),
@@ -758,10 +760,11 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					...(input.autonomyLevel !== undefined
 						? { autonomyLevel: input.autonomyLevel }
 						: {}),
-					...(input.skillIds !== undefined ? { skillIds: input.skillIds } : {}),
 					...(input.mcpServerIds !== undefined
 						? { mcpServerIds: input.mcpServerIds }
 						: {}),
+					...(input.toolIds !== undefined ? { toolIds: input.toolIds } : {}),
+					...(input.skillIds !== undefined ? { skillIds: input.skillIds } : {}),
 					...(input.mcpToolFilter !== undefined
 						? { mcpToolFilter: input.mcpToolFilter }
 						: {}),
@@ -1289,7 +1292,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			db.delete(schema.automation).where(eq(schema.automation.id, id)).run();
 		},
 
-		async createSkill({
+		async createTool({
 			workspaceId,
 			name,
 			description,
@@ -1299,7 +1302,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			enabled,
 		}) {
 			const row = db
-				.insert(schema.skill)
+				.insert(schema.tool)
 				.values({
 					id: randomUUID(),
 					workspaceId,
@@ -1316,36 +1319,36 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			return row;
 		},
 
-		async listSkillsByWorkspace(workspaceId) {
+		async listToolsByWorkspace(workspaceId) {
 			return db
 				.select()
-				.from(schema.skill)
-				.where(eq(schema.skill.workspaceId, workspaceId))
+				.from(schema.tool)
+				.where(eq(schema.tool.workspaceId, workspaceId))
 				.all();
 		},
 
-		async getSkill(id) {
+		async getTool(id) {
 			const row = db
 				.select()
-				.from(schema.skill)
-				.where(eq(schema.skill.id, id))
+				.from(schema.tool)
+				.where(eq(schema.tool.id, id))
 				.get();
 			return row ?? null;
 		},
 
-		async setSkillEnabled(id, enabled) {
+		async setToolEnabled(id, enabled) {
 			const row = db
-				.update(schema.skill)
+				.update(schema.tool)
 				.set({ enabled })
-				.where(eq(schema.skill.id, id))
+				.where(eq(schema.tool.id, id))
 				.returning()
 				.get();
 			if (!row) throw new Error(`Skill not found: ${id}`);
 			return row;
 		},
 
-		async deleteSkill(id) {
-			db.delete(schema.skill).where(eq(schema.skill.id, id)).run();
+		async deleteTool(id) {
+			db.delete(schema.tool).where(eq(schema.tool.id, id)).run();
 		},
 
 		async createApprovalRequest({
@@ -1357,6 +1360,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			agentRunId,
 			kind,
 			skillId,
+			toolId,
 			mcpServerId,
 			mcpToolName,
 			toolLabel,
@@ -1374,6 +1378,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					agentRunId: agentRunId ?? null,
 					kind,
 					skillId: skillId ?? null,
+					toolId: toolId ?? null,
 					mcpServerId: mcpServerId ?? null,
 					mcpToolName: mcpToolName ?? null,
 					toolLabel,

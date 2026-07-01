@@ -37,7 +37,8 @@ import {
 } from "../provider-imports";
 import { computeNextRunAt, runAutomation } from "../scheduler";
 import { executeManagedTask, startTaskExecutionIfIdle } from "../agent-runtime";
-import { listSkillCatalogForWorkspace } from "../skills-resolve";
+import { listSkillCatalog } from "../skills-resolve";
+import { listToolCatalogForWorkspace } from "../tools-resolve";
 import { publicProcedure, router } from "./trpc";
 
 const autonomyLevelSchema = z.enum([
@@ -62,7 +63,7 @@ const chatToolPolicySchema = z.object({
 	approveCustomCode: z.boolean(),
 	approveMcpTools: z.boolean(),
 });
-const skillKindSchema = z.enum([
+const toolKindSchema = z.enum([
 	"http_fetch",
 	"file_read",
 	"file_write",
@@ -354,20 +355,26 @@ export const appRouter = router({
 	}),
 
 	skills: router({
-		// The full catalog for a workspace: process-wide hand-written skills
-		// ("builtin") plus this workspace's DB-backed dynamic skills ("custom")
-		// created through the Skills tab. See ADR-0013 and skills-resolve.ts.
+		// Read-only runtime skill catalog. Skills are process-wide and
+		// hand-written in packages/skills-sdk.
+		list: publicProcedure
+			.query(() => listSkillCatalog()),
+	}),
+
+	tools: router({
+		// Workspace tools are DB-backed and user-configurable. This is the
+		// Old Skills tab concept, renamed because it was not a real skill.
 		list: publicProcedure
 			.input(z.object({ workspaceId: z.string() }))
-			.query(({ input }) => listSkillCatalogForWorkspace(input.workspaceId)),
+			.query(({ input }) => listToolCatalogForWorkspace(input.workspaceId)),
 		create: publicProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
 					name: z.string().min(1),
 					description: z.string().min(1),
-					kind: skillKindSchema,
-					// Shape depends on `kind` — see apps/server/src/skills-dynamic.ts's
+					kind: toolKindSchema,
+					// Shape depends on `kind` — see apps/server/src/tools-dynamic.ts's
 					// doc comment for the expected fields per kind.
 					config: z.record(z.string(), z.unknown()).default({}),
 					sensitive: z.boolean().optional(),
@@ -376,15 +383,13 @@ export const appRouter = router({
 			)
 			.mutation(({ input }) => {
 				// Read-only kinds default to not needing approval; anything that can
-				// write or run arbitrary code defaults to sensitive, matching the
-				// "unmarked skill is treated as if it could do something
-				// irreversible" default from packages/skills-sdk. Callers can still
+				// write or run arbitrary code defaults to sensitive. Callers can still
 				// override explicitly via `sensitive`.
 				const defaultSensitive =
 					input.kind === "file_write" ||
 					input.kind === "file_delete" ||
 					input.kind === "custom_code";
-				return getDb().createSkill({
+				return getDb().createTool({
 					...input,
 					sensitive: input.sensitive ?? defaultSensitive,
 				});
@@ -392,11 +397,11 @@ export const appRouter = router({
 		setEnabled: publicProcedure
 			.input(z.object({ id: z.string(), enabled: z.boolean() }))
 			.mutation(({ input }) =>
-				getDb().setSkillEnabled(input.id, input.enabled),
+				getDb().setToolEnabled(input.id, input.enabled),
 			),
 		delete: publicProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(({ input }) => getDb().deleteSkill(input.id)),
+			.mutation(({ input }) => getDb().deleteTool(input.id)),
 	}),
 
 	workspaces: router({
@@ -589,6 +594,7 @@ export const appRouter = router({
 					systemPrompt: z.string().optional(),
 					modelId: z.string(),
 					autonomyLevel: autonomyLevelSchema.optional(),
+					toolIds: z.array(z.string()).optional(),
 					skillIds: z.array(z.string()).optional(),
 					mcpServerIds: z.array(z.string()).optional(),
 					// Entries shaped "serverId::toolName" — narrows which tools from
@@ -603,6 +609,7 @@ export const appRouter = router({
 				const toolIds =
 					input.autoAttachWorkspaceTools === false
 						? {
+								toolIds: input.toolIds,
 								skillIds: input.skillIds,
 								mcpServerIds: input.mcpServerIds,
 							}
@@ -610,6 +617,7 @@ export const appRouter = router({
 
 				return getDb().createAgent({
 					...input,
+					toolIds: toolIds.toolIds,
 					skillIds: toolIds.skillIds,
 					mcpServerIds: toolIds.mcpServerIds,
 					mcpToolFilter: input.mcpToolFilter ?? null,
@@ -625,6 +633,7 @@ export const appRouter = router({
 					systemPrompt: z.string().nullable().optional(),
 					modelId: z.string().optional(),
 					autonomyLevel: autonomyLevelSchema.optional(),
+					toolIds: z.array(z.string()).optional(),
 					skillIds: z.array(z.string()).optional(),
 					mcpServerIds: z.array(z.string()).optional(),
 					mcpToolFilter: z.array(z.string()).nullable().optional(),

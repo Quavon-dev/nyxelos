@@ -577,8 +577,9 @@ export function createPgRepository(connectionString: string): DbRepository {
 			goalTemplate,
 			modelId,
 			autonomyLevel,
-			skillIds,
 			mcpServerIds,
+			toolIds,
+			skillIds,
 			mcpToolFilter,
 			delegateAgentIds,
 		}) {
@@ -593,8 +594,9 @@ export function createPgRepository(connectionString: string): DbRepository {
 					goalTemplate: goalTemplate ?? null,
 					modelId,
 					autonomyLevel: autonomyLevel ?? "chat",
-					skillIds: skillIds ?? [],
 					mcpServerIds: mcpServerIds ?? [],
+					toolIds: toolIds ?? [],
+					skillIds: skillIds ?? [],
 					mcpToolFilter: mcpToolFilter ?? null,
 					delegateAgentIds: delegateAgentIds ?? [],
 				})
@@ -633,10 +635,11 @@ export function createPgRepository(connectionString: string): DbRepository {
 					...(input.autonomyLevel !== undefined
 						? { autonomyLevel: input.autonomyLevel }
 						: {}),
-					...(input.skillIds !== undefined ? { skillIds: input.skillIds } : {}),
 					...(input.mcpServerIds !== undefined
 						? { mcpServerIds: input.mcpServerIds }
 						: {}),
+					...(input.toolIds !== undefined ? { toolIds: input.toolIds } : {}),
+					...(input.skillIds !== undefined ? { skillIds: input.skillIds } : {}),
 					...(input.mcpToolFilter !== undefined
 						? { mcpToolFilter: input.mcpToolFilter }
 						: {}),
@@ -1127,7 +1130,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 			await db.delete(schema.automation).where(eq(schema.automation.id, id));
 		},
 
-		async createSkill({
+		async createTool({
 			workspaceId,
 			name,
 			description,
@@ -1137,7 +1140,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 			enabled,
 		}) {
 			const [row] = await db
-				.insert(schema.skill)
+				.insert(schema.tool)
 				.values({
 					id: randomUUID(),
 					workspaceId,
@@ -1149,36 +1152,36 @@ export function createPgRepository(connectionString: string): DbRepository {
 					enabled: enabled ?? true,
 				})
 				.returning();
-			if (!row) throw new Error("Failed to create skill");
+			if (!row) throw new Error("Failed to create tool");
 			return row;
 		},
 
-		async listSkillsByWorkspace(workspaceId) {
+		async listToolsByWorkspace(workspaceId) {
 			return db
 				.select()
-				.from(schema.skill)
-				.where(eq(schema.skill.workspaceId, workspaceId));
+				.from(schema.tool)
+				.where(eq(schema.tool.workspaceId, workspaceId));
 		},
 
-		async getSkill(id) {
-			const row = await db.query.skill.findFirst({
-				where: eq(schema.skill.id, id),
+		async getTool(id) {
+			const row = await db.query.tool.findFirst({
+				where: eq(schema.tool.id, id),
 			});
 			return row ?? null;
 		},
 
-		async setSkillEnabled(id, enabled) {
+		async setToolEnabled(id, enabled) {
 			const [row] = await db
-				.update(schema.skill)
+				.update(schema.tool)
 				.set({ enabled })
-				.where(eq(schema.skill.id, id))
+				.where(eq(schema.tool.id, id))
 				.returning();
-			if (!row) throw new Error(`Skill not found: ${id}`);
+			if (!row) throw new Error(`Tool not found: ${id}`);
 			return row;
 		},
 
-		async deleteSkill(id) {
-			await db.delete(schema.skill).where(eq(schema.skill.id, id));
+		async deleteTool(id) {
+			await db.delete(schema.tool).where(eq(schema.tool.id, id));
 		},
 
 		async createApprovalRequest({
@@ -1190,6 +1193,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 			agentRunId,
 			kind,
 			skillId,
+			toolId,
 			mcpServerId,
 			mcpToolName,
 			toolLabel,
@@ -1207,6 +1211,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 					agentRunId: agentRunId ?? null,
 					kind,
 					skillId: skillId ?? null,
+					toolId: toolId ?? null,
 					mcpServerId: mcpServerId ?? null,
 					mcpToolName: mcpToolName ?? null,
 					toolLabel,

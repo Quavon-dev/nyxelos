@@ -18,6 +18,7 @@ import {
 	Plug,
 	Settings2,
 	Sparkles,
+	Wrench,
 	X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -47,9 +48,12 @@ import {
 import { cn } from "@/lib/utils";
 
 export interface ChatToolSelection {
-	/** true = every skill in the workspace catalog is available (default);
-	 * false = none. Simple on/off, matching the Skills pill's plain toggle. */
+	/** true = every real runtime skill is available (default); false = none.
+	 * Simple on/off, matching the Skills pill's plain toggle. */
 	skillsEnabled: boolean;
+	/** true = every enabled workspace tool is available (default); false =
+	 * none. Simple on/off, matching the Tools pill's plain toggle. */
+	toolsEnabled: boolean;
 	mcpServerIds: string[];
 	/** Entries shaped "serverId::toolName"; null means every tool from every
 	 * server in mcpServerIds. */
@@ -244,14 +248,17 @@ export function ChatComposerToolbar({
 	// MCP Server always stays visible: it's the one control that must remain
 	// reachable so tool changes mid-conversation are never buried in a menu.
 	const [skillsPinned, setSkillsPinned] = useState(false);
+	const [toolsPinned, setToolsPinned] = useState(false);
 	const [artifactsPinned, setArtifactsPinned] = useState(false);
 	const initialPinRef = useRef(false);
 	useEffect(() => {
 		if (initialPinRef.current || !toolSelection) return;
 		initialPinRef.current = true;
-		// A chat that was previously customized to disable skills has a real,
-		// non-default state worth surfacing immediately rather than hiding it.
+		// A chat that was previously customized to disable skills/tools has a
+		// real, non-default state worth surfacing immediately rather than
+		// hiding it.
 		if (!toolSelection.skillsEnabled) setSkillsPinned(true);
+		if (!toolSelection.toolsEnabled) setToolsPinned(true);
 	}, [toolSelection]);
 
 	const mcpServersQuery = useQuery({
@@ -287,12 +294,14 @@ export function ChatComposerToolbar({
 	const invalidConfigMessage = getInvalidConfigMessage(toolsResult);
 	const effective: ChatToolSelection = toolSelection ?? {
 		skillsEnabled: true,
+		toolsEnabled: true,
 		mcpServerIds: servers.filter((s) => s.enabled).map((s) => s.id),
 		mcpToolFilter: null,
 	};
 	const guardrailsLocked =
 		chatToolPolicy.mode === "default" || chatToolPolicy.mode === "auto";
 	const skillsActive = effective.skillsEnabled;
+	const toolsActive = effective.toolsEnabled;
 	const mcpCustomized = toolSelection !== null;
 	const modeLabel = CHAT_MODE_LABEL[chatToolPolicy.mode];
 
@@ -302,6 +311,10 @@ export function ChatComposerToolbar({
 
 	function toggleSkills() {
 		commit({ skillsEnabled: !effective.skillsEnabled });
+	}
+
+	function toggleTools() {
+		commit({ toolsEnabled: !effective.toolsEnabled });
 	}
 
 	function updateChatToolPolicy(patch: Partial<ChatToolPolicy>) {
@@ -459,6 +472,10 @@ export function ChatComposerToolbar({
 								<Sparkles className="size-4" />
 								Skills — {skillsActive ? "on" : "off"}
 							</DropdownMenuItem>
+							<DropdownMenuItem onSelect={toggleTools}>
+								<Wrench className="size-4" />
+								Tools — {toolsActive ? "on" : "off"}
+							</DropdownMenuItem>
 							<DropdownMenuItem onSelect={() => setArtifactsOpen(true)}>
 								<Blocks className="size-4" />
 								Artifacts ({artifacts.length})
@@ -542,6 +559,16 @@ export function ChatComposerToolbar({
 									{skillsPinned && <Check className="ml-auto size-3.5" />}
 								</DropdownMenuItem>
 								<DropdownMenuItem
+									onSelect={() => {
+										setToolsPinned(true);
+										if (!effective.toolsEnabled) commit({ toolsEnabled: true });
+									}}
+								>
+									<Wrench className="size-4" />
+									Tools
+									{toolsPinned && <Check className="ml-auto size-3.5" />}
+								</DropdownMenuItem>
+								<DropdownMenuItem
 									onSelect={() => setArtifactsPinned((v) => !v)}
 								>
 									<Blocks className="size-4" />
@@ -604,6 +631,17 @@ export function ChatComposerToolbar({
 							</button>
 						)}
 
+						{toolsPinned && (
+							<button
+								type="button"
+								onClick={() => commit({ toolsEnabled: !effective.toolsEnabled })}
+								className={pillClass(toolsActive)}
+							>
+								<Wrench className="size-3.5" />
+								Tools
+							</button>
+						)}
+
 						{artifactsPinned && (
 							<Popover open={artifactsOpen} onOpenChange={setArtifactsOpen}>
 								<PopoverTrigger asChild>
@@ -661,6 +699,15 @@ export function ChatComposerToolbar({
 						>
 							<Sparkles className="size-3.5" />
 							Skills
+						</button>
+
+						<button
+							type="button"
+							onClick={toggleTools}
+							className={pillClass(toolsActive)}
+						>
+							<Wrench className="size-3.5" />
+							Tools
 						</button>
 
 						<Popover open={artifactsOpen} onOpenChange={setArtifactsOpen}>

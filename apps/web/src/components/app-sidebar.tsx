@@ -3,7 +3,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   Archive,
-  Blocks,
   Bot,
   CheckSquare,
   ClipboardCheck,
@@ -15,6 +14,7 @@ import {
   Plug,
   ScrollText,
   Sparkles,
+  Wrench,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -62,7 +62,7 @@ export function AppSidebar() {
         },
         { href: `/workspace/${workspaceId}/agents`, label: "Agents", icon: Bot },
         { href: `/workspace/${workspaceId}/tasks`, label: "Tasks", icon: CheckSquare },
-        { href: `/workspace/${workspaceId}/skills`, label: "Skills", icon: Blocks },
+        { href: `/workspace/${workspaceId}/tools`, label: "Tools", icon: Wrench },
         { href: `/workspace/${workspaceId}/mcp-servers`, label: "MCP Servers", icon: Plug },
         { href: `/workspace/${workspaceId}/automations`, label: "Automations", icon: Clock },
         {

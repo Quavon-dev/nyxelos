@@ -11,7 +11,7 @@ export type ModelProviderKind = "anthropic" | "openai" | "openai_compatible";
 export type McpTransport = "stdio" | "http";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
-export type ApprovalKind = "skill" | "mcp";
+export type ApprovalKind = "skill" | "tool" | "mcp";
 export type AuditActor = "chat" | "automation" | "approval" | "delegate";
 export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
 export type ChatToolMode = "default" | "automatic" | "auto";
@@ -65,7 +65,7 @@ export const DEFAULT_CHAT_TOOL_POLICY: ChatToolPolicy = {
 	approveMcpTools: true,
 };
 
-export type SkillKind =
+export type ToolKind =
 	| "http_fetch"
 	| "file_read"
 	| "file_write"
@@ -135,6 +135,7 @@ export interface AgentRecord {
 	autonomyLevel: AgentAutonomyLevel;
 	skillIds: string[];
 	mcpServerIds: string[];
+	toolIds: string[];
 	/** Per-tool allow-list narrowing mcpServerIds, entries shaped
 	 * "serverId::toolName". Null means every tool from every listed server. */
 	mcpToolFilter: string[] | null;
@@ -219,12 +220,12 @@ export interface AutomationRecord {
 	createdAt: Date;
 }
 
-export interface SkillRecord {
+export interface ToolRecord {
 	id: string;
 	workspaceId: string;
 	name: string;
 	description: string;
-	kind: SkillKind;
+	kind: ToolKind;
 	config: Record<string, unknown>;
 	sensitive: boolean;
 	enabled: boolean;
@@ -241,6 +242,7 @@ export interface ApprovalRequestRecord {
 	agentRunId: string | null;
 	kind: ApprovalKind;
 	skillId: string | null;
+	toolId: string | null;
 	mcpServerId: string | null;
 	mcpToolName: string | null;
 	toolLabel: string;
@@ -417,8 +419,9 @@ export interface DbRepository {
 		goalTemplate?: string | null;
 		modelId: string;
 		autonomyLevel?: AgentAutonomyLevel;
-		skillIds?: string[];
 		mcpServerIds?: string[];
+		toolIds?: string[];
+		skillIds?: string[];
 		mcpToolFilter?: string[] | null;
 		delegateAgentIds?: string[];
 	}): Promise<AgentRecord>;
@@ -433,8 +436,9 @@ export interface DbRepository {
 			goalTemplate?: string | null;
 			modelId?: string;
 			autonomyLevel?: AgentAutonomyLevel;
-			skillIds?: string[];
 			mcpServerIds?: string[];
+			toolIds?: string[];
+			skillIds?: string[];
 			mcpToolFilter?: string[] | null;
 			delegateAgentIds?: string[];
 		},
@@ -589,19 +593,19 @@ export interface DbRepository {
 	): Promise<AutomationRecord>;
 	deleteAutomation(id: string): Promise<void>;
 
-	createSkill(input: {
+	createTool(input: {
 		workspaceId: string;
 		name: string;
 		description: string;
-		kind: SkillKind;
+		kind: ToolKind;
 		config: Record<string, unknown>;
 		sensitive?: boolean;
 		enabled?: boolean;
-	}): Promise<SkillRecord>;
-	listSkillsByWorkspace(workspaceId: string): Promise<SkillRecord[]>;
-	getSkill(id: string): Promise<SkillRecord | null>;
-	setSkillEnabled(id: string, enabled: boolean): Promise<SkillRecord>;
-	deleteSkill(id: string): Promise<void>;
+	}): Promise<ToolRecord>;
+	listToolsByWorkspace(workspaceId: string): Promise<ToolRecord[]>;
+	getTool(id: string): Promise<ToolRecord | null>;
+	setToolEnabled(id: string, enabled: boolean): Promise<ToolRecord>;
+	deleteTool(id: string): Promise<void>;
 
 	createApprovalRequest(input: {
 		workspaceId: string;
@@ -612,6 +616,7 @@ export interface DbRepository {
 		agentRunId?: string | null;
 		kind: ApprovalKind;
 		skillId?: string | null;
+		toolId?: string | null;
 		mcpServerId?: string | null;
 		mcpToolName?: string | null;
 		toolLabel: string;
