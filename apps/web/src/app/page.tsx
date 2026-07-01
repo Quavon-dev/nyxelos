@@ -4,12 +4,12 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { trpcClient } from "@/lib/trpc";
+import { trpcClient, type ModelSummary } from "@/lib/trpc";
 
 export default function HomePage() {
   const router = useRouter();
 
-  const modelsQuery = useQuery({
+  const modelsQuery = useQuery<ModelSummary[]>({
     queryKey: ["models", "list"],
     queryFn: () => trpcClient.models.list.query(),
   });
