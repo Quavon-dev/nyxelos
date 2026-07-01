@@ -1,7 +1,8 @@
 import { Sparkles, User } from "lucide-react";
+import { useState } from "react";
 import type { AgentActivityStep } from "@/lib/chat-agent-activity";
 import { parseAgentActivity } from "@/lib/chat-agent-activity";
-import { parseChatMessageContent } from "@/lib/chat-message";
+import { parseChatMessageContent, serializeChatMessageContent } from "@/lib/chat-message";
 import { parseAssistantContent } from "@/lib/chat-prompts";
 import { AgentActivity, TypingIndicator } from "./agent-activity";
 import { MarkdownContent } from "./markdown-content";
@@ -18,7 +19,7 @@ export function MessageBubble({
 	streaming = false,
 	reasoning,
 	steps,
-	onEdit,
+	onEditSubmit,
 	onRegenerate,
 }: {
 	sender: string;
@@ -29,10 +30,15 @@ export function MessageBubble({
 	reasoning?: string;
 	/** Live tool-call steps while streaming — same history note as above. */
 	steps?: AgentActivityStep[];
-	onEdit?: () => void;
+	/** Rewrites this user turn's content in place — see message-list.tsx's
+	 * onEditMessage, which persists this via chat-stream.ts's editMessageId
+	 * and drops every turn that followed. */
+	onEditSubmit?: (content: string) => void;
 	onRegenerate?: () => void;
 }) {
 	const isUser = sender === "user";
+	const [isEditing, setIsEditing] = useState(false);
+	const [draft, setDraft] = useState("");
 	// Strip the trailing ```nyxel-activity block first so parseAssistantContent
 	// (and its plain-text multiselect fallback heuristic) never scans the raw
 	// reasoning/tool-call JSON — it's a single escaped-newline JSON line, but
@@ -45,6 +51,25 @@ export function MessageBubble({
 	const activityReasoning = streaming ? reasoning : historyActivity?.activity?.reasoning;
 	const activitySteps = streaming ? (steps ?? []) : (historyActivity?.activity?.steps ?? []);
 	const copyText = isUser ? (userAttachment?.text ?? content) : body;
+
+	function startEditing() {
+		setDraft(userAttachment?.text ?? content);
+		setIsEditing(true);
+	}
+
+	function submitEdit() {
+		const text = draft.trim();
+		if (!text) return;
+		const outgoing = userAttachment
+			? serializeChatMessageContent(text, userAttachment.attachments)
+			: text;
+		onEditSubmit?.(outgoing);
+		setIsEditing(false);
+	}
+
+	function cancelEdit() {
+		setIsEditing(false);
+	}
 
 	return (
 		<div className="flex gap-3">
@@ -76,7 +101,41 @@ export function MessageBubble({
 				)}
 
 				<div className="text-[15px] leading-relaxed text-foreground">
-					{parsed?.prompt ? (
+					{isUser && isEditing ? (
+						<div className="space-y-2">
+							<textarea
+								value={draft}
+								onChange={(e) => setDraft(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter" && !e.shiftKey) {
+										e.preventDefault();
+										submitEdit();
+									}
+									if (e.key === "Escape") cancelEdit();
+								}}
+								rows={3}
+								// biome-ignore lint/a11y/noAutofocus: opening the editor is the user's explicit click on "Bearbeiten" — focus belongs here.
+								autoFocus
+								className="w-full resize-none rounded-lg border border-input bg-background p-2 text-[15px] leading-relaxed outline-none focus-visible:ring-1 focus-visible:ring-ring"
+							/>
+							<div className="flex items-center gap-2">
+								<button
+									type="button"
+									onClick={submitEdit}
+									className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+								>
+									Speichern
+								</button>
+								<button
+									type="button"
+									onClick={cancelEdit}
+									className="rounded-md px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
+								>
+									Abbrechen
+								</button>
+							</div>
+						</div>
+					) : parsed?.prompt ? (
 						<div className="space-y-2">
 							{body && <MarkdownContent content={body} />}
 							<MultiSelectPromptCard prompt={parsed.prompt} mode="preview" />
@@ -134,11 +193,11 @@ export function MessageBubble({
 					)}
 				</div>
 
-				{!streaming && (
+				{!streaming && !isEditing && (
 					<MessageActions
 						text={copyText}
 						isUser={isUser}
-						onEdit={onEdit}
+						onEdit={onEditSubmit ? startEditing : undefined}
 						onRegenerate={onRegenerate}
 					/>
 				)}

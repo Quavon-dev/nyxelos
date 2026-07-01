@@ -18,6 +18,13 @@ export interface ParsedAssistantContent {
 const MULTI_SELECT_BLOCK = /```nyxel-multiselect\s*\n([\s\S]*?)```/i;
 const MULTI_SELECT_ITEM = /^\s*(?:\d+\.|[-*•])\s+(.*\S)\s*$/;
 
+// Small local models occasionally emit a stray leading "." right after a
+// tool-call/code-block segment before continuing their answer (e.g.
+// ". Ich bin bereit, ..."). Strip a lone leading period so it never renders.
+function sanitizeBody(text: string): string {
+  return text.trim().replace(/^\.\s+(?=\S)/, "");
+}
+
 function stripMarkdown(text: string) {
   return text
     .replace(/\*\*(.*?)\*\*/g, "$1")
@@ -55,21 +62,21 @@ export function parseAssistantContent(content: string): ParsedAssistantContent {
   const match = content.match(MULTI_SELECT_BLOCK);
   if (!match) {
     const fallback = parsePlainMultiSelectPrompt(content);
-    return fallback ?? { prompt: null, body: content.trim() };
+    return fallback ?? { prompt: null, body: sanitizeBody(content) };
   }
 
   try {
     const parsed = JSON.parse(match[1] ?? "");
     if (!isMultiSelectPrompt(parsed)) {
-      return { prompt: null, body: content.trim() };
+      return { prompt: null, body: sanitizeBody(content) };
     }
 
     return {
       prompt: parsed,
-      body: content.replace(match[0], "").trim(),
+      body: sanitizeBody(content.replace(match[0], "")),
     };
   } catch {
-    return { prompt: null, body: content.trim() };
+    return { prompt: null, body: sanitizeBody(content) };
   }
 }
 
@@ -104,12 +111,13 @@ function parsePlainMultiSelectPrompt(content: string): ParsedAssistantContent | 
 
   if (!question || !/\?/.test(question)) return null;
 
-  const body = lines
-    .slice(0, firstItemIndex)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join("\n")
-    .trim();
+  const body = sanitizeBody(
+    lines
+      .slice(0, firstItemIndex)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .join("\n"),
+  );
 
   return {
     prompt: {

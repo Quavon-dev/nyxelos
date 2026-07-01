@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { parseChatMessageContent } from "@/lib/chat-message";
 import type { StreamingMessage } from "@/lib/use-chat-stream";
 import { ChatApprovalCard, type ChatApprovalItem } from "./chat-approval-card";
 import { ChatTaskCard, type ChatTaskItem } from "./chat-task-card";
@@ -52,11 +51,12 @@ export function MessageList({
   actingApprovalId?: string | null;
   onApproveApproval?: (id: string) => void;
   onRejectApproval?: (id: string) => void;
-  /** Populates the composer with a prior user turn's text — only offered on
-   * the latest user message (see the "edit" action in message-actions.tsx). */
-  onEditMessage?: (content: string) => void;
-  /** Resends the latest user turn — only offered on the latest assistant
-   * reply, and only once no new turn is already streaming. */
+  /** Rewrites a past user turn's content in place and regenerates from it —
+   * only offered on the latest user message (see message-bubble.tsx's inline
+   * editor). */
+  onEditMessage?: (messageId: string, content: string) => void;
+  /** Regenerates the latest assistant reply in place — only offered on the
+   * latest assistant reply, and only once no new turn is already streaming. */
   onRegenerate?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -98,13 +98,9 @@ export function MessageList({
               key={item.message.id}
               sender={item.message.role}
               content={item.message.content}
-              onEdit={
+              onEditSubmit={
                 isLastUser && onEditMessage
-                  ? () =>
-                      onEditMessage(
-                        parseChatMessageContent(item.message.content)?.text ??
-                          item.message.content,
-                      )
+                  ? (text) => onEditMessage(item.message.id, text)
                   : undefined
               }
               onRegenerate={

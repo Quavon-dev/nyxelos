@@ -40,8 +40,8 @@ export function useChatStream(chatId: string) {
 	const [error, setError] = useState<string | null>(null);
 	const queryClient = useQueryClient();
 
-	const sendMessage = useCallback(
-		async (message: string) => {
+	const runTurn = useCallback(
+		async (body: { message?: string; editMessageId?: string; regenerate?: boolean }) => {
 			setIsStreaming(true);
 			setError(null);
 			setStreamingMessage({ role: "assistant", content: "", reasoning: "", steps: [] });
@@ -54,13 +54,29 @@ export function useChatStream(chatId: string) {
 
 			queryClient.setQueryData(["messages", chatId], (old: unknown) => {
 				const prev = Array.isArray(old) ? old : [];
+				if (body.editMessageId) {
+					// Mirror the server's edit: rewrite the target message in place
+					// and drop every turn that followed it (its stale reply included).
+					const index = prev.findIndex(
+						(m: { id: string }) => m.id === body.editMessageId,
+					);
+					if (index === -1) return prev;
+					const edited = { ...prev[index], content: body.message };
+					return [...prev.slice(0, index), edited];
+				}
+				if (body.regenerate) {
+					// Mirror the server's regenerate: drop the stale last assistant
+					// reply instead of appending a duplicate user turn.
+					const last = prev.at(-1);
+					return last?.role === "assistant" ? prev.slice(0, -1) : prev;
+				}
 				return [
 					...prev,
 					{
 						id: `local-${Date.now()}`,
 						chatId,
 						role: "user",
-						content: message,
+						content: body.message,
 						createdAt: new Date(),
 					},
 				];
@@ -71,7 +87,7 @@ export function useChatStream(chatId: string) {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					credentials: "include",
-					body: JSON.stringify({ chatId, message }),
+					body: JSON.stringify({ chatId, ...body }),
 				});
 
 				if (!res.ok || !res.body) {
@@ -189,5 +205,15 @@ export function useChatStream(chatId: string) {
 		[chatId, queryClient],
 	);
 
-	return { sendMessage, streamingMessage, isStreaming, error };
+	const sendMessage = useCallback(
+		(message: string) => runTurn({ message }),
+		[runTurn],
+	);
+	const editMessage = useCallback(
+		(messageId: string, message: string) => runTurn({ editMessageId: messageId, message }),
+		[runTurn],
+	);
+	const regenerate = useCallback(() => runTurn({ regenerate: true }), [runTurn]);
+
+	return { sendMessage, editMessage, regenerate, streamingMessage, isStreaming, error };
 }

@@ -11,13 +11,8 @@ import { ChatInput } from "@/components/chat/chat-input";
 import { ChatTopBar } from "@/components/chat/chat-top-bar";
 import { MessageList } from "@/components/chat/message-list";
 import { parseAgentActivity } from "@/lib/chat-agent-activity";
-import { parseChatMessageContent } from "@/lib/chat-message";
 import { parseAssistantContent } from "@/lib/chat-prompts";
-import {
-	type ChatToolPolicy,
-	DEFAULT_CHAT_TOOL_POLICY,
-	trpcClient,
-} from "@/lib/trpc";
+import { type ChatToolMode, trpcClient } from "@/lib/trpc";
 import { useChatStream } from "@/lib/use-chat-stream";
 import { useInstallation } from "@/lib/use-installation";
 
@@ -176,7 +171,7 @@ export default function ChatPage() {
 		enabled: Boolean(workspaceId),
 	});
 
-	const { sendMessage, streamingMessage, isStreaming, error } =
+	const { sendMessage, editMessage, regenerate, streamingMessage, isStreaming, error } =
 		useChatStream(chatId);
 
 	// A tool call that needs approval is created server-side mid-stream, before
@@ -193,13 +188,7 @@ export default function ChatPage() {
 	const [toolSelection, setToolSelection] = useState<ChatToolSelection | null>(
 		null,
 	);
-	const [chatToolPolicy, setChatToolPolicy] = useState<ChatToolPolicy>(
-		DEFAULT_CHAT_TOOL_POLICY,
-	);
 	const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
-	const [prefill, setPrefill] = useState<{ text: string; nonce: number } | null>(
-		null,
-	);
 	const initializedToolsRef = useRef(false);
 	// Id of the one-off "Chat — custom tools" agent this chat already owns, if
 	// any — once forked, every later toolbar tweak updates that same agent in
@@ -210,27 +199,24 @@ export default function ChatPage() {
 	// chat shares — see updateChatAgent's doc comment in packages/db.
 	const forkedAgentIdRef = useRef<string | null>(null);
 
-	// "Edit" on a past user turn (message-actions.tsx) just repopulates the
-	// composer with that text — there's no backend support for rewriting
-	// history in place, so the user re-sends it as a new turn.
-	function handleEditMessage(text: string) {
-		setPrefill({ text, nonce: Date.now() });
-	}
+	// "Edit" on a past user turn (message-bubble.tsx's inline editor) rewrites
+	// that message in place and drops everything that followed it, then
+	// regenerates from there — see editMessageId handling in chat-stream.ts.
+	const handleEditMessage = useCallback(
+		async (messageId: string, text: string) => {
+			await editMessage(messageId, text);
+			queryClient.invalidateQueries({ queryKey: ["approvals", workspaceId] });
+		},
+		[editMessage, queryClient, workspaceId],
+	);
 
-	// "Regenerate" (message-actions.tsx) resends the latest user turn as a new
-	// turn rather than truly replacing the last reply in place, since the
-	// server has no delete-last-message endpoint. Attachments on that turn
-	// aren't replayed.
-	function handleRegenerate() {
-		const lastUserMessage = [...(messagesQuery.data ?? [])]
-			.reverse()
-			.find((m) => m.role === "user");
-		if (!lastUserMessage) return;
-		const text =
-			parseChatMessageContent(lastUserMessage.content)?.text ??
-			lastUserMessage.content;
-		sendMessageAndCheckApprovals(text);
-	}
+	// "Regenerate" (message-actions.tsx) drops the stale last assistant reply
+	// and asks for a fresh one to the existing last user turn in place — see
+	// the `regenerate` flag in chat-stream.ts.
+	const handleRegenerate = useCallback(async () => {
+		await regenerate();
+		queryClient.invalidateQueries({ queryKey: ["approvals", workspaceId] });
+	}, [regenerate, queryClient, workspaceId]);
 
 	// Seed the toolbar's displayed selection from the chat's current agent,
 	// once. "Auto assistant …" agents represent live workspace defaults (shown
@@ -254,11 +240,6 @@ export default function ChatPage() {
 			});
 		}
 	}, [agentQuery.data]);
-
-	useEffect(() => {
-		if (!chat) return;
-		setChatToolPolicy(chat.toolPolicy);
-	}, [chat]);
 
 	// Mid-conversation tool/model changes can't safely mutate the chat's
 	// existing agent (it may be a shared "Auto assistant" reused elsewhere), so
@@ -350,13 +331,23 @@ export default function ChatPage() {
 		},
 	});
 
-	const updateChatToolPolicy = useMutation({
-		mutationFn: async (next: ChatToolPolicy) => {
+	const updateToolMode = useMutation({
+		mutationFn: (nextMode: ChatToolMode) => {
 			if (!chat) throw new Error("Chat isn't loaded yet.");
+			const nextPolicy =
+				nextMode === "auto"
+					? {
+							mode: "auto" as const,
+							approveFileWrites: false,
+							approveFileDeletes: false,
+							approveCustomCode: false,
+							approveMcpTools: false,
+						}
+					: { ...chat.toolPolicy, mode: nextMode };
 			return trpcClient.chats.setToolPolicy.mutate({
 				chatId,
-				toolMode: next.mode,
-				toolPolicy: next,
+				toolMode: nextMode,
+				toolPolicy: nextPolicy,
 			});
 		},
 		onSuccess: (updated) => {
@@ -403,11 +394,6 @@ export default function ChatPage() {
 		});
 	}
 
-	function handleChatToolPolicyChange(next: ChatToolPolicy) {
-		setChatToolPolicy(next);
-		updateChatToolPolicy.mutate(next);
-	}
-
 	// A chat created from the landing page's composer arrives here with its
 	// first message tucked into ?draft= — send it once, then drop the param
 	// from the URL so refreshing doesn't resend it.
@@ -452,11 +438,11 @@ export default function ChatPage() {
 					onEditMessage={handleEditMessage}
 					onRegenerate={handleRegenerate}
 				/>
-				{(error || forkAgent.isError || updateChatToolPolicy.isError) && (
+				{(error || forkAgent.isError || updateToolMode.isError) && (
 					<p className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
 						{error ??
 							(forkAgent.error as Error | undefined)?.message ??
-							(updateChatToolPolicy.error as Error | undefined)?.message}
+							(updateToolMode.error as Error | undefined)?.message}
 					</p>
 				)}
 				<ChatInput
@@ -466,14 +452,13 @@ export default function ChatPage() {
 					modelId={agentQuery.data?.modelId ?? chat?.modelId}
 					toolSelection={toolSelection}
 					onToolSelectionChange={handleToolSelectionChange}
-					chatToolPolicy={chatToolPolicy}
-					onChatToolPolicyChange={handleChatToolPolicyChange}
+					toolMode={chat?.toolPolicy.mode ?? "default"}
+					onToolModeChange={(next) => updateToolMode.mutate(next)}
 					attachedFile={attachedFile}
 					onAttachedFileChange={setAttachedFile}
 					messages={messagesQuery.data ?? []}
 					assistantQuestion={pendingQuestion}
 					assistantPrompt={pendingPrompt}
-					prefill={prefill ?? undefined}
 				/>
 			</div>
 		</div>

@@ -10,6 +10,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { serializeChatMessageContent } from "@/lib/chat-message";
 import type { MultiSelectPrompt } from "@/lib/chat-prompts";
+import type { ChatToolMode } from "@/lib/trpc";
 import { MultiSelectPromptCard } from "./multi-select-prompt";
 
 interface MessageLike {
@@ -24,6 +25,8 @@ export function ChatInput({
 	modelId,
 	toolSelection,
 	onToolSelectionChange,
+	toolMode,
+	onToolModeChange,
 	attachedFile,
 	onAttachedFileChange,
 	messages,
@@ -36,6 +39,8 @@ export function ChatInput({
 	modelId?: string;
 	toolSelection: ChatToolSelection | null;
 	onToolSelectionChange: (next: ChatToolSelection | null) => void;
+	toolMode: ChatToolMode;
+	onToolModeChange: (next: ChatToolMode) => void;
 	attachedFile: AttachedFile | null;
 	onAttachedFileChange: (file: AttachedFile | null) => void;
 	messages: MessageLike[];
@@ -125,6 +130,8 @@ export function ChatInput({
 							modelId={modelId}
 							toolSelection={toolSelection}
 							onToolSelectionChange={onToolSelectionChange}
+							toolMode={toolMode}
+							onToolModeChange={onToolModeChange}
 							attachedFile={attachedFile}
 							onAttachedFileChange={onAttachedFileChange}
 							onVoiceResult={(text) =>

@@ -26,7 +26,15 @@ import { encodeSseEvent, SSE_HEADERS } from "./chat-stream-sse";
 
 const bodySchema = z.object({
 	chatId: z.string(),
-	message: z.string().min(1),
+	message: z.string().min(1).optional(),
+	/** Set when the client's "edit" action rewrites a past user turn in
+	 * place — updates that message's content, drops every turn that came
+	 * after it, then regenerates from there. Requires `message`. */
+	editMessageId: z.string().optional(),
+	/** Set when the client's "regenerate" action asks for a fresh reply to
+	 * the existing last user turn — drops the stale assistant reply instead
+	 * of appending a duplicate user turn. */
+	regenerate: z.boolean().optional(),
 });
 
 const CHAT_FOLLOW_UP_GUIDANCE = [
@@ -75,8 +83,9 @@ function isClosedStreamControllerError(err: unknown): boolean {
 }
 
 /**
- * POST /api/chat/stream — persists the user message, resolves the system
- * prompt and tool set for this chat (workspace custom instructions, plus —
+ * POST /api/chat/stream — persists the user message (or, for `editMessageId`/
+ * `regenerate`, rewrites/truncates history in place instead), resolves the
+ * system prompt and tool set for this chat (workspace custom instructions, plus —
  * if the chat is bound to an agent — the agent's own system prompt and its
  * assigned skills/MCP tools, plus the workspace's auto-injected knowledge-base
  * context — see ADR-0013), streams the model's reply token by token (see
@@ -92,7 +101,10 @@ export function registerChatStreamRoute(app: Hono) {
 			return c.json({ error: parsed.error.flatten() }, 400);
 		}
 
-		const { chatId, message } = parsed.data;
+		const { chatId, message, editMessageId, regenerate } = parsed.data;
+		if (!editMessageId && !regenerate && !message) {
+			return c.json({ error: "message is required" }, 400);
+		}
 		const db = getDb();
 
 		const chat = await db.getChat(chatId);
@@ -129,7 +141,23 @@ export function registerChatStreamRoute(app: Hono) {
 			chat.workspaceId,
 		);
 
-		await db.addMessage({ chatId, role: "user", content: message });
+		const priorHistory = await db.listMessages(chatId);
+
+		if (editMessageId) {
+			const target = priorHistory.find((m) => m.id === editMessageId);
+			if (target?.role !== "user") {
+				return c.json({ error: `Unknown user message: ${editMessageId}` }, 404);
+			}
+			// message is guaranteed by the guard above when editMessageId is set.
+			await db.updateMessage(editMessageId, message as string);
+			await db.deleteMessagesAfter(chatId, editMessageId);
+		} else if (regenerate) {
+			const lastAssistant = [...priorHistory].reverse().find((m) => m.role === "assistant");
+			if (lastAssistant) await db.deleteMessage(lastAssistant.id);
+		} else {
+			await db.addMessage({ chatId, role: "user", content: message as string });
+		}
+
 		const history = await db.listMessages(chatId);
 		const modelMessages = history.map((entry) => ({
 			role: entry.role === "tool" ? "assistant" : entry.role,
