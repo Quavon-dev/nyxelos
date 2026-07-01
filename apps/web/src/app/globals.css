@@ -30,13 +30,13 @@
   --sidebar-accent-foreground: oklch(0.218 0.008 223.9);
   --sidebar-border: oklch(0.925 0.005 214.3);
   --sidebar-ring: oklch(0.723 0.014 214.4);
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.148 0.004 228.8);
   --chart-1: oklch(0.845 0.143 164.978);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.596 0.145 163.225);
   --chart-4: oklch(0.508 0.118 165.612);
   --chart-5: oklch(0.432 0.095 166.913);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.148 0.004 228.8);
 }
 
 .dark {
