@@ -1,6 +1,10 @@
 export { createAuthDb } from "./auth-db";
 export { getDb } from "./client";
 export { DEFAULT_CHAT_TOOL_POLICY } from "./repo/types";
+export {
+	DEFAULT_CHAT_WORKING_DIRECTORY,
+	normalizeChatWorkingDirectory,
+} from "./working-directory";
 export type {
 	AgentAutonomyLevel,
 	AgentRecord,

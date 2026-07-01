@@ -1,6 +1,12 @@
 import type { AgentRecord, ChatToolPolicy, SkillKind } from "@nyxel/db";
 import { DEFAULT_CHAT_TOOL_POLICY, getDb } from "@nyxel/db";
-import { createSkillContext } from "@nyxel/skills-sdk";
+import {
+	createSkillContext,
+	createWorkspaceFileDeleteSkill,
+	createWorkspaceFileListSkill,
+	createWorkspaceFileReadSkill,
+	createWorkspaceFileWriteSkill,
+} from "@nyxel/skills-sdk";
 import { dynamicTool, jsonSchema, type ToolSet, tool } from "ai";
 import { logAudit } from "./audit";
 import { buildDelegateToAgentTool } from "./delegation";
@@ -10,6 +16,8 @@ import { resolveSkillDefinition } from "./skills-resolve";
 export interface AgentRunContext {
 	/** Set when this run is a live chat turn. */
 	chatId?: string;
+	/** Fixed per-chat root directory for builtin file tools. */
+	workingDirectory?: string;
 	/** Per-chat tool execution policy, loaded from the chat row. */
 	chatToolPolicy?: ChatToolPolicy;
 	/** Set when this run is an unattended scheduled run. See ADR-0010. */
@@ -63,6 +71,24 @@ function normalizeChatToolPolicy(
 	return policy ?? DEFAULT_CHAT_TOOL_POLICY;
 }
 
+export function buildChatScopedBuiltinSkill(
+	skillId: string,
+	workingDirectory: string,
+) {
+	switch (skillId) {
+		case "workspace_file_read":
+			return createWorkspaceFileReadSkill(workingDirectory);
+		case "workspace_file_list":
+			return createWorkspaceFileListSkill(workingDirectory);
+		case "workspace_file_write":
+			return createWorkspaceFileWriteSkill(workingDirectory);
+		case "workspace_file_delete":
+			return createWorkspaceFileDeleteSkill(workingDirectory);
+		default:
+			return null;
+	}
+}
+
 export function shouldDeferToolForApproval(
 	target:
 		| { kind: "mcp" }
@@ -111,10 +137,15 @@ export async function buildToolsForAgent(
 	const actor = actorFor(ctx);
 
 	for (const skillId of agent.skillIds) {
+		const chatScopedBuiltin = ctx.workingDirectory
+			? buildChatScopedBuiltinSkill(skillId, ctx.workingDirectory)
+			: null;
 		// Checks the process-wide hand-written registry first, then this
 		// workspace's DB-backed dynamic skills (Skills tab) — see
 		// apps/server/src/skills-resolve.ts and ADR-0013.
-		const skill = await resolveSkillDefinition(agent.workspaceId, skillId);
+		const skill =
+			chatScopedBuiltin ??
+			(await resolveSkillDefinition(agent.workspaceId, skillId));
 		if (!skill) continue;
 		tools[skill.id] = tool({
 			description: skill.description,

@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowUp, Code2, FileText, Globe, Palette, Search } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   type AttachedFile,
@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { serializeChatMessageContent } from "@/lib/chat-message";
 import { DEFAULT_CHAT_TOOL_POLICY, type ChatToolPolicy, trpcClient } from "@/lib/trpc";
@@ -61,9 +62,12 @@ function GreetingOrb() {
 
 export default function ChatLandingPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const installationQuery = useInstallation();
   const workspaceId = installationQuery.data?.record?.primaryWorkspaceId;
   const ownerUserId = installationQuery.data?.record?.ownerUserId;
+  const defaultWorkingDirectory = installationQuery.data?.defaultWorkingDirectory ?? "";
+  const projectId = searchParams.get("projectId");
 
   // The real account name tied to this installation — not the demoUser
   // stub, which is a fixed "Demo User" fallback for local dev only.
@@ -88,15 +92,23 @@ export default function ChatLandingPage() {
   const [toolSelection, setToolSelection] = useState<ChatToolSelection | null>(null);
   const [chatToolPolicy, setChatToolPolicy] = useState<ChatToolPolicy>(DEFAULT_CHAT_TOOL_POLICY);
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
+  const [workingDirectory, setWorkingDirectory] = useState("");
 
   useEffect(() => {
     if (!modelId && modelsQuery.data?.[0]) setModelId(modelsQuery.data[0].id);
   }, [modelId, modelsQuery.data]);
 
+  useEffect(() => {
+		if (!workingDirectory && defaultWorkingDirectory) {
+			setWorkingDirectory(defaultWorkingDirectory);
+		}
+	}, [workingDirectory, defaultWorkingDirectory]);
+
   const createChat = useMutation({
     mutationFn: async () => {
       if (!workspaceId) throw new Error("Installation is incomplete.");
       if (!modelId) throw new Error("No model selected.");
+      if (!workingDirectory.trim()) throw new Error("Choose a working directory.");
       if (!message.trim() && !attachedFile) {
         throw new Error("Add a message or attach a file.");
       }
@@ -127,9 +139,11 @@ export default function ChatLandingPage() {
 
       const chat = await trpcClient.chats.create.mutate({
         workspaceId,
+        workingDirectory,
         title: message.trim().slice(0, 60) || attachedFile?.name || "New chat",
         modelId,
         agentId,
+        projectId,
         toolMode: chatToolPolicy.mode,
         toolPolicy: chatToolPolicy,
       });
@@ -229,6 +243,21 @@ export default function ChatLandingPage() {
               <ArrowUp className="size-4" />
             </button>
           </div>
+      <div className="rounded-xl border border-dashed px-3 py-2">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+            Working directory
+          </p>
+          <p className="text-[11px] text-muted-foreground">Fixed after chat creation</p>
+        </div>
+        <Input
+          value={workingDirectory}
+          onChange={(e) => setWorkingDirectory(e.target.value)}
+          placeholder="/Users/aaron/dev/quavon/PROJECTS/agentic-os"
+          spellCheck={false}
+          className="h-9 border-none bg-muted/60 px-3 text-sm shadow-none focus-visible:ring-2"
+        />
+      </div>
         </div>
 
         <div className="flex flex-wrap justify-center gap-2">

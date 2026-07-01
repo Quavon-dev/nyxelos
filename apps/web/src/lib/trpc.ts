@@ -36,6 +36,7 @@ export type InstallationStatus = {
 	driver: "pg" | "sqlite";
 	recommendedMode: InstallationMode;
 	defaultAppUrl: string;
+	defaultWorkingDirectory: string;
 	record: InstallationSummary | null;
 };
 
@@ -66,6 +67,7 @@ export const DEFAULT_CHAT_TOOL_POLICY: ChatToolPolicy = {
 export type ChatSummary = {
 	id: string;
 	workspaceId: string;
+	workingDirectory: string;
 	agentId: string | null;
 	projectId: string | null;
 	title: string;
@@ -425,6 +427,7 @@ type NyxelTrpcClient = {
 		create: {
 			mutate(input: {
 				workspaceId: string;
+				workingDirectory: string;
 				title: string;
 				modelId?: string;
 				agentId?: string;

@@ -62,6 +62,7 @@ export interface InstallationRecord {
 export interface ChatRecord {
 	id: string;
 	workspaceId: string;
+	workingDirectory: string;
 	agentId: string | null;
 	projectId: string | null;
 	title: string;
@@ -261,6 +262,7 @@ export interface DbRepository {
 
 	createChat(input: {
 		workspaceId: string;
+		workingDirectory: string;
 		title: string;
 		modelId: string;
 		agentId?: string | null;

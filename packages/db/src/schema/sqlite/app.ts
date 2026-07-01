@@ -195,6 +195,7 @@ export const chat = sqliteTable("chat", {
 	workspaceId: text("workspace_id")
 		.notNull()
 		.references(() => workspace.id, { onDelete: "cascade" }),
+	workingDirectory: text("working_directory"),
 	agentId: text("agent_id").references(() => agent.id, {
 		onDelete: "set null",
 	}),

@@ -79,24 +79,6 @@ export default function HomePage() {
     },
   });
 
-  const startChat = useMutation({
-    mutationFn: async () => {
-      const workspaceId = installationQuery.data?.record?.primaryWorkspaceId;
-      if (!workspaceId) throw new Error("Installation is incomplete.");
-      const models = await trpcClient.models.list.query({ workspaceId });
-      const modelId = models[0]?.id;
-      if (!modelId) {
-        throw new Error("No models available. Start Ollama/LM Studio or add an API key.");
-      }
-      return trpcClient.chats.create.mutate({
-        workspaceId,
-        title: "First chat",
-        modelId,
-      });
-    },
-    onSuccess: (chat) => router.push(`/chat/${chat.id}`),
-  });
-
   if (installationQuery.isLoading) {
     return (
       <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(178,245,234,0.45),_transparent_30%),linear-gradient(180deg,_#f8faf7_0%,_#eef4ef_100%)] p-6">
@@ -298,8 +280,8 @@ export default function HomePage() {
         }
         actions={
           <>
-            <Button disabled={startChat.isPending} onClick={() => startChat.mutate()}>
-              {startChat.isPending ? "Starting…" : "Start first chat"}
+            <Button onClick={() => router.push("/chat")}>
+              Start first chat
             </Button>
             {workspaceId && (
               <Button asChild variant="outline">
@@ -309,9 +291,6 @@ export default function HomePage() {
           </>
         }
       />
-      {startChat.isError && (
-        <p className="text-sm text-destructive">{(startChat.error as Error).message}</p>
-      )}
 
       <section className="grid gap-4 md:grid-cols-[0.7fr_1.3fr]">
         <Card>

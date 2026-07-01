@@ -1,7 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import type { ChatToolPolicy } from "@nyxel/db";
 import { DEFAULT_CHAT_TOOL_POLICY } from "@nyxel/db";
-import { shouldDeferToolForApproval } from "./tools";
+import {
+	buildChatScopedBuiltinSkill,
+	shouldDeferToolForApproval,
+} from "./tools";
 
 function policy(overrides: Partial<ChatToolPolicy>): ChatToolPolicy {
 	return {
@@ -49,5 +52,13 @@ describe("shouldDeferToolForApproval", () => {
 				policy({ mode: "auto", approveMcpTools: false }),
 			),
 		).toBe(false);
+	});
+
+	it("binds workspace file tools to the current chat working directory", () => {
+		const tool = buildChatScopedBuiltinSkill(
+			"workspace_file_list",
+			"/tmp/chat-root",
+		);
+		expect(tool?.permissions.filesystem).toEqual(["/tmp/chat-root"]);
 	});
 });

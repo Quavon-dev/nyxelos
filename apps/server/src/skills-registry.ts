@@ -1,4 +1,7 @@
 import { mkdirSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { DEFAULT_CHAT_WORKING_DIRECTORY } from "@nyxel/db";
 import {
 	createWorkspaceFileDeleteSkill,
 	createWorkspaceFileListSkill,
@@ -18,7 +21,11 @@ import {
 export const skillRegistry = new SkillRegistry();
 
 const notesDir = process.env.NYXEL_NOTES_DIR ?? "/tmp/nyxel-notes";
-const workspaceRootDir = process.env.NYXEL_WORKSPACE_ROOT ?? process.cwd();
+const workspaceRootDir = path.resolve(
+	process.env.NYXEL_WORKSPACE_ROOT ??
+		DEFAULT_CHAT_WORKING_DIRECTORY ??
+		fileURLToPath(new URL("../../../", import.meta.url)),
+);
 mkdirSync(notesDir, { recursive: true });
 
 skillRegistry.register(getCurrentTimeSkill);

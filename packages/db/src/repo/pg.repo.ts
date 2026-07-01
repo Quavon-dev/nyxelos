@@ -3,6 +3,7 @@ import { and, desc, eq, isNotNull, isNull, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { DEFAULT_CHAT_TOOL_POLICY } from "./types";
+import { normalizeChatWorkingDirectory } from "../working-directory";
 import * as schema from "../schema/pg";
 import type { DbRepository } from "./types";
 
@@ -14,6 +15,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 		return {
 			id: row.id,
 			workspaceId: row.workspaceId,
+			workingDirectory: normalizeChatWorkingDirectory(row.workingDirectory),
 			agentId: row.agentId,
 			projectId: row.projectId,
 			title: row.title,
@@ -221,6 +223,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 
 		async createChat({
 			workspaceId,
+			workingDirectory,
 			title,
 			modelId,
 			agentId,
@@ -233,6 +236,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 				.values({
 					id: randomUUID(),
 					workspaceId,
+					workingDirectory: normalizeChatWorkingDirectory(workingDirectory),
 					title,
 					modelId,
 					agentId: agentId ?? null,
@@ -370,6 +374,9 @@ export function createPgRepository(connectionString: string): DbRepository {
 				.values({
 					id: randomUUID(),
 					workspaceId: source.workspaceId,
+					workingDirectory: normalizeChatWorkingDirectory(
+						source.workingDirectory,
+					),
 					agentId: source.agentId,
 					projectId: source.projectId,
 					title: `${source.title} (copy)`,
@@ -491,6 +498,9 @@ export function createPgRepository(connectionString: string): DbRepository {
 					.values({
 						id: randomUUID(),
 						workspaceId: sourceChat.workspaceId,
+						workingDirectory: normalizeChatWorkingDirectory(
+							sourceChat.workingDirectory,
+						),
 						agentId: sourceChat.agentId,
 						projectId: copy.id,
 						title: sourceChat.title,

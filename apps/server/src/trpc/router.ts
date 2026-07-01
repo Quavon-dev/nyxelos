@@ -1,4 +1,8 @@
-import { DEFAULT_CHAT_TOOL_POLICY, getDb } from "@nyxel/db";
+import {
+	DEFAULT_CHAT_TOOL_POLICY,
+	DEFAULT_CHAT_WORKING_DIRECTORY,
+	getDb,
+} from "@nyxel/db";
 import {
 	McpAuthorizationRequiredError,
 	McpInvalidConfigurationError,
@@ -198,6 +202,8 @@ export const appRouter = router({
 				driver: db.driver,
 				recommendedMode,
 				defaultAppUrl,
+				defaultWorkingDirectory:
+					process.env.NYXEL_WORKSPACE_ROOT ?? DEFAULT_CHAT_WORKING_DIRECTORY,
 				record: installation,
 			};
 		}),
@@ -404,6 +410,7 @@ export const appRouter = router({
 			.input(
 				z.object({
 					workspaceId: z.string(),
+					workingDirectory: z.string().min(1),
 					title: z.string().default("New chat"),
 					modelId: z.string().optional(),
 					agentId: z.string().optional(),

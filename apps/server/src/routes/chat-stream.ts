@@ -103,6 +103,7 @@ export function registerChatStreamRoute(app: Hono) {
 			[
 				workspace?.customInstructions,
 				agent?.systemPrompt,
+				`Working directory: ${chat.workingDirectory}. Resolve relative file paths inside this directory.`,
 				CHAT_MODE_GUIDANCE[chat.toolMode],
 				chat.toolMode === "auto" ? null : CHAT_FOLLOW_UP_GUIDANCE,
 				knowledgeBaseContext,
@@ -112,6 +113,7 @@ export function registerChatStreamRoute(app: Hono) {
 		const tools = agent
 			? await buildToolsForAgent(agent, {
 					chatId,
+					workingDirectory: chat.workingDirectory,
 					chatToolPolicy: chat.toolPolicy,
 				})
 			: undefined;

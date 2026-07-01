@@ -78,6 +78,13 @@
       "when": 1782917347693,
       "tag": "0010_optimal_midnight",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1782919332996,
+      "tag": "0011_nifty_selene",
+      "breakpoints": true
     }
   ]
 }

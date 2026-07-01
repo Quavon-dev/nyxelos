@@ -78,6 +78,13 @@
       "when": 1782917346875,
       "tag": "0010_illegal_thunderbird",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782919332592,
+      "tag": "0011_complex_slapstick",
+      "breakpoints": true
     }
   ]
 }

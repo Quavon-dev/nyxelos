@@ -85,21 +85,6 @@ export default function ProjectPage() {
     },
   });
 
-  const createChat = useMutation({
-    mutationFn: async () => {
-      if (!workspaceId) throw new Error("Installation is incomplete.");
-      const modelId = models.data?.[0]?.id;
-      if (!modelId) throw new Error("No model available.");
-      return trpcClient.chats.create.mutate({
-        workspaceId,
-        title: "New chat",
-        modelId,
-        projectId,
-      });
-    },
-    onSuccess: (chat) => router.push(`/chat/${chat.id}`),
-  });
-
   const renameChat = useMutation({
     mutationFn: ({ chatId, title }: { chatId: string; title: string }) =>
       trpcClient.chats.rename.mutate({ chatId, title }),
@@ -196,8 +181,8 @@ export default function ProjectPage() {
 
       <button
         type="button"
-        onClick={() => createChat.mutate()}
-        disabled={createChat.isPending || !models.data?.length}
+        onClick={() => router.push(`/chat?projectId=${projectId}`)}
+        disabled={!models.data?.length}
         className="flex items-center justify-center gap-2 self-start rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-40"
       >
         <Plus className="size-4" />
