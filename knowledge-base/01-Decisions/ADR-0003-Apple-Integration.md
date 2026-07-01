@@ -8,7 +8,7 @@ status: accepted
 
 ## Context
 
-Hearthloom should get access to local data such as Apple Calendar, Contacts, and Photos, ideally through an installer tool or helper that cleanly requests the necessary macOS permissions. Priority is a native macOS companion helper (focus 1), followed by a CLI/AppleScript bridge, and the solution should be built so that Windows can be supported later.
+NyxelOS should get access to local data such as Apple Calendar, Contacts, and Photos, ideally through an installer tool or helper that cleanly requests the necessary macOS permissions. Priority is a native macOS companion helper (focus 1), followed by a CLI/AppleScript bridge, and the solution should be built so that Windows can be supported later.
 
 ## Decision
 
@@ -16,7 +16,7 @@ The companion helper is not built as a proprietary side protocol but is itself i
 
 ## Rationale
 
-Because both variants (native and CLI fallback) sit behind identical MCP tool signatures, nothing in the Hearthloom core needs to change when later switching from the CLI bridge to the native helper or vice versa. For the server, "my computer" is simply another MCP server in the registry. This also satisfies the Windows requirement: a future Windows companion (via Windows calendar/contacts APIs or Outlook interop) only needs to expose the same tool names under the same protocol to be immediately compatible.
+Because both variants (native and CLI fallback) sit behind identical MCP tool signatures, nothing in the NyxelOS core needs to change when later switching from the CLI bridge to the native helper or vice versa. For the server, "my computer" is simply another MCP server in the registry. This also satisfies the Windows requirement: a future Windows companion (via Windows calendar/contacts APIs or Outlook interop) only needs to expose the same tool names under the same protocol to be immediately compatible.
 
 ## Consequences
 

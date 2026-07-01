@@ -8,7 +8,7 @@ status: accepted
 
 ## Context
 
-Hearthloom needed a backend technology that is "the fastest and best, without much effort." Candidates were a unified TypeScript stack (Node.js or Bun), a Python backend (stronger classic ML ecosystem, but two languages in the project), and Go (very performant, but a small AI ecosystem).
+NyxelOS needed a backend technology that is "the fastest and best, without much effort." Candidates were a unified TypeScript stack (Node.js or Bun), a Python backend (stronger classic ML ecosystem, but two languages in the project), and Go (very performant, but a small AI ecosystem).
 
 ## Decision
 
@@ -20,4 +20,4 @@ Bun offers, per current benchmarks (mid-2026), 3–4x higher HTTP throughput tha
 
 ## Alternatives
 
-Python/FastAPI was rejected because it brings two languages and two toolchains into the project without Hearthloom depending on classic ML training libraries (actual model execution happens externally via Ollama/LM Studio/cloud APIs). Go was rejected because the AI/agent SDK ecosystem (Vercel AI SDK, MCP TypeScript SDK) is significantly more mature in the TypeScript world.
+Python/FastAPI was rejected because it brings two languages and two toolchains into the project without NyxelOS depending on classic ML training libraries (actual model execution happens externally via Ollama/LM Studio/cloud APIs). Go was rejected because the AI/agent SDK ecosystem (Vercel AI SDK, MCP TypeScript SDK) is significantly more mature in the TypeScript world.

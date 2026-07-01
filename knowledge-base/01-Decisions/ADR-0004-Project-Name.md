@@ -12,7 +12,7 @@ The goal was a name for the agentic OS that didn't already exist. Research showe
 
 ## Decision
 
-Working name: **Hearthloom** — a combination of "Hearth" (your own home, standing for self-hosting) and "Loom" (weaving frame, standing for weaving together chats, agents, skills, MCP servers, and the knowledge base). Research found no existing projects under this name.
+Working name: **NyxelOS** — a combination of "Hearth" (your own home, standing for self-hosting) and "Loom" (weaving frame, standing for weaving together chats, agents, skills, MCP servers, and the knowledge base). Research found no existing projects under this name.
 
 ## Alternatives
 

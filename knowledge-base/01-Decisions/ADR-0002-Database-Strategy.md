@@ -8,7 +8,7 @@ status: accepted
 
 ## Context
 
-Hearthloom must run both on a single PC with minimal setup effort and on a self-hosted server with multiple users. The requirement was PostgreSQL as a Docker container as the default, while still letting the actual choice be made during the installation process.
+NyxelOS must run both on a single PC with minimal setup effort and on a self-hosted server with multiple users. The requirement was PostgreSQL as a Docker container as the default, while still letting the actual choice be made during the installation process.
 
 ## Decision
 
