@@ -438,7 +438,10 @@ export type McpConnectorCatalogEntry = {
 	name: string;
 	description: string;
 	category: string;
-	url: string;
+	transport?: "http" | "stdio";
+	url?: string;
+	command?: string;
+	args?: string[];
 };
 
 export type McpServerSummary = {

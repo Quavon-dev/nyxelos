@@ -4,8 +4,16 @@ export interface McpConnectorCatalogEntry {
 	name: string;
 	description: string;
 	category: string;
-	/** Remote Streamable HTTP MCP endpoint, as published by the provider. */
-	url: string;
+	/** "http" (default) connects to a hosted remote MCP endpoint over OAuth.
+	 * "stdio" spawns a local command on the same machine as the server
+	 * process — used for connectors with no remote MCP server at all, like
+	 * ones that drive a native app on this machine. */
+	transport?: "http" | "stdio";
+	/** Remote Streamable HTTP MCP endpoint, as published by the provider. Required when transport is "http". */
+	url?: string;
+	/** Local command to spawn. Required when transport is "stdio". */
+	command?: string;
+	args?: string[];
 }
 
 // Verified, officially published remote MCP endpoints. "Connectors" is just

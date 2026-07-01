@@ -53,6 +53,21 @@ function connectorInitial(name: string) {
 	return name.slice(0, 1).toUpperCase();
 }
 
+/** Identity used to match a catalog entry against an already-configured
+ * server — http connectors match by url, stdio ones by command+args since
+ * they have no url at all. */
+function catalogIdentity(entry: Pick<McpConnectorCatalogEntry, "url" | "command" | "args">) {
+	if (entry.url) return entry.url;
+	if (entry.command) return `${entry.command} ${(entry.args ?? []).join(" ")}`;
+	return null;
+}
+
+function serverIdentity(server: Pick<McpServerSummary, "url" | "command" | "args">) {
+	if (server.url) return server.url;
+	if (server.command) return `${server.command} ${(server.args ?? []).join(" ")}`;
+	return null;
+}
+
 type ConnectorFilter = "all" | "connected" | "not_connected";
 
 function ConnectorCatalog({
@@ -73,22 +88,33 @@ function ConnectorCatalog({
 		queryFn: () => trpcClient.mcpServers.catalog.query(),
 	});
 
-	const connectedByUrl = useMemo(() => {
+	const connectedByIdentity = useMemo(() => {
 		const map = new Map<string, McpServerSummary>();
 		for (const server of servers) {
-			if (server.url) map.set(server.url, server);
+			const identity = serverIdentity(server);
+			if (identity) map.set(identity, server);
 		}
 		return map;
 	}, [servers]);
 
 	const connectMutation = useMutation({
 		mutationFn: (entry: McpConnectorCatalogEntry) =>
-			trpcClient.mcpServers.create.mutate({
-				workspaceId,
-				name: entry.name,
-				transport: "http",
-				url: entry.url,
-			}),
+			trpcClient.mcpServers.create.mutate(
+				entry.transport === "stdio"
+					? {
+							workspaceId,
+							name: entry.name,
+							transport: "stdio",
+							command: entry.command,
+							args: entry.args,
+						}
+					: {
+							workspaceId,
+							name: entry.name,
+							transport: "http",
+							url: entry.url,
+						},
+			),
 		onSuccess: (server) => {
 			queryClient.invalidateQueries({ queryKey: ["mcpServers", workspaceId] });
 			onConnected(server.id);
@@ -97,7 +123,8 @@ function ConnectorCatalog({
 
 	const catalog = catalogQuery.data ?? [];
 	const filtered = catalog.filter((entry) => {
-		const connected = connectedByUrl.has(entry.url);
+		const identity = catalogIdentity(entry);
+		const connected = identity !== null && connectedByIdentity.has(identity);
 		if (filter === "connected" && !connected) return false;
 		if (filter === "not_connected" && connected) return false;
 		if (!search.trim()) return true;
@@ -157,7 +184,8 @@ function ConnectorCatalog({
 				) : (
 					<div className="grid gap-3 sm:grid-cols-2">
 						{filtered.map((entry) => {
-							const existing = connectedByUrl.get(entry.url);
+							const identity = catalogIdentity(entry);
+							const existing = identity !== null ? connectedByIdentity.get(identity) : undefined;
 							const isConnecting =
 								connectMutation.isPending &&
 								connectMutation.variables?.key === entry.key;
