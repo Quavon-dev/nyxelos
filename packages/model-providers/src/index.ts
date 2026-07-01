@@ -16,13 +16,19 @@ export { scanProviderImportSources } from "./import-sources";
 export type {
   CloudModelDefinition,
   InstalledModelProvider,
+  ModelCapabilities,
   ModelSummary,
 } from "./providers";
 export {
+  getModelCapabilities,
   getDefaultModelIdsForProviderKind,
   listAvailableModels,
   resolveModel,
   toInstalledModelProvider,
 } from "./providers";
-export type { ChatMessageInput, StreamChatInput } from "./stream";
+export type {
+	ChatMessageContentPart,
+	ChatMessageInput,
+	StreamChatInput,
+} from "./stream";
 export { streamChat } from "./stream";

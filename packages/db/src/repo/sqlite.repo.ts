@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, isNotNull, isNull, lte } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { DEFAULT_CHAT_TOOL_POLICY } from "./types";
 import { normalizeChatWorkingDirectory } from "../working-directory";
@@ -94,6 +94,18 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			name: row.name,
 			createdAt: row.createdAt,
 		};
+	}
+
+	function mapTask(row: typeof schema.task.$inferSelect) {
+		return row;
+	}
+
+	function mapTaskEvent(row: typeof schema.taskEvent.$inferSelect) {
+		return row;
+	}
+
+	function mapAgentRun(row: typeof schema.agentRun.$inferSelect) {
+		return row;
 	}
 
 	return {
@@ -682,6 +694,8 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			workspaceId,
 			name,
 			systemPrompt,
+			role,
+			goalTemplate,
 			modelId,
 			autonomyLevel,
 			skillIds,
@@ -696,6 +710,8 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					workspaceId,
 					name,
 					systemPrompt: systemPrompt ?? null,
+					role: role ?? null,
+					goalTemplate: goalTemplate ?? null,
 					modelId,
 					autonomyLevel: autonomyLevel ?? "chat",
 					skillIds: skillIds ?? [],
@@ -724,6 +740,301 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.where(eq(schema.agent.id, agentId))
 				.get();
 			return row ?? null;
+		},
+
+		async updateAgent(agentId, input) {
+			const row = db
+				.update(schema.agent)
+				.set({
+					...(input.name !== undefined ? { name: input.name } : {}),
+					...(input.systemPrompt !== undefined
+						? { systemPrompt: input.systemPrompt }
+						: {}),
+					...(input.role !== undefined ? { role: input.role } : {}),
+					...(input.goalTemplate !== undefined
+						? { goalTemplate: input.goalTemplate }
+						: {}),
+					...(input.modelId !== undefined ? { modelId: input.modelId } : {}),
+					...(input.autonomyLevel !== undefined
+						? { autonomyLevel: input.autonomyLevel }
+						: {}),
+					...(input.skillIds !== undefined ? { skillIds: input.skillIds } : {}),
+					...(input.mcpServerIds !== undefined
+						? { mcpServerIds: input.mcpServerIds }
+						: {}),
+					...(input.mcpToolFilter !== undefined
+						? { mcpToolFilter: input.mcpToolFilter }
+						: {}),
+					...(input.delegateAgentIds !== undefined
+						? { delegateAgentIds: input.delegateAgentIds }
+						: {}),
+				})
+				.where(eq(schema.agent.id, agentId))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Agent not found: ${agentId}`);
+			return row;
+		},
+
+		async createTask({
+			workspaceId,
+			parentTaskId,
+			sourceChatId,
+			createdByAgentId,
+			assignedAgentId,
+			title,
+			instruction,
+			status,
+			priority,
+			requiresApproval,
+			input,
+			plan,
+			handoff,
+			resultSummary,
+			errorMessage,
+			startedAt,
+			completedAt,
+		}) {
+			const now = new Date();
+			const row = db
+				.insert(schema.task)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					parentTaskId: parentTaskId ?? null,
+					sourceChatId: sourceChatId ?? null,
+					createdByAgentId: createdByAgentId ?? null,
+					assignedAgentId: assignedAgentId ?? null,
+					title,
+					instruction,
+					status: status ?? "pending",
+					priority: priority ?? "normal",
+					requiresApproval: requiresApproval ?? false,
+					input: input ?? {},
+					plan: plan ?? null,
+					handoff: handoff ?? null,
+					resultSummary: resultSummary ?? null,
+					errorMessage: errorMessage ?? null,
+					createdAt: now,
+					startedAt: startedAt ?? null,
+					completedAt: completedAt ?? null,
+					updatedAt: now,
+				})
+				.returning()
+				.get();
+			return mapTask(row);
+		},
+
+		async listTasksByWorkspace(workspaceId, input) {
+			const conditions = [eq(schema.task.workspaceId, workspaceId)];
+			if (input?.status) conditions.push(eq(schema.task.status, input.status));
+			if (input?.assignedAgentId !== undefined) {
+				conditions.push(
+					input.assignedAgentId === null
+						? isNull(schema.task.assignedAgentId)
+						: eq(schema.task.assignedAgentId, input.assignedAgentId),
+				);
+			}
+			const rows = db
+				.select()
+				.from(schema.task)
+				.where(and(...conditions))
+				.orderBy(desc(schema.task.createdAt))
+				.all();
+			return rows.map(mapTask);
+		},
+
+		async getTask(taskId) {
+			const row = db
+				.select()
+				.from(schema.task)
+				.where(eq(schema.task.id, taskId))
+				.get();
+			return row ? mapTask(row) : null;
+		},
+
+		async listTaskTree(parentTaskId) {
+			const rows = db
+				.select()
+				.from(schema.task)
+				.where(eq(schema.task.parentTaskId, parentTaskId))
+				.orderBy(schema.task.createdAt)
+				.all();
+			return rows.map(mapTask);
+		},
+
+		async updateTask(taskId, input) {
+			const row = db
+				.update(schema.task)
+				.set({
+					...(input.assignedAgentId !== undefined
+						? { assignedAgentId: input.assignedAgentId }
+						: {}),
+					...(input.status !== undefined ? { status: input.status } : {}),
+					...(input.priority !== undefined ? { priority: input.priority } : {}),
+					...(input.requiresApproval !== undefined
+						? { requiresApproval: input.requiresApproval }
+						: {}),
+					...(input.plan !== undefined ? { plan: input.plan } : {}),
+					...(input.handoff !== undefined ? { handoff: input.handoff } : {}),
+					...(input.resultSummary !== undefined
+						? { resultSummary: input.resultSummary }
+						: {}),
+					...(input.errorMessage !== undefined
+						? { errorMessage: input.errorMessage }
+						: {}),
+					...(input.startedAt !== undefined ? { startedAt: input.startedAt } : {}),
+					...(input.completedAt !== undefined
+						? { completedAt: input.completedAt }
+						: {}),
+					updatedAt: new Date(),
+				})
+				.where(eq(schema.task.id, taskId))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Task not found: ${taskId}`);
+			return mapTask(row);
+		},
+
+		async claimNextTaskForAgent(workspaceId, agentId) {
+			const row = db
+				.select()
+				.from(schema.task)
+				.where(
+					and(
+						eq(schema.task.workspaceId, workspaceId),
+						eq(schema.task.assignedAgentId, agentId),
+						isNull(schema.task.startedAt),
+						or(
+							eq(schema.task.status, "pending"),
+							eq(schema.task.status, "ready"),
+						),
+					),
+				)
+				.orderBy(desc(schema.task.createdAt))
+				.get();
+			if (!row) return null;
+			return this.updateTask(row.id, { status: "running", startedAt: new Date() });
+		},
+
+		async createTaskEvent({
+			taskId,
+			workspaceId,
+			agentRunId,
+			agentId,
+			kind,
+			message,
+			payload,
+		}) {
+			const row = db
+				.insert(schema.taskEvent)
+				.values({
+					id: randomUUID(),
+					taskId,
+					workspaceId,
+					agentRunId: agentRunId ?? null,
+					agentId: agentId ?? null,
+					kind,
+					message,
+					payload: payload ?? null,
+					createdAt: new Date(),
+				})
+				.returning()
+				.get();
+			return mapTaskEvent(row);
+		},
+
+		async listTaskEvents(taskId) {
+			const rows = db
+				.select()
+				.from(schema.taskEvent)
+				.where(eq(schema.taskEvent.taskId, taskId))
+				.orderBy(schema.taskEvent.createdAt)
+				.all();
+			return rows.map(mapTaskEvent);
+		},
+
+		async createAgentRun({
+			workspaceId,
+			taskId,
+			agentId,
+			chatId,
+			automationId,
+			trigger,
+			stepCount,
+			status,
+			finalOutput,
+			errorMessage,
+			startedAt,
+			completedAt,
+		}) {
+			const now = new Date();
+			const row = db
+				.insert(schema.agentRun)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					taskId: taskId ?? null,
+					agentId,
+					chatId: chatId ?? null,
+					automationId: automationId ?? null,
+					trigger,
+					stepCount: stepCount ?? 0,
+					status: status ?? "pending",
+					finalOutput: finalOutput ?? null,
+					errorMessage: errorMessage ?? null,
+					createdAt: now,
+					startedAt: startedAt ?? null,
+					completedAt: completedAt ?? null,
+					updatedAt: now,
+				})
+				.returning()
+				.get();
+			return mapAgentRun(row);
+		},
+
+		async getAgentRun(id) {
+			const row = db
+				.select()
+				.from(schema.agentRun)
+				.where(eq(schema.agentRun.id, id))
+				.get();
+			return row ? mapAgentRun(row) : null;
+		},
+
+		async listAgentRunsByTask(taskId) {
+			const rows = db
+				.select()
+				.from(schema.agentRun)
+				.where(eq(schema.agentRun.taskId, taskId))
+				.orderBy(schema.agentRun.createdAt)
+				.all();
+			return rows.map(mapAgentRun);
+		},
+
+		async updateAgentRun(id, input) {
+			const row = db
+				.update(schema.agentRun)
+				.set({
+					...(input.stepCount !== undefined ? { stepCount: input.stepCount } : {}),
+					...(input.status !== undefined ? { status: input.status } : {}),
+					...(input.finalOutput !== undefined
+						? { finalOutput: input.finalOutput }
+						: {}),
+					...(input.errorMessage !== undefined
+						? { errorMessage: input.errorMessage }
+						: {}),
+					...(input.startedAt !== undefined ? { startedAt: input.startedAt } : {}),
+					...(input.completedAt !== undefined
+						? { completedAt: input.completedAt }
+						: {}),
+					updatedAt: new Date(),
+				})
+				.where(eq(schema.agentRun.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Agent run not found: ${id}`);
+			return mapAgentRun(row);
 		},
 
 		async createMcpServer({
@@ -1042,6 +1353,8 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			agentId,
 			chatId,
 			automationId,
+			taskId,
+			agentRunId,
 			kind,
 			skillId,
 			mcpServerId,
@@ -1057,6 +1370,8 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					agentId,
 					chatId: chatId ?? null,
 					automationId: automationId ?? null,
+					taskId: taskId ?? null,
+					agentRunId: agentRunId ?? null,
 					kind,
 					skillId: skillId ?? null,
 					mcpServerId: mcpServerId ?? null,

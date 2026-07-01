@@ -2,6 +2,7 @@ import { getDb } from "@nyxel/db";
 import { streamChat } from "@nyxel/model-providers";
 import type { Hono } from "hono";
 import { z } from "zod";
+import { prepareMessageContentForModel } from "../attachment-processing";
 import { resolveAgentRuntimeConfig } from "../auto-agent";
 import { summarizeChatMessageForModel } from "../chat-message";
 import { getKnowledgeBaseContextForPrompt } from "../knowledge-base";
@@ -127,7 +128,11 @@ export function registerChatStreamRoute(app: Hono) {
 			role: entry.role === "tool" ? "assistant" : entry.role,
 			content:
 				entry.role === "user"
-					? summarizeChatMessageForModel(entry.content)
+					? prepareMessageContentForModel({
+							rawContent: entry.content,
+							modelId,
+							installedProviders,
+						}) ?? summarizeChatMessageForModel(entry.content)
 					: entry.content,
 		}));
 

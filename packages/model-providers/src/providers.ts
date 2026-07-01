@@ -50,6 +50,11 @@ export interface ModelSummary {
   providerLabel: string;
 }
 
+export interface ModelCapabilities {
+  nativeImageInput: boolean;
+  nativeDocumentInput: boolean;
+}
+
 export function toInstalledModelProvider(installation: {
   id: string;
   label: string;
@@ -221,4 +226,26 @@ export function getDefaultModelIdsForProviderKind(
   if (providerKind === "anthropic") return CLOUD_MODELS.map((model) => model.modelName);
   if (providerKind === "openai") return OPENAI_DEFAULT_MODELS.map((model) => model.id);
   return [];
+}
+
+export function getModelCapabilities(
+  modelId: string,
+  installedProviders: InstalledModelProvider[] = [],
+): ModelCapabilities {
+  const installed = resolveInstalledProvider(modelId, installedProviders);
+  if (installed) {
+    if (installed.provider.providerKind === "anthropic") {
+      return { nativeImageInput: true, nativeDocumentInput: true };
+    }
+    if (installed.provider.providerKind === "openai") {
+      return { nativeImageInput: true, nativeDocumentInput: true };
+    }
+    return { nativeImageInput: false, nativeDocumentInput: false };
+  }
+
+  if (modelId.startsWith("anthropic/")) {
+    return { nativeImageInput: true, nativeDocumentInput: true };
+  }
+
+  return { nativeImageInput: false, nativeDocumentInput: false };
 }

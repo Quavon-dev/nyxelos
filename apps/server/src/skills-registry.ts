@@ -3,9 +3,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_CHAT_WORKING_DIRECTORY } from "@nyxel/db";
 import {
+	createWorkspaceFileAppendSkill,
 	createWorkspaceFileDeleteSkill,
 	createWorkspaceFileListSkill,
 	createWorkspaceFileReadSkill,
+	createWorkspaceFileReadRangeSkill,
+	createWorkspaceFileMoveSkill,
+	createWorkspaceFilePatchSkill,
+	createWorkspaceFileStatSkill,
 	createWorkspaceFileWriteSkill,
 	createWebFetchSkill,
 	createWriteNoteSkill,
@@ -33,8 +38,13 @@ skillRegistry.register(
 	createWebFetchSkill(["api.github.com", "raw.githubusercontent.com"]),
 );
 skillRegistry.register(createWorkspaceFileReadSkill(workspaceRootDir));
+skillRegistry.register(createWorkspaceFileReadRangeSkill(workspaceRootDir));
 skillRegistry.register(createWorkspaceFileListSkill(workspaceRootDir));
+skillRegistry.register(createWorkspaceFileStatSkill(workspaceRootDir));
 skillRegistry.register(createWorkspaceFileWriteSkill(workspaceRootDir));
+skillRegistry.register(createWorkspaceFileAppendSkill(workspaceRootDir));
+skillRegistry.register(createWorkspaceFilePatchSkill(workspaceRootDir));
+skillRegistry.register(createWorkspaceFileMoveSkill(workspaceRootDir));
 skillRegistry.register(createWorkspaceFileDeleteSkill(workspaceRootDir));
 // sensitive:true — see ADR-0009. This is the reference skill for exercising
 // the approval workflow end to end.

@@ -61,4 +61,13 @@ describe("shouldDeferToolForApproval", () => {
 		);
 		expect(tool?.permissions.filesystem).toEqual(["/tmp/chat-root"]);
 	});
+
+	it("exposes patch editing as a chat-scoped workspace tool", () => {
+		const tool = buildChatScopedBuiltinSkill(
+			"workspace_file_patch",
+			"/tmp/chat-root",
+		);
+		expect(tool?.id).toBe("workspace_file_patch");
+		expect(tool?.permissions.filesystem).toEqual(["/tmp/chat-root"]);
+	});
 });

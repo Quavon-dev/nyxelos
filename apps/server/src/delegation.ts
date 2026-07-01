@@ -1,9 +1,8 @@
 import { getDb } from "@nyxel/db";
-import { streamChat } from "@nyxel/model-providers";
 import { type Tool, tool } from "ai";
 import { z } from "zod";
+import { executeManagedTask } from "./agent-runtime";
 import { logAudit } from "./audit";
-import { getInstalledProvidersForWorkspace } from "./models";
 import type { AgentRunContext } from "./tools";
 
 /**
@@ -36,10 +35,6 @@ export async function buildDelegateToAgentTool(
   const idEnum = candidates.map((a) => a.id) as [string, ...string[]];
   const labelById = new Map(candidates.map((a) => [a.id, a.name]));
 
-  // Deferred to avoid a hard circular import with ./tools at module-eval
-  // time — buildToolsForAgent is only needed once this tool actually runs.
-  const { buildToolsForAgent } = await import("./tools");
-
   return tool({
     description: `Delegates a subtask to one of this workspace's other configured agents: ${candidates
       .map((a) => `"${a.name}" (id: ${a.id})`)
@@ -54,22 +49,23 @@ export async function buildDelegateToAgentTool(
       const subAgent = candidates.find((a) => a.id === agentId);
       if (!subAgent) throw new Error(`"${agentId}" is not in this agent's delegate whitelist.`);
 
-      const workspace = await db.getWorkspace(subAgent.workspaceId);
-      const systemPrompt =
-        [workspace?.customInstructions, subAgent.systemPrompt].filter(Boolean).join("\n\n") ||
-        undefined;
-      const subTools = await buildToolsForAgent(subAgent, { ...ctx, allowDelegation: false });
-      const installedProviders = await getInstalledProvidersForWorkspace(subAgent.workspaceId);
-
       try {
-        const result = streamChat({
-          modelId: subAgent.modelId,
-          systemPrompt,
-          installedProviders,
-          tools: subTools,
-          messages: [{ role: "user", content: task }],
+        const childTask = await db.createTask({
+          workspaceId: parent.workspaceId,
+          parentTaskId: ctx.taskId ?? null,
+          createdByAgentId: parent.id,
+          assignedAgentId: subAgent.id,
+          title: `Delegated task · ${subAgent.name}`,
+          instruction: task,
+          status: "ready",
+          input: { delegatedBy: parent.id },
         });
-        const text = await result.text;
+        const result = await executeManagedTask({
+          taskId: childTask.id,
+          agent: subAgent,
+          trigger: "delegate",
+        });
+        const text = result.output;
 
         await logAudit({
           workspaceId: parent.workspaceId,
@@ -83,7 +79,12 @@ export async function buildDelegateToAgentTool(
           status: "success",
         });
 
-        return { agentId, agentName: subAgent.name, result: text };
+        return {
+          agentId,
+          agentName: subAgent.name,
+          taskId: childTask.id,
+          result: text,
+        };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         await logAudit({

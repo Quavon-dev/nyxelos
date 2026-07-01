@@ -18,7 +18,12 @@ export interface SkillContext {
 	/** Restricted to `permissions.filesystem`. */
 	readFile: (path: string) => Promise<string>;
 	writeFile: (path: string, content: string) => Promise<void>;
+	appendFile: (path: string, content: string) => Promise<void>;
 	deleteFile: (path: string) => Promise<void>;
+	moveFile: (fromPath: string, toPath: string) => Promise<void>;
+	statPath: (
+		path: string,
+	) => Promise<{ path: string; size: number; isDirectory: boolean; modifiedAt: Date }>;
 	/** Restricted to `permissions.filesystem`. Lists immediate children of a directory. */
 	readDir: (path: string) => Promise<{ name: string; isDirectory: boolean }[]>;
 }

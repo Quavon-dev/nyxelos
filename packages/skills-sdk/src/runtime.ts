@@ -1,7 +1,9 @@
 import {
+	appendFile as fsAppendFile,
 	mkdir as fsMkdir,
 	readdir as fsReadDir,
 	readFile as fsReadFile,
+	rename as fsRename,
 	stat as fsStat,
 	unlink as fsUnlink,
 	writeFile as fsWriteFile,
@@ -65,6 +67,11 @@ function createContext(permissions: SkillPermissions): SkillContext {
 			await fsMkdir(path.dirname(resolved), { recursive: true });
 			await fsWriteFile(resolved, content, "utf-8");
 		},
+		appendFile: async (filePath, content) => {
+			const resolved = assertPathAllowed(permissions, filePath);
+			await fsMkdir(path.dirname(resolved), { recursive: true });
+			await fsAppendFile(resolved, content, "utf-8");
+		},
 		deleteFile: async (filePath) => {
 			const resolved = assertPathAllowed(permissions, filePath);
 			const stats = await fsStat(resolved);
@@ -74,6 +81,22 @@ function createContext(permissions: SkillPermissions): SkillContext {
 				);
 			}
 			await fsUnlink(resolved);
+		},
+		moveFile: async (fromPath, toPath) => {
+			const resolvedFrom = assertPathAllowed(permissions, fromPath);
+			const resolvedTo = assertPathAllowed(permissions, toPath);
+			await fsMkdir(path.dirname(resolvedTo), { recursive: true });
+			await fsRename(resolvedFrom, resolvedTo);
+		},
+		statPath: async (targetPath) => {
+			const resolved = assertPathAllowed(permissions, targetPath);
+			const stats = await fsStat(resolved);
+			return {
+				path: resolved,
+				size: stats.size,
+				isDirectory: stats.isDirectory(),
+				modifiedAt: stats.mtime,
+			};
 		},
 		readDir: async (dirPath) => {
 			const entries = await fsReadDir(assertPathAllowed(permissions, dirPath), {

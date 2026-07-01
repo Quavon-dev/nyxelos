@@ -7,6 +7,9 @@ export {
 } from "./working-directory";
 export type {
 	AgentAutonomyLevel,
+	AgentRunRecord,
+	AgentRunStatus,
+	AgentRunTrigger,
 	AgentRecord,
 	ApprovalKind,
 	ApprovalRequestRecord,
@@ -32,6 +35,11 @@ export type {
 	ProjectRecord,
 	SkillKind,
 	SkillRecord,
+	TaskEventKind,
+	TaskEventRecord,
+	TaskPriority,
+	TaskRecord,
+	TaskStatus,
 	UserRecord,
 	WorkspaceRecord,
 } from "./repo/types";

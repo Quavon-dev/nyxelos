@@ -1,5 +1,6 @@
 import {
 	boolean,
+	integer,
 	jsonb,
 	pgEnum,
 	pgTable,
@@ -62,6 +63,52 @@ export const auditStatus = pgEnum("audit_status", [
 	"error",
 	"pending_approval",
 	"rejected",
+]);
+export const taskStatus = pgEnum("task_status", [
+	"pending",
+	"planning",
+	"ready",
+	"running",
+	"blocked",
+	"waiting_approval",
+	"completed",
+	"failed",
+	"cancelled",
+]);
+export const taskPriority = pgEnum("task_priority", [
+	"low",
+	"normal",
+	"high",
+	"urgent",
+]);
+export const taskEventKind = pgEnum("task_event_kind", [
+	"created",
+	"planned",
+	"status_changed",
+	"assigned",
+	"delegated",
+	"tool_called",
+	"approval_waiting",
+	"approval_resolved",
+	"run_started",
+	"run_finished",
+	"comment",
+	"completed",
+	"failed",
+]);
+export const agentRunTrigger = pgEnum("agent_run_trigger", [
+	"chat",
+	"task",
+	"automation",
+	"delegate",
+]);
+export const agentRunStatus = pgEnum("agent_run_status", [
+	"pending",
+	"running",
+	"waiting_approval",
+	"completed",
+	"failed",
+	"cancelled",
 ]);
 
 /** See ../sqlite/app.ts and packages/skills-sdk — DB-backed skills built from
@@ -130,6 +177,8 @@ export const agent = pgTable("agent", {
 		.references(() => workspace.id, { onDelete: "cascade" }),
 	name: text("name").notNull(),
 	systemPrompt: text("system_prompt"),
+	role: text("role"),
+	goalTemplate: text("goal_template"),
 	modelId: text("model_id").notNull(),
 	autonomyLevel: agentAutonomyLevel("autonomy_level").notNull().default("chat"),
 	skillIds: jsonb("skill_ids").notNull().default([]).$type<string[]>(),
@@ -146,6 +195,7 @@ export const agent = pgTable("agent", {
 		.$type<string[]>(),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
 
 /** A configured MCP server connection, scoped to a workspace. See
  * ARCHITECTURE.md section 8 and packages/mcp-client. */
@@ -298,6 +348,82 @@ export const automation = pgTable("automation", {
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const task = pgTable("task", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	parentTaskId: text("parent_task_id"),
+	sourceChatId: text("source_chat_id").references(() => chat.id, {
+		onDelete: "set null",
+	}),
+	createdByAgentId: text("created_by_agent_id").references(() => agent.id, {
+		onDelete: "set null",
+	}),
+	assignedAgentId: text("assigned_agent_id").references(() => agent.id, {
+		onDelete: "set null",
+	}),
+	title: text("title").notNull(),
+	instruction: text("instruction").notNull(),
+	status: taskStatus("status").notNull().default("pending"),
+	priority: taskPriority("priority").notNull().default("normal"),
+	requiresApproval: boolean("requires_approval").notNull().default(false),
+	input: jsonb("input")
+		.notNull()
+		.default({})
+		.$type<Record<string, unknown>>(),
+	plan: jsonb("plan").$type<Record<string, unknown> | null>(),
+	handoff: jsonb("handoff").$type<Record<string, unknown> | null>(),
+	resultSummary: text("result_summary"),
+	errorMessage: text("error_message"),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	startedAt: timestamp("started_at"),
+	completedAt: timestamp("completed_at"),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const agentRun = pgTable("agent_run", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
+	agentId: text("agent_id")
+		.notNull()
+		.references(() => agent.id, { onDelete: "cascade" }),
+	chatId: text("chat_id").references(() => chat.id, { onDelete: "set null" }),
+	automationId: text("automation_id").references(() => automation.id, {
+		onDelete: "set null",
+	}),
+	trigger: agentRunTrigger("trigger").notNull(),
+	stepCount: integer("step_count").notNull().default(0),
+	status: agentRunStatus("status").notNull().default("pending"),
+	finalOutput: text("final_output"),
+	errorMessage: text("error_message"),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	startedAt: timestamp("started_at"),
+	completedAt: timestamp("completed_at"),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const taskEvent = pgTable("task_event", {
+	id: text("id").primaryKey(),
+	taskId: text("task_id")
+		.notNull()
+		.references(() => task.id, { onDelete: "cascade" }),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	agentRunId: text("agent_run_id").references(() => agentRun.id, {
+		onDelete: "set null",
+	}),
+	agentId: text("agent_id").references(() => agent.id, { onDelete: "set null" }),
+	kind: taskEventKind("kind").notNull(),
+	message: text("message").notNull(),
+	payload: jsonb("payload").$type<Record<string, unknown> | null>(),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 /** A tool call deferred for human approval instead of executed immediately.
  * See ADR-0009 for why this is a defer-and-resolve record rather than a
  * paused model generation. */
@@ -311,6 +437,10 @@ export const approvalRequest = pgTable("approval_request", {
 		.references(() => agent.id, { onDelete: "cascade" }),
 	chatId: text("chat_id").references(() => chat.id, { onDelete: "set null" }),
 	automationId: text("automation_id").references(() => automation.id, {
+		onDelete: "set null",
+	}),
+	taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
+	agentRunId: text("agent_run_id").references(() => agentRun.id, {
 		onDelete: "set null",
 	}),
 	kind: approvalKind("kind").notNull(),

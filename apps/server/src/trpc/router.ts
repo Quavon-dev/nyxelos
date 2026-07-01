@@ -70,6 +70,18 @@ const skillKindSchema = z.enum([
 	"custom_code",
 ]);
 const automationTriggerTypeSchema = z.enum(["cron", "file_watch"]);
+const taskStatusSchema = z.enum([
+	"pending",
+	"planning",
+	"ready",
+	"running",
+	"blocked",
+	"waiting_approval",
+	"completed",
+	"failed",
+	"cancelled",
+]);
+const taskPrioritySchema = z.enum(["low", "normal", "high", "urgent"]);
 const AUTOMATABLE_LEVELS = new Set(["autonomous", "super_agent"]);
 
 function resolveChatToolPolicy(input: {
@@ -559,6 +571,8 @@ export const appRouter = router({
 				z.object({
 					workspaceId: z.string(),
 					name: z.string().min(1),
+					role: z.string().optional(),
+					goalTemplate: z.string().optional(),
 					systemPrompt: z.string().optional(),
 					modelId: z.string(),
 					autonomyLevel: autonomyLevelSchema.optional(),
@@ -588,6 +602,104 @@ export const appRouter = router({
 					mcpToolFilter: input.mcpToolFilter ?? null,
 				});
 			}),
+	}),
+
+	tasks: router({
+		list: publicProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					status: taskStatusSchema.optional(),
+					assignedAgentId: z.string().nullable().optional(),
+				}),
+			)
+			.query(({ input }) =>
+				getDb().listTasksByWorkspace(input.workspaceId, {
+					status: input.status,
+					assignedAgentId: input.assignedAgentId,
+				}),
+			),
+		get: publicProcedure
+			.input(z.object({ taskId: z.string() }))
+			.query(async ({ input }) => {
+				const db = getDb();
+				return {
+					task: await db.getTask(input.taskId),
+					children: await db.listTaskTree(input.taskId),
+					events: await db.listTaskEvents(input.taskId),
+					runs: await db.listAgentRunsByTask(input.taskId),
+				};
+			}),
+		create: publicProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					parentTaskId: z.string().nullable().optional(),
+					sourceChatId: z.string().nullable().optional(),
+					createdByAgentId: z.string().nullable().optional(),
+					assignedAgentId: z.string().nullable().optional(),
+					title: z.string().min(1),
+					instruction: z.string().min(1),
+					priority: taskPrioritySchema.optional(),
+					input: z.record(z.string(), z.unknown()).optional(),
+				}),
+			)
+			.mutation(({ input }) =>
+				getDb().createTask({
+					...input,
+					parentTaskId: input.parentTaskId ?? null,
+					sourceChatId: input.sourceChatId ?? null,
+					createdByAgentId: input.createdByAgentId ?? null,
+					assignedAgentId: input.assignedAgentId ?? null,
+					priority: input.priority ?? "normal",
+					status: input.assignedAgentId ? "ready" : "pending",
+					input: input.input ?? {},
+				}),
+			),
+		assign: publicProcedure
+			.input(
+				z.object({
+					taskId: z.string(),
+					assignedAgentId: z.string().nullable(),
+				}),
+			)
+			.mutation(({ input }) =>
+				getDb().updateTask(input.taskId, {
+					assignedAgentId: input.assignedAgentId,
+					status: input.assignedAgentId ? "ready" : "pending",
+				}),
+			),
+		complete: publicProcedure
+			.input(
+				z.object({
+					taskId: z.string(),
+					resultSummary: z.string().min(1),
+				}),
+			)
+			.mutation(({ input }) =>
+				getDb().updateTask(input.taskId, {
+					status: "completed",
+					resultSummary: input.resultSummary,
+					completedAt: new Date(),
+				}),
+			),
+		cancel: publicProcedure
+			.input(z.object({ taskId: z.string() }))
+			.mutation(({ input }) =>
+				getDb().updateTask(input.taskId, {
+					status: "cancelled",
+					completedAt: new Date(),
+				}),
+			),
+		events: publicProcedure
+			.input(z.object({ taskId: z.string() }))
+			.query(({ input }) => getDb().listTaskEvents(input.taskId)),
+	}),
+
+	agentRuns: router({
+		listByTask: publicProcedure
+			.input(z.object({ taskId: z.string() }))
+			.query(({ input }) => getDb().listAgentRunsByTask(input.taskId)),
 	}),
 
 	mcpServers: router({
@@ -721,11 +833,9 @@ export const appRouter = router({
 				const db = getDb();
 				const automation = await db.getAutomation(input.id);
 				if (!automation) throw new Error(`Unknown automation: ${input.id}`);
-				await runAutomation(automation);
+				const summary = await runAutomation(automation);
 				const updated = await db.getAutomation(input.id);
-				if (!updated)
-					throw new Error(`Automation disappeared during run: ${input.id}`);
-				return updated;
+				return { automation: updated, ...summary };
 			}),
 	}),
 

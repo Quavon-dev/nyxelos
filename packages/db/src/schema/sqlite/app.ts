@@ -19,6 +19,39 @@ export type ApprovalKind = "skill" | "mcp";
 export type AuditActor = "chat" | "automation" | "approval" | "delegate";
 export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
 export type ChatToolMode = "default" | "automatic" | "auto";
+export type TaskStatus =
+	| "pending"
+	| "planning"
+	| "ready"
+	| "running"
+	| "blocked"
+	| "waiting_approval"
+	| "completed"
+	| "failed"
+	| "cancelled";
+export type TaskPriority = "low" | "normal" | "high" | "urgent";
+export type TaskEventKind =
+	| "created"
+	| "planned"
+	| "status_changed"
+	| "assigned"
+	| "delegated"
+	| "tool_called"
+	| "approval_waiting"
+	| "approval_resolved"
+	| "run_started"
+	| "run_finished"
+	| "comment"
+	| "completed"
+	| "failed";
+export type AgentRunTrigger = "chat" | "task" | "automation" | "delegate";
+export type AgentRunStatus =
+	| "pending"
+	| "running"
+	| "waiting_approval"
+	| "completed"
+	| "failed"
+	| "cancelled";
 
 export type ChatToolPolicy = {
 	mode: ChatToolMode;
@@ -90,6 +123,8 @@ export const agent = sqliteTable("agent", {
 		.references(() => workspace.id, { onDelete: "cascade" }),
 	name: text("name").notNull(),
 	systemPrompt: text("system_prompt"),
+	role: text("role"),
+	goalTemplate: text("goal_template"),
 	modelId: text("model_id").notNull(),
 	autonomyLevel: text("autonomy_level")
 		.notNull()
@@ -264,6 +299,86 @@ export const automation = sqliteTable("automation", {
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+export const task = sqliteTable("task", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	parentTaskId: text("parent_task_id"),
+	sourceChatId: text("source_chat_id").references(() => chat.id, {
+		onDelete: "set null",
+	}),
+	createdByAgentId: text("created_by_agent_id").references(() => agent.id, {
+		onDelete: "set null",
+	}),
+	assignedAgentId: text("assigned_agent_id").references(() => agent.id, {
+		onDelete: "set null",
+	}),
+	title: text("title").notNull(),
+	instruction: text("instruction").notNull(),
+	status: text("status").notNull().default("pending").$type<TaskStatus>(),
+	priority: text("priority").notNull().default("normal").$type<TaskPriority>(),
+	requiresApproval: integer("requires_approval", { mode: "boolean" })
+		.notNull()
+		.default(false),
+	input: text("input", { mode: "json" })
+		.notNull()
+		.default({})
+		.$type<Record<string, unknown>>(),
+	plan: text("plan", { mode: "json" }).$type<Record<string, unknown> | null>(),
+	handoff: text("handoff", { mode: "json" }).$type<
+		Record<string, unknown> | null
+	>(),
+	resultSummary: text("result_summary"),
+	errorMessage: text("error_message"),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+	startedAt: integer("started_at", { mode: "timestamp" }),
+	completedAt: integer("completed_at", { mode: "timestamp" }),
+	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export const agentRun = sqliteTable("agent_run", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
+	agentId: text("agent_id")
+		.notNull()
+		.references(() => agent.id, { onDelete: "cascade" }),
+	chatId: text("chat_id").references(() => chat.id, { onDelete: "set null" }),
+	automationId: text("automation_id").references(() => automation.id, {
+		onDelete: "set null",
+	}),
+	trigger: text("trigger").notNull().$type<AgentRunTrigger>(),
+	stepCount: integer("step_count").notNull().default(0),
+	status: text("status").notNull().default("pending").$type<AgentRunStatus>(),
+	finalOutput: text("final_output"),
+	errorMessage: text("error_message"),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+	startedAt: integer("started_at", { mode: "timestamp" }),
+	completedAt: integer("completed_at", { mode: "timestamp" }),
+	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export const taskEvent = sqliteTable("task_event", {
+	id: text("id").primaryKey(),
+	taskId: text("task_id")
+		.notNull()
+		.references(() => task.id, { onDelete: "cascade" }),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	agentRunId: text("agent_run_id").references(() => agentRun.id, {
+		onDelete: "set null",
+	}),
+	agentId: text("agent_id").references(() => agent.id, { onDelete: "set null" }),
+	kind: text("kind").notNull().$type<TaskEventKind>(),
+	message: text("message").notNull(),
+	payload: text("payload", { mode: "json" }).$type<Record<string, unknown> | null>(),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 export const approvalRequest = sqliteTable("approval_request", {
 	id: text("id").primaryKey(),
 	workspaceId: text("workspace_id")
@@ -274,6 +389,10 @@ export const approvalRequest = sqliteTable("approval_request", {
 		.references(() => agent.id, { onDelete: "cascade" }),
 	chatId: text("chat_id").references(() => chat.id, { onDelete: "set null" }),
 	automationId: text("automation_id").references(() => automation.id, {
+		onDelete: "set null",
+	}),
+	taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
+	agentRunId: text("agent_run_id").references(() => agentRun.id, {
 		onDelete: "set null",
 	}),
 	kind: text("kind").notNull().$type<ApprovalKind>(),

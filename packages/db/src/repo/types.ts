@@ -15,6 +15,39 @@ export type ApprovalKind = "skill" | "mcp";
 export type AuditActor = "chat" | "automation" | "approval" | "delegate";
 export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
 export type ChatToolMode = "default" | "automatic" | "auto";
+export type TaskStatus =
+	| "pending"
+	| "planning"
+	| "ready"
+	| "running"
+	| "blocked"
+	| "waiting_approval"
+	| "completed"
+	| "failed"
+	| "cancelled";
+export type TaskPriority = "low" | "normal" | "high" | "urgent";
+export type TaskEventKind =
+	| "created"
+	| "planned"
+	| "status_changed"
+	| "assigned"
+	| "delegated"
+	| "tool_called"
+	| "approval_waiting"
+	| "approval_resolved"
+	| "run_started"
+	| "run_finished"
+	| "comment"
+	| "completed"
+	| "failed";
+export type AgentRunTrigger = "chat" | "task" | "automation" | "delegate";
+export type AgentRunStatus =
+	| "pending"
+	| "running"
+	| "waiting_approval"
+	| "completed"
+	| "failed"
+	| "cancelled";
 
 export interface ChatToolPolicy {
 	mode: ChatToolMode;
@@ -96,6 +129,8 @@ export interface AgentRecord {
 	workspaceId: string;
 	name: string;
 	systemPrompt: string | null;
+	role: string | null;
+	goalTemplate: string | null;
 	modelId: string;
 	autonomyLevel: AgentAutonomyLevel;
 	skillIds: string[];
@@ -106,6 +141,59 @@ export interface AgentRecord {
 	/** Only meaningful for autonomyLevel "super_agent" — see ADR-0011. */
 	delegateAgentIds: string[];
 	createdAt: Date;
+}
+
+export interface TaskRecord {
+	id: string;
+	workspaceId: string;
+	parentTaskId: string | null;
+	sourceChatId: string | null;
+	createdByAgentId: string | null;
+	assignedAgentId: string | null;
+	title: string;
+	instruction: string;
+	status: TaskStatus;
+	priority: TaskPriority;
+	requiresApproval: boolean;
+	input: Record<string, unknown>;
+	plan: Record<string, unknown> | null;
+	handoff: Record<string, unknown> | null;
+	resultSummary: string | null;
+	errorMessage: string | null;
+	createdAt: Date;
+	startedAt: Date | null;
+	completedAt: Date | null;
+	updatedAt: Date;
+}
+
+export interface TaskEventRecord {
+	id: string;
+	taskId: string;
+	workspaceId: string;
+	agentRunId: string | null;
+	agentId: string | null;
+	kind: TaskEventKind;
+	message: string;
+	payload: Record<string, unknown> | null;
+	createdAt: Date;
+}
+
+export interface AgentRunRecord {
+	id: string;
+	workspaceId: string;
+	taskId: string | null;
+	agentId: string;
+	chatId: string | null;
+	automationId: string | null;
+	trigger: AgentRunTrigger;
+	stepCount: number;
+	status: AgentRunStatus;
+	finalOutput: string | null;
+	errorMessage: string | null;
+	createdAt: Date;
+	startedAt: Date | null;
+	completedAt: Date | null;
+	updatedAt: Date;
 }
 
 export interface UserRecord {
@@ -149,6 +237,8 @@ export interface ApprovalRequestRecord {
 	agentId: string;
 	chatId: string | null;
 	automationId: string | null;
+	taskId: string | null;
+	agentRunId: string | null;
 	kind: ApprovalKind;
 	skillId: string | null;
 	mcpServerId: string | null;
@@ -323,6 +413,8 @@ export interface DbRepository {
 		workspaceId: string;
 		name: string;
 		systemPrompt?: string | null;
+		role?: string | null;
+		goalTemplate?: string | null;
 		modelId: string;
 		autonomyLevel?: AgentAutonomyLevel;
 		skillIds?: string[];
@@ -332,6 +424,105 @@ export interface DbRepository {
 	}): Promise<AgentRecord>;
 	listAgentsByWorkspace(workspaceId: string): Promise<AgentRecord[]>;
 	getAgent(agentId: string): Promise<AgentRecord | null>;
+	updateAgent(
+		agentId: string,
+		input: {
+			name?: string;
+			systemPrompt?: string | null;
+			role?: string | null;
+			goalTemplate?: string | null;
+			modelId?: string;
+			autonomyLevel?: AgentAutonomyLevel;
+			skillIds?: string[];
+			mcpServerIds?: string[];
+			mcpToolFilter?: string[] | null;
+			delegateAgentIds?: string[];
+		},
+	): Promise<AgentRecord>;
+
+	createTask(input: {
+		workspaceId: string;
+		parentTaskId?: string | null;
+		sourceChatId?: string | null;
+		createdByAgentId?: string | null;
+		assignedAgentId?: string | null;
+		title: string;
+		instruction: string;
+		status?: TaskStatus;
+		priority?: TaskPriority;
+		requiresApproval?: boolean;
+		input?: Record<string, unknown>;
+		plan?: Record<string, unknown> | null;
+		handoff?: Record<string, unknown> | null;
+		resultSummary?: string | null;
+		errorMessage?: string | null;
+		startedAt?: Date | null;
+		completedAt?: Date | null;
+	}): Promise<TaskRecord>;
+	listTasksByWorkspace(
+		workspaceId: string,
+		input?: { status?: TaskStatus; assignedAgentId?: string | null },
+	): Promise<TaskRecord[]>;
+	getTask(taskId: string): Promise<TaskRecord | null>;
+	listTaskTree(parentTaskId: string): Promise<TaskRecord[]>;
+	updateTask(
+		taskId: string,
+		input: {
+			assignedAgentId?: string | null;
+			status?: TaskStatus;
+			priority?: TaskPriority;
+			requiresApproval?: boolean;
+			plan?: Record<string, unknown> | null;
+			handoff?: Record<string, unknown> | null;
+			resultSummary?: string | null;
+			errorMessage?: string | null;
+			startedAt?: Date | null;
+			completedAt?: Date | null;
+		},
+	): Promise<TaskRecord>;
+	claimNextTaskForAgent(
+		workspaceId: string,
+		agentId: string,
+	): Promise<TaskRecord | null>;
+
+	createTaskEvent(input: {
+		taskId: string;
+		workspaceId: string;
+		agentRunId?: string | null;
+		agentId?: string | null;
+		kind: TaskEventKind;
+		message: string;
+		payload?: Record<string, unknown> | null;
+	}): Promise<TaskEventRecord>;
+	listTaskEvents(taskId: string): Promise<TaskEventRecord[]>;
+
+	createAgentRun(input: {
+		workspaceId: string;
+		taskId?: string | null;
+		agentId: string;
+		chatId?: string | null;
+		automationId?: string | null;
+		trigger: AgentRunTrigger;
+		stepCount?: number;
+		status?: AgentRunStatus;
+		finalOutput?: string | null;
+		errorMessage?: string | null;
+		startedAt?: Date | null;
+		completedAt?: Date | null;
+	}): Promise<AgentRunRecord>;
+	getAgentRun(id: string): Promise<AgentRunRecord | null>;
+	listAgentRunsByTask(taskId: string): Promise<AgentRunRecord[]>;
+	updateAgentRun(
+		id: string,
+		input: {
+			stepCount?: number;
+			status?: AgentRunStatus;
+			finalOutput?: string | null;
+			errorMessage?: string | null;
+			startedAt?: Date | null;
+			completedAt?: Date | null;
+		},
+	): Promise<AgentRunRecord>;
 
 	createMcpServer(input: {
 		workspaceId: string;
@@ -417,6 +608,8 @@ export interface DbRepository {
 		agentId: string;
 		chatId?: string | null;
 		automationId?: string | null;
+		taskId?: string | null;
+		agentRunId?: string | null;
 		kind: ApprovalKind;
 		skillId?: string | null;
 		mcpServerId?: string | null;

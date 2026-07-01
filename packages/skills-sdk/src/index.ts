@@ -7,9 +7,14 @@ export {
 export { getCurrentTimeSkill } from "./skills/get-current-time";
 export { createWebFetchSkill } from "./skills/web-fetch";
 export {
+	createWorkspaceFileAppendSkill,
 	createWorkspaceFileDeleteSkill,
 	createWorkspaceFileListSkill,
 	createWorkspaceFileReadSkill,
+	createWorkspaceFileReadRangeSkill,
+	createWorkspaceFileMoveSkill,
+	createWorkspaceFilePatchSkill,
+	createWorkspaceFileStatSkill,
 	createWorkspaceFileWriteSkill,
 } from "./skills/workspace-files";
 export { createWriteNoteSkill } from "./skills/write-note";

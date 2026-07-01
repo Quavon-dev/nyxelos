@@ -85,6 +85,13 @@
       "when": 1782919332996,
       "tag": "0011_nifty_selene",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1783000000000,
+      "tag": "0012_agentic_runtime",
+      "breakpoints": true
     }
   ]
 }

@@ -2,14 +2,21 @@ import type { AgentRecord, ChatToolPolicy, SkillKind } from "@nyxel/db";
 import { DEFAULT_CHAT_TOOL_POLICY, getDb } from "@nyxel/db";
 import {
 	createSkillContext,
+	createWorkspaceFileAppendSkill,
 	createWorkspaceFileDeleteSkill,
 	createWorkspaceFileListSkill,
+	createWorkspaceFileMoveSkill,
+	createWorkspaceFilePatchSkill,
 	createWorkspaceFileReadSkill,
+	createWorkspaceFileReadRangeSkill,
+	createWorkspaceFileStatSkill,
 	createWorkspaceFileWriteSkill,
 } from "@nyxel/skills-sdk";
 import { dynamicTool, jsonSchema, type ToolSet, tool } from "ai";
+import { isAutoAssistant } from "./auto-agent";
 import { logAudit } from "./audit";
 import { buildDelegateToAgentTool } from "./delegation";
+import { buildWorkspaceManagementTools } from "./management-tools";
 import { ensureMcpServerConnected, mcpManager } from "./mcp-runtime";
 import { resolveSkillDefinition } from "./skills-resolve";
 
@@ -22,6 +29,10 @@ export interface AgentRunContext {
 	chatToolPolicy?: ChatToolPolicy;
 	/** Set when this run is an unattended scheduled run. See ADR-0010. */
 	automationId?: string;
+	/** Set when this run is attached to a durable task. */
+	taskId?: string;
+	/** Set when this run is attached to a durable agent run row. */
+	agentRunId?: string;
 	/**
 	 * Whether this agent is allowed to expose delegate_to_agent. Defaults to
 	 * true; set to false when building tools for a *delegated* sub-agent
@@ -52,10 +63,15 @@ function pendingApprovalResult(approvalId: string, toolLabel: string) {
 function classifyBuiltinSkillKind(skillId: string): SkillKind | null {
 	switch (skillId) {
 		case "workspace_file_read":
+		case "workspace_file_read_range":
+		case "workspace_file_stat":
 			return "file_read";
 		case "workspace_file_list":
 			return "file_list";
 		case "workspace_file_write":
+		case "workspace_file_append":
+		case "workspace_file_patch":
+		case "workspace_file_move":
 		case "write_note":
 			return "file_write";
 		case "workspace_file_delete":
@@ -78,10 +94,20 @@ export function buildChatScopedBuiltinSkill(
 	switch (skillId) {
 		case "workspace_file_read":
 			return createWorkspaceFileReadSkill(workingDirectory);
+		case "workspace_file_read_range":
+			return createWorkspaceFileReadRangeSkill(workingDirectory);
 		case "workspace_file_list":
 			return createWorkspaceFileListSkill(workingDirectory);
+		case "workspace_file_stat":
+			return createWorkspaceFileStatSkill(workingDirectory);
 		case "workspace_file_write":
 			return createWorkspaceFileWriteSkill(workingDirectory);
+		case "workspace_file_append":
+			return createWorkspaceFileAppendSkill(workingDirectory);
+		case "workspace_file_patch":
+			return createWorkspaceFilePatchSkill(workingDirectory);
+		case "workspace_file_move":
+			return createWorkspaceFileMoveSkill(workingDirectory);
 		case "workspace_file_delete":
 			return createWorkspaceFileDeleteSkill(workingDirectory);
 		default:
@@ -171,6 +197,8 @@ export async function buildToolsForAgent(
 						agentId: agent.id,
 						chatId: ctx.chatId,
 						automationId: ctx.automationId,
+						taskId: ctx.taskId,
+						agentRunId: ctx.agentRunId,
 						kind: "skill",
 						skillId: skill.id,
 						toolLabel: skill.id,
@@ -186,6 +214,17 @@ export async function buildToolsForAgent(
 						input,
 						status: "pending_approval",
 					});
+					if (ctx.taskId) {
+						await db.createTaskEvent({
+							taskId: ctx.taskId,
+							workspaceId: agent.workspaceId,
+							agentRunId: ctx.agentRunId,
+							agentId: agent.id,
+							kind: "approval_waiting",
+							message: `Waiting for approval: ${skill.id}`,
+							payload: { approvalId: approval.id, toolLabel: skill.id },
+						});
+					}
 					return pendingApprovalResult(approval.id, skill.id);
 				}
 
@@ -204,6 +243,19 @@ export async function buildToolsForAgent(
 						output,
 						status: "success",
 					});
+					if (ctx.taskId) {
+						await db.createTaskEvent({
+							taskId: ctx.taskId,
+							workspaceId: agent.workspaceId,
+							agentRunId: ctx.agentRunId,
+							agentId: agent.id,
+							kind: "tool_called",
+							message: `Tool succeeded: ${skill.id}`,
+							payload: {
+								toolLabel: skill.id,
+							},
+						});
+					}
 					return output;
 				} catch (err) {
 					const message = err instanceof Error ? err.message : String(err);
@@ -218,6 +270,17 @@ export async function buildToolsForAgent(
 						output: { error: message },
 						status: "error",
 					});
+					if (ctx.taskId) {
+						await db.createTaskEvent({
+							taskId: ctx.taskId,
+							workspaceId: agent.workspaceId,
+							agentRunId: ctx.agentRunId,
+							agentId: agent.id,
+							kind: "failed",
+							message: `Tool failed: ${skill.id}`,
+							payload: { toolLabel: skill.id, error: message },
+						});
+					}
 					throw err;
 				}
 			},
@@ -269,6 +332,8 @@ export async function buildToolsForAgent(
 							agentId: agent.id,
 							chatId: ctx.chatId,
 							automationId: ctx.automationId,
+							taskId: ctx.taskId,
+							agentRunId: ctx.agentRunId,
 							kind: "mcp",
 							mcpServerId: server.id,
 							mcpToolName: mcpTool.name,
@@ -285,6 +350,17 @@ export async function buildToolsForAgent(
 							input,
 							status: "pending_approval",
 						});
+						if (ctx.taskId) {
+							await db.createTaskEvent({
+								taskId: ctx.taskId,
+								workspaceId: agent.workspaceId,
+								agentRunId: ctx.agentRunId,
+								agentId: agent.id,
+								kind: "approval_waiting",
+								message: `Waiting for approval: ${toolKey}`,
+								payload: { approvalId: approval.id, toolLabel: toolKey },
+							});
+						}
 						return pendingApprovalResult(approval.id, toolKey);
 					}
 
@@ -305,6 +381,17 @@ export async function buildToolsForAgent(
 							output,
 							status: "success",
 						});
+						if (ctx.taskId) {
+							await db.createTaskEvent({
+								taskId: ctx.taskId,
+								workspaceId: agent.workspaceId,
+								agentRunId: ctx.agentRunId,
+								agentId: agent.id,
+								kind: "tool_called",
+								message: `Tool succeeded: ${toolKey}`,
+								payload: { toolLabel: toolKey },
+							});
+						}
 						return output;
 					} catch (err) {
 						const message = err instanceof Error ? err.message : String(err);
@@ -319,6 +406,17 @@ export async function buildToolsForAgent(
 							output: { error: message },
 							status: "error",
 						});
+						if (ctx.taskId) {
+							await db.createTaskEvent({
+								taskId: ctx.taskId,
+								workspaceId: agent.workspaceId,
+								agentRunId: ctx.agentRunId,
+								agentId: agent.id,
+								kind: "failed",
+								message: `Tool failed: ${toolKey}`,
+								payload: { toolLabel: toolKey, error: message },
+							});
+						}
 						throw err;
 					}
 				},
@@ -333,6 +431,10 @@ export async function buildToolsForAgent(
 	) {
 		const delegateTool = await buildDelegateToAgentTool(agent, ctx);
 		if (delegateTool) tools.delegate_to_agent = delegateTool;
+	}
+
+	if (agent.autonomyLevel === "super_agent" || isAutoAssistant(agent)) {
+		Object.assign(tools, await buildWorkspaceManagementTools(agent));
 	}
 
 	return tools;

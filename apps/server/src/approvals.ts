@@ -25,6 +25,28 @@ export async function resolveApprovalDecision(
 
   if (decision === "rejected") {
     const updated = await db.resolveApprovalRequest({ id, status: "rejected" });
+    if (approval.taskId) {
+      await db.updateTask(approval.taskId, {
+        status: "blocked",
+        errorMessage: `Approval rejected for ${approval.toolLabel}.`,
+      });
+      await db.createTaskEvent({
+        taskId: approval.taskId,
+        workspaceId: approval.workspaceId,
+        agentRunId: approval.agentRunId,
+        agentId: approval.agentId,
+        kind: "approval_resolved",
+        message: `Approval rejected: ${approval.toolLabel}`,
+        payload: { decision: "rejected" },
+      });
+    }
+    if (approval.agentRunId) {
+      await db.updateAgentRun(approval.agentRunId, {
+        status: "failed",
+        errorMessage: `Approval rejected for ${approval.toolLabel}.`,
+        completedAt: new Date(),
+      });
+    }
     await logAudit({
       workspaceId: approval.workspaceId,
       agentId: approval.agentId,
@@ -61,6 +83,27 @@ export async function resolveApprovalDecision(
       status: "approved",
       resultOutput: output,
     });
+    if (approval.taskId) {
+      await db.updateTask(approval.taskId, {
+        status: "ready",
+        errorMessage: null,
+      });
+      await db.createTaskEvent({
+        taskId: approval.taskId,
+        workspaceId: approval.workspaceId,
+        agentRunId: approval.agentRunId,
+        agentId: approval.agentId,
+        kind: "approval_resolved",
+        message: `Approval approved: ${approval.toolLabel}`,
+        payload: { decision: "approved" },
+      });
+    }
+    if (approval.agentRunId) {
+      await db.updateAgentRun(approval.agentRunId, {
+        status: "pending",
+        errorMessage: null,
+      });
+    }
     await logAudit({
       workspaceId: approval.workspaceId,
       agentId: approval.agentId,
@@ -80,6 +123,28 @@ export async function resolveApprovalDecision(
       status: "approved",
       errorMessage: message,
     });
+    if (approval.taskId) {
+      await db.updateTask(approval.taskId, {
+        status: "blocked",
+        errorMessage: message,
+      });
+      await db.createTaskEvent({
+        taskId: approval.taskId,
+        workspaceId: approval.workspaceId,
+        agentRunId: approval.agentRunId,
+        agentId: approval.agentId,
+        kind: "failed",
+        message: `Approved action failed: ${approval.toolLabel}`,
+        payload: { error: message },
+      });
+    }
+    if (approval.agentRunId) {
+      await db.updateAgentRun(approval.agentRunId, {
+        status: "failed",
+        errorMessage: message,
+        completedAt: new Date(),
+      });
+    }
     await logAudit({
       workspaceId: approval.workspaceId,
       agentId: approval.agentId,

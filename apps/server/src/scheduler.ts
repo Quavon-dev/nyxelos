@@ -2,12 +2,9 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { AutomationRecord } from "@nyxel/db";
 import { getDb } from "@nyxel/db";
-import { streamChat } from "@nyxel/model-providers";
 import { CronExpressionParser } from "cron-parser";
+import { executeManagedTask } from "./agent-runtime";
 import { logAudit } from "./audit";
-import { getKnowledgeBaseContextForPrompt } from "./knowledge-base";
-import { getInstalledProvidersForWorkspace } from "./models";
-import { buildToolsForAgent } from "./tools";
 
 const POLL_INTERVAL_MS = 30_000;
 const REPO_ROOT = path.resolve(new URL("../../..", import.meta.url).pathname);
@@ -29,7 +26,9 @@ export function computeNextRunAt(cronExpression: string, from: Date): Date | nul
 
 /** Exported for automations.runNow — lets a user trigger a run immediately
  * without waiting for the schedule, e.g. to test a new automation. */
-export async function runAutomation(automation: AutomationRecord): Promise<void> {
+export async function runAutomation(
+  automation: AutomationRecord,
+): Promise<{ taskId: string; runId: string; output: string }> {
   const db = getDb();
   const agent = await db.getAgent(automation.agentId);
   if (!agent) {
@@ -37,32 +36,39 @@ export async function runAutomation(automation: AutomationRecord): Promise<void>
       `Automation "${automation.name}" (${automation.id}) references a missing agent — disabling it.`,
     );
     await db.setAutomationEnabled(automation.id, false);
-    return;
+    return { taskId: "", runId: "", output: "Agent missing; automation disabled." };
   }
 
-  const workspace = await db.getWorkspace(automation.workspaceId);
-  const knowledgeBaseContext = await getKnowledgeBaseContextForPrompt(automation.workspaceId);
-  const systemPrompt =
-    [workspace?.customInstructions, agent.systemPrompt, knowledgeBaseContext]
-      .filter(Boolean)
-      .join("\n\n") || undefined;
-  const tools = await buildToolsForAgent(agent, { automationId: automation.id });
-  const installedProviders = await getInstalledProvidersForWorkspace(automation.workspaceId);
+  const task = await db.createTask({
+    workspaceId: automation.workspaceId,
+    createdByAgentId: agent.id,
+    assignedAgentId: agent.id,
+    title: automation.name,
+    instruction: automation.prompt,
+    status: "ready",
+    input: { triggerType: automation.triggerType, automationId: automation.id },
+  });
 
   let outputText: string;
-  let status: "success" | "error";
+  let status: "success" | "error" | "pending_approval";
+  let runId: string | null = null;
   try {
-    const result = streamChat({
-      modelId: agent.modelId,
-      systemPrompt,
-      installedProviders,
-      tools,
-      messages: [{ role: "user", content: automation.prompt }],
+    const result = await executeManagedTask({
+      taskId: task.id,
+      agent,
+      trigger: "automation",
+      automationId: automation.id,
     });
-    outputText = await result.text;
-    status = "success";
+    outputText = result.output;
+    runId = result.run.id;
+    status = outputText.includes("pending_approval") ? "pending_approval" : "success";
   } catch (err) {
     outputText = err instanceof Error ? err.message : String(err);
+    await db.updateTask(task.id, {
+      status: "failed",
+      errorMessage: outputText,
+      completedAt: new Date(),
+    });
     status = "error";
   }
 
@@ -84,6 +90,7 @@ export async function runAutomation(automation: AutomationRecord): Promise<void>
   const nextRunAt =
     automation.triggerType === "cron" ? computeNextRunAt(automation.cronExpression, now) : null;
   await db.updateAutomationRun({ id: automation.id, lastRunAt: now, nextRunAt });
+  return { taskId: task.id, runId: runId ?? "", output: outputText };
 }
 
 function resolveWatchPath(watchPath: string): string {
