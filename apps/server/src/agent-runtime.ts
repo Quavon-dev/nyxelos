@@ -225,7 +225,7 @@ async function runDirectExecution(
 export async function executeManagedTask(input: {
 	taskId: string;
 	agent: AgentRecord;
-	trigger: "task" | "automation" | "delegate" | "chat";
+	trigger: "task" | "automation" | "delegate" | "chat" | "extension";
 	chatId?: string | null;
 	automationId?: string | null;
 	instructionOverride?: string;
@@ -271,7 +271,7 @@ async function runManagedTask(
 	input: {
 		taskId: string;
 		agent: AgentRecord;
-		trigger: "task" | "automation" | "delegate" | "chat";
+		trigger: "task" | "automation" | "delegate" | "chat" | "extension";
 		chatId?: string | null;
 		automationId?: string | null;
 		instructionOverride?: string;
@@ -491,7 +491,7 @@ async function runManagedTask(
 
 export async function startTaskExecutionIfIdle(input: {
 	taskId: string;
-	trigger: "task" | "automation" | "delegate" | "chat";
+	trigger: "task" | "automation" | "delegate" | "chat" | "extension";
 	chatId?: string | null;
 	automationId?: string | null;
 	instructionOverride?: string;
