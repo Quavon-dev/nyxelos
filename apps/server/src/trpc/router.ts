@@ -328,6 +328,9 @@ export const appRouter = router({
     listArchived: publicProcedure
       .input(z.object({ workspaceId: z.string() }))
       .query(({ input }) => getDb().listArchivedChatsByWorkspace(input.workspaceId)),
+    listByProject: publicProcedure
+      .input(z.object({ projectId: z.string() }))
+      .query(({ input }) => getDb().listChatsByProject(input.projectId)),
     create: publicProcedure
       .input(
         z.object({
@@ -335,6 +338,7 @@ export const appRouter = router({
           title: z.string().default("New chat"),
           modelId: z.string().optional(),
           agentId: z.string().optional(),
+          projectId: z.string().nullable().optional(),
         }),
       )
       .mutation(async ({ input }) => {
@@ -359,6 +363,32 @@ export const appRouter = router({
     setArchived: publicProcedure
       .input(z.object({ chatId: z.string(), archived: z.boolean() }))
       .mutation(({ input }) => getDb().setChatArchived(input.chatId, input.archived)),
+    setPinned: publicProcedure
+      .input(z.object({ chatId: z.string(), pinned: z.boolean() }))
+      .mutation(({ input }) => getDb().setChatPinned(input.chatId, input.pinned)),
+    setProject: publicProcedure
+      .input(z.object({ chatId: z.string(), projectId: z.string().nullable() }))
+      .mutation(({ input }) => getDb().setChatProject(input.chatId, input.projectId)),
+    duplicate: publicProcedure
+      .input(z.object({ chatId: z.string() }))
+      .mutation(({ input }) => getDb().duplicateChat(input.chatId)),
+    // Turns public read-only sharing on/off for a chat. See chats.getShared
+    // for the unauthenticated lookup used by the /share/{shareId} page.
+    share: publicProcedure
+      .input(z.object({ chatId: z.string() }))
+      .mutation(({ input }) => getDb().setChatShared(input.chatId, true)),
+    unshare: publicProcedure
+      .input(z.object({ chatId: z.string() }))
+      .mutation(({ input }) => getDb().setChatShared(input.chatId, false)),
+    getShared: publicProcedure
+      .input(z.object({ shareId: z.string() }))
+      .query(async ({ input }) => {
+        const db = getDb();
+        const chat = await db.getChatByShareId(input.shareId);
+        if (!chat) return null;
+        const messages = await db.listMessages(chat.id);
+        return { chat, messages };
+      }),
     delete: publicProcedure
       .input(z.object({ chatId: z.string() }))
       .mutation(({ input }) => getDb().deleteChat(input.chatId)),
@@ -370,6 +400,27 @@ export const appRouter = router({
     setAgent: publicProcedure
       .input(z.object({ chatId: z.string(), agentId: z.string().nullable() }))
       .mutation(({ input }) => getDb().updateChatAgent(input.chatId, input.agentId)),
+  }),
+
+  projects: router({
+    list: publicProcedure
+      .input(z.object({ workspaceId: z.string() }))
+      .query(({ input }) => getDb().listProjectsByWorkspace(input.workspaceId)),
+    get: publicProcedure
+      .input(z.object({ projectId: z.string() }))
+      .query(({ input }) => getDb().getProject(input.projectId)),
+    create: publicProcedure
+      .input(z.object({ workspaceId: z.string(), name: z.string().min(1).max(120) }))
+      .mutation(({ input }) => getDb().createProject({ ...input, name: input.name.trim() })),
+    rename: publicProcedure
+      .input(z.object({ projectId: z.string(), name: z.string().min(1).max(120) }))
+      .mutation(({ input }) => getDb().renameProject(input.projectId, input.name.trim())),
+    duplicate: publicProcedure
+      .input(z.object({ projectId: z.string() }))
+      .mutation(({ input }) => getDb().duplicateProject(input.projectId)),
+    delete: publicProcedure
+      .input(z.object({ projectId: z.string() }))
+      .mutation(({ input }) => getDb().deleteProject(input.projectId)),
   }),
 
   agents: router({

@@ -7,8 +7,8 @@ import {
   ChatComposerToolbar,
   type ChatToolSelection,
 } from "@/components/chat/chat-composer-toolbar";
-import type { MultiSelectPrompt } from "@/lib/chat-prompts";
 import { Textarea } from "@/components/ui/textarea";
+import type { MultiSelectPrompt } from "@/lib/chat-prompts";
 import { MultiSelectPromptCard } from "./multi-select-prompt";
 
 interface MessageLike {
@@ -41,10 +41,15 @@ export function ChatInput({
 }) {
   const [value, setValue] = useState("");
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([]);
+  const promptKey = assistantPrompt
+    ? `${assistantPrompt.question}:${assistantPrompt.options.map((option) => option.id).join(",")}`
+    : "none";
 
   useEffect(() => {
-    setSelectedOptionIds([]);
-  }, [assistantPrompt?.question]);
+    if (promptKey !== "none") {
+      setSelectedOptionIds([]);
+    }
+  }, [promptKey]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -80,7 +85,11 @@ export function ChatInput({
     onAttachedFileChange(null);
   }
 
-  const placeholder = assistantPrompt ? "Add an optional note…" : "Message Nyxel…";
+  const placeholder = assistantPrompt
+    ? "Add an optional note…"
+    : assistantQuestion
+      ? "Answer the question…"
+      : "Message Nyxel…";
 
   function toggleOption(optionId: string) {
     setSelectedOptionIds((current) =>
@@ -136,9 +145,7 @@ export function ChatInput({
           <button
             type="submit"
             disabled={
-              disabled ||
-              (!value.trim() &&
-                (!assistantPrompt || selectedOptionIds.length === 0))
+              disabled || (!value.trim() && (!assistantPrompt || selectedOptionIds.length === 0))
             }
             className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
           >

@@ -1,5 +1,5 @@
-import { cn } from "@/lib/utils";
 import { parseAssistantContent } from "@/lib/chat-prompts";
+import { cn } from "@/lib/utils";
 import { MultiSelectPromptCard } from "./multi-select-prompt";
 
 export function MessageBubble({ sender, content }: { sender: string; content: string }) {

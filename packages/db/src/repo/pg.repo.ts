@@ -9,6 +9,26 @@ export function createPgRepository(connectionString: string): DbRepository {
   const client = postgres(connectionString);
   const db = drizzle(client, { schema });
 
+  function mapChat(row: typeof schema.chat.$inferSelect) {
+    return {
+      id: row.id,
+      workspaceId: row.workspaceId,
+      agentId: row.agentId,
+      projectId: row.projectId,
+      title: row.title,
+      modelId: row.modelId,
+      archivedAt: row.archivedAt,
+      pinnedAt: row.pinnedAt,
+      shareId: row.shareId,
+      sharedAt: row.sharedAt,
+      createdAt: row.createdAt,
+    };
+  }
+
+  function mapProject(row: typeof schema.project.$inferSelect) {
+    return { id: row.id, workspaceId: row.workspaceId, name: row.name, createdAt: row.createdAt };
+  }
+
   return {
     driver: "pg",
 
@@ -170,21 +190,20 @@ export function createPgRepository(connectionString: string): DbRepository {
       await db.delete(schema.modelInstallation).where(eq(schema.modelInstallation.id, id));
     },
 
-    async createChat({ workspaceId, title, modelId, agentId }) {
+    async createChat({ workspaceId, title, modelId, agentId, projectId }) {
       const [row] = await db
         .insert(schema.chat)
-        .values({ id: randomUUID(), workspaceId, title, modelId, agentId: agentId ?? null })
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          title,
+          modelId,
+          agentId: agentId ?? null,
+          projectId: projectId ?? null,
+        })
         .returning();
       if (!row) throw new Error("Failed to create chat");
-      return {
-        id: row.id,
-        workspaceId: row.workspaceId,
-        agentId: row.agentId,
-        title: row.title,
-        modelId: row.modelId,
-        archivedAt: row.archivedAt,
-        createdAt: row.createdAt,
-      };
+      return mapChat(row);
     },
 
     async listChatsByWorkspace(workspaceId) {
@@ -192,15 +211,7 @@ export function createPgRepository(connectionString: string): DbRepository {
         .select()
         .from(schema.chat)
         .where(and(eq(schema.chat.workspaceId, workspaceId), isNull(schema.chat.archivedAt)));
-      return rows.map((r) => ({
-        id: r.id,
-        workspaceId: r.workspaceId,
-        agentId: r.agentId,
-        title: r.title,
-        modelId: r.modelId,
-        archivedAt: r.archivedAt,
-        createdAt: r.createdAt,
-      }));
+      return rows.map(mapChat);
     },
 
     async listArchivedChatsByWorkspace(workspaceId) {
@@ -208,29 +219,25 @@ export function createPgRepository(connectionString: string): DbRepository {
         .select()
         .from(schema.chat)
         .where(and(eq(schema.chat.workspaceId, workspaceId), isNotNull(schema.chat.archivedAt)));
-      return rows.map((r) => ({
-        id: r.id,
-        workspaceId: r.workspaceId,
-        agentId: r.agentId,
-        title: r.title,
-        modelId: r.modelId,
-        archivedAt: r.archivedAt,
-        createdAt: r.createdAt,
-      }));
+      return rows.map(mapChat);
+    },
+
+    async listChatsByProject(projectId) {
+      const rows = await db
+        .select()
+        .from(schema.chat)
+        .where(and(eq(schema.chat.projectId, projectId), isNull(schema.chat.archivedAt)));
+      return rows.map(mapChat);
     },
 
     async getChat(chatId) {
       const row = await db.query.chat.findFirst({ where: eq(schema.chat.id, chatId) });
-      if (!row) return null;
-      return {
-        id: row.id,
-        workspaceId: row.workspaceId,
-        agentId: row.agentId,
-        title: row.title,
-        modelId: row.modelId,
-        archivedAt: row.archivedAt,
-        createdAt: row.createdAt,
-      };
+      return row ? mapChat(row) : null;
+    },
+
+    async getChatByShareId(shareId) {
+      const row = await db.query.chat.findFirst({ where: eq(schema.chat.shareId, shareId) });
+      return row ? mapChat(row) : null;
     },
 
     async renameChat(chatId, title) {
@@ -240,15 +247,7 @@ export function createPgRepository(connectionString: string): DbRepository {
         .where(eq(schema.chat.id, chatId))
         .returning();
       if (!row) throw new Error(`Chat not found: ${chatId}`);
-      return {
-        id: row.id,
-        workspaceId: row.workspaceId,
-        agentId: row.agentId,
-        title: row.title,
-        modelId: row.modelId,
-        archivedAt: row.archivedAt,
-        createdAt: row.createdAt,
-      };
+      return mapChat(row);
     },
 
     async setChatArchived(chatId, archived) {
@@ -258,15 +257,79 @@ export function createPgRepository(connectionString: string): DbRepository {
         .where(eq(schema.chat.id, chatId))
         .returning();
       if (!row) throw new Error(`Chat not found: ${chatId}`);
-      return {
-        id: row.id,
-        workspaceId: row.workspaceId,
-        agentId: row.agentId,
-        title: row.title,
-        modelId: row.modelId,
-        archivedAt: row.archivedAt,
-        createdAt: row.createdAt,
-      };
+      return mapChat(row);
+    },
+
+    async setChatPinned(chatId, pinned) {
+      const [row] = await db
+        .update(schema.chat)
+        .set({ pinnedAt: pinned ? new Date() : null })
+        .where(eq(schema.chat.id, chatId))
+        .returning();
+      if (!row) throw new Error(`Chat not found: ${chatId}`);
+      return mapChat(row);
+    },
+
+    async setChatProject(chatId, projectId) {
+      const [row] = await db
+        .update(schema.chat)
+        .set({ projectId })
+        .where(eq(schema.chat.id, chatId))
+        .returning();
+      if (!row) throw new Error(`Chat not found: ${chatId}`);
+      return mapChat(row);
+    },
+
+    async setChatShared(chatId, shared) {
+      const existing = await db.query.chat.findFirst({ where: eq(schema.chat.id, chatId) });
+      if (!existing) throw new Error(`Chat not found: ${chatId}`);
+      const [row] = await db
+        .update(schema.chat)
+        .set(
+          shared
+            ? { shareId: existing.shareId ?? randomUUID(), sharedAt: existing.sharedAt ?? new Date() }
+            : { shareId: null, sharedAt: null },
+        )
+        .where(eq(schema.chat.id, chatId))
+        .returning();
+      if (!row) throw new Error(`Chat not found: ${chatId}`);
+      return mapChat(row);
+    },
+
+    async duplicateChat(chatId) {
+      const source = await db.query.chat.findFirst({ where: eq(schema.chat.id, chatId) });
+      if (!source) throw new Error(`Chat not found: ${chatId}`);
+
+      const [copy] = await db
+        .insert(schema.chat)
+        .values({
+          id: randomUUID(),
+          workspaceId: source.workspaceId,
+          agentId: source.agentId,
+          projectId: source.projectId,
+          title: `${source.title} (copy)`,
+          modelId: source.modelId,
+        })
+        .returning();
+      if (!copy) throw new Error("Failed to duplicate chat");
+
+      const messages = await db
+        .select()
+        .from(schema.message)
+        .where(eq(schema.message.chatId, chatId));
+      if (messages.length > 0) {
+        await db.insert(schema.message).values(
+          messages.map((message) => ({
+            id: randomUUID(),
+            chatId: copy.id,
+            role: message.role,
+            content: message.content,
+            createdAt: message.createdAt,
+          })),
+        );
+      }
+
+      return mapChat(copy);
     },
 
     async deleteChat(chatId) {
@@ -280,15 +343,88 @@ export function createPgRepository(connectionString: string): DbRepository {
         .where(eq(schema.chat.id, chatId))
         .returning();
       if (!row) throw new Error(`Chat not found: ${chatId}`);
-      return {
-        id: row.id,
-        workspaceId: row.workspaceId,
-        agentId: row.agentId,
-        title: row.title,
-        modelId: row.modelId,
-        archivedAt: row.archivedAt,
-        createdAt: row.createdAt,
-      };
+      return mapChat(row);
+    },
+
+    async createProject({ workspaceId, name }) {
+      const [row] = await db.insert(schema.project).values({ id: randomUUID(), workspaceId, name }).returning();
+      if (!row) throw new Error("Failed to create project");
+      return mapProject(row);
+    },
+
+    async listProjectsByWorkspace(workspaceId) {
+      const rows = await db
+        .select()
+        .from(schema.project)
+        .where(eq(schema.project.workspaceId, workspaceId))
+        .orderBy(desc(schema.project.createdAt));
+      return rows.map(mapProject);
+    },
+
+    async getProject(projectId) {
+      const row = await db.query.project.findFirst({ where: eq(schema.project.id, projectId) });
+      return row ? mapProject(row) : null;
+    },
+
+    async renameProject(projectId, name) {
+      const [row] = await db
+        .update(schema.project)
+        .set({ name })
+        .where(eq(schema.project.id, projectId))
+        .returning();
+      if (!row) throw new Error(`Project not found: ${projectId}`);
+      return mapProject(row);
+    },
+
+    async deleteProject(projectId) {
+      await db.delete(schema.project).where(eq(schema.project.id, projectId));
+    },
+
+    async duplicateProject(projectId) {
+      const source = await db.query.project.findFirst({ where: eq(schema.project.id, projectId) });
+      if (!source) throw new Error(`Project not found: ${projectId}`);
+
+      const [copy] = await db
+        .insert(schema.project)
+        .values({ id: randomUUID(), workspaceId: source.workspaceId, name: `${source.name} (copy)` })
+        .returning();
+      if (!copy) throw new Error("Failed to duplicate project");
+
+      const chats = await db
+        .select()
+        .from(schema.chat)
+        .where(and(eq(schema.chat.projectId, projectId), isNull(schema.chat.archivedAt)));
+      for (const sourceChat of chats) {
+        const [chatCopy] = await db
+          .insert(schema.chat)
+          .values({
+            id: randomUUID(),
+            workspaceId: sourceChat.workspaceId,
+            agentId: sourceChat.agentId,
+            projectId: copy.id,
+            title: sourceChat.title,
+            modelId: sourceChat.modelId,
+          })
+          .returning();
+        if (!chatCopy) continue;
+        const messages = await db
+          .select()
+          .from(schema.message)
+          .where(eq(schema.message.chatId, sourceChat.id));
+        if (messages.length > 0) {
+          await db.insert(schema.message).values(
+            messages.map((message) => ({
+              id: randomUUID(),
+              chatId: chatCopy.id,
+              role: message.role,
+              content: message.content,
+              createdAt: message.createdAt,
+            })),
+          );
+        }
+      }
+
+      return mapProject(copy);
     },
 
     async addMessage({ chatId, role, content }) {

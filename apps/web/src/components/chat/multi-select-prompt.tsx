@@ -1,8 +1,8 @@
 "use client";
 
 import { Check } from "lucide-react";
-import { cn } from "@/lib/utils";
 import type { MultiSelectPrompt } from "@/lib/chat-prompts";
+import { cn } from "@/lib/utils";
 
 export function MultiSelectPromptCard({
   prompt,
@@ -85,7 +85,9 @@ export function MultiSelectPromptCard({
         {interactive && (
           <div className="flex items-center justify-between gap-3 pt-1">
             <p className="text-xs text-muted-foreground">
-              {selectedCount === 0 ? "Wähle mindestens eine Antwort aus." : `${selectedCount} gewählt`}
+              {selectedCount === 0
+                ? "Wähle mindestens eine Antwort aus."
+                : `${selectedCount} gewählt`}
             </p>
             <button
               type="submit"

@@ -22,6 +22,7 @@ export type {
   MessageRole,
   ModelInstallationRecord,
   ModelProviderKind,
+  ProjectRecord,
   SkillKind,
   SkillRecord,
   UserRecord,

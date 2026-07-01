@@ -55,4 +55,3 @@ export function parseAssistantContent(content: string): ParsedAssistantContent {
     return { prompt: null, body: content.trim() };
   }
 }
-
