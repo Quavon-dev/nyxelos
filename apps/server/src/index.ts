@@ -1,10 +1,16 @@
 import { trpcServer } from "@hono/trpc-server";
+import { migrateDatabase } from "@nyxel/db/migrate";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { auth } from "./auth";
 import { registerChatStreamRoute } from "./routes/chat-stream";
 import { createContext } from "./trpc/context";
 import { appRouter } from "./trpc/router";
+
+const dbDriver = (process.env.DB_DRIVER ?? "").toLowerCase();
+if (dbDriver !== "pg" && dbDriver !== "postgres" && dbDriver !== "postgresql") {
+  await migrateDatabase();
+}
 
 const app = new Hono();
 

@@ -10,7 +10,7 @@ import postgres from "postgres";
 // packages/db, or from apps/server.
 const PACKAGE_DIR = new URL(".", import.meta.url).pathname;
 
-async function main() {
+export async function migrateDatabase() {
   const raw = process.env.DB_DRIVER?.toLowerCase();
 
   if (raw === "pg" || raw === "postgres" || raw === "postgresql") {
@@ -25,10 +25,14 @@ async function main() {
     const sqlite = new Database(path, { create: true });
     const db = drizzleSqlite(sqlite);
     console.log(`Running SQLite migrations against ${path}...`);
-    migrateSqlite(db, { migrationsFolder: `${PACKAGE_DIR}../drizzle/sqlite` });
+    await migrateSqlite(db, { migrationsFolder: `${PACKAGE_DIR}../drizzle/sqlite` });
   }
 
   console.log("Migrations complete.");
+}
+
+async function main() {
+  await migrateDatabase();
 }
 
 main().catch((err) => {
