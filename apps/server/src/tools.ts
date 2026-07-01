@@ -96,6 +96,11 @@ export function shouldDeferToolForApproval(
 	policy: ChatToolPolicy | undefined,
 ): boolean {
 	const effectivePolicy = normalizeChatToolPolicy(policy);
+
+	// AUTO mode: the agent runs fully autonomously — never defer anything.
+	// Individual guardrail switches are only meaningful in "automatic" mode.
+	if (effectivePolicy.mode === "auto") return false;
+
 	if (target.kind === "mcp") {
 		return effectivePolicy.mode === "default"
 			? true
@@ -105,6 +110,7 @@ export function shouldDeferToolForApproval(
 	if (!target.sensitive) return false;
 	if (effectivePolicy.mode === "default") return true;
 
+	// "automatic" mode — respect individual guardrail flags.
 	switch (target.skillKind) {
 		case "file_write":
 			return effectivePolicy.approveFileWrites;

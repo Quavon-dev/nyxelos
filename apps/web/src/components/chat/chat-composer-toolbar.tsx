@@ -255,7 +255,8 @@ export function ChatComposerToolbar({
 		mcpServerIds: servers.filter((s) => s.enabled).map((s) => s.id),
 		mcpToolFilter: null,
 	};
-	const guardrailsLocked = chatToolPolicy.mode === "default";
+	const guardrailsLocked =
+		chatToolPolicy.mode === "default" || chatToolPolicy.mode === "auto";
 	const skillsActive = effective.skillsEnabled;
 	const mcpCustomized = toolSelection !== null;
 	const modeLabel = CHAT_MODE_LABEL[chatToolPolicy.mode];
@@ -644,7 +645,19 @@ export function ChatComposerToolbar({
 								<button
 									key={modeValue}
 									type="button"
-									onClick={() => updateChatToolPolicy({ mode: modeValue })}
+									onClick={() =>
+										updateChatToolPolicy(
+											modeValue === "auto"
+												? {
+														mode: "auto",
+														approveFileWrites: false,
+														approveFileDeletes: false,
+														approveCustomCode: false,
+														approveMcpTools: false,
+													}
+												: { mode: modeValue },
+										)
+									}
 									className={cn(
 										"w-full rounded-lg border px-3 py-2 text-left transition-colors",
 										selected
@@ -666,11 +679,20 @@ export function ChatComposerToolbar({
 					<div className="space-y-3 border-t pt-3">
 						<div className="space-y-1">
 							<p className="text-sm font-medium">Approval guardrails</p>
-							<p className="text-xs text-muted-foreground">
-								Default mode always approves every sensitive action first. In
-								Automatic Tool Usage and AUTO, these switches decide what still
-								goes through Approvals.
-							</p>
+							{chatToolPolicy.mode === "auto" ? (
+								<p className="text-xs text-muted-foreground">
+									All guardrails are disabled in AUTO mode — the agent executes
+									every tool call directly. Switch to{" "}
+									<strong>Automatic Tool Usage</strong> to enable individual
+									approval controls.
+								</p>
+							) : (
+								<p className="text-xs text-muted-foreground">
+									Default mode always approves every sensitive action first. In
+									Automatic Tool Usage, these switches decide what still goes
+									through Approvals.
+								</p>
+							)}
 						</div>
 						<div className="space-y-2">
 							<div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
