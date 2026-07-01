@@ -15,8 +15,11 @@
   "dependencies": {
     "@hono/trpc-server": "latest",
     "@nyxel/db": "workspace:*",
+    "@nyxel/mcp-client": "workspace:*",
     "@nyxel/model-providers": "workspace:*",
+    "@nyxel/skills-sdk": "workspace:*",
     "@trpc/server": "latest",
+    "ai": "latest",
     "better-auth": "latest",
     "hono": "latest",
     "zod": "latest"

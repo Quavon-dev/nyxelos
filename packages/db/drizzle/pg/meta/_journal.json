@@ -8,6 +8,13 @@
       "when": 1782896207658,
       "tag": "0000_brief_energizer",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1782896971150,
+      "tag": "0001_deep_rocket_racer",
+      "breakpoints": true
     }
   ]
 }

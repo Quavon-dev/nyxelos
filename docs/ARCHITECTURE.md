@@ -1,6 +1,6 @@
 # NyxelOS — Architecture Plan for a Self-Hosted, Open Source agentic OS
 
-Date: July 1, 2026 · Status: Planning phase, no code written yet
+Date: July 1, 2026 · Status: Phase 0 and Phase 1 implemented and verified (see `knowledge-base/02-Dev-Log/`); Phase 2 (autonomy) not yet started
 
 ## 1. Vision and Guiding Principles
 
@@ -95,8 +95,8 @@ Responses are streamed token by token from the Bun/Hono server to the frontend v
 
 | Phase                         | Content                                                                                                                                             |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Phase 0 — Foundation          | Monorepo setup, Better-Auth, Drizzle schema for Postgres and SQLite, shadcn scaffolding, one chat with a local and an API model including streaming |
-| Phase 1 — Agents & Skills     | Agent configuration, custom instructions per workspace, skills SDK with sandbox, MCP client integration for external servers                        |
+| Phase 0 — Foundation ✅ done   | Monorepo setup, Better-Auth, Drizzle schema for Postgres and SQLite, shadcn scaffolding, one chat with a local and an API model including streaming |
+| Phase 1 — Agents & Skills ✅ done | Agent configuration, custom instructions per workspace, skills SDK with sandbox, MCP client integration for external servers                        |
 | Phase 2 — Autonomy            | Time/event-driven autonomous agents, approval workflow for critical actions, super-agent orchestration, audit log                                   |
 | Phase 3 — Knowledge base      | Obsidian integration via local REST API/MCP, automatic docs agent, graph view in the UI                                                             |
 | Phase 4 — Local data          | macOS companion as an MCP server (calendar, contacts, photos), CLI/AppleScript fallback                                                             |

@@ -16,20 +16,12 @@ export default function ChatPage() {
     queryFn: () => trpcClient.chats.messages.query({ chatId }),
   });
 
-  // Phase 0: use the first detected model. Per-chat model selection (stored
-  // on the chat record already) is a follow-up UI affordance.
-  const modelsQuery = useQuery({
-    queryKey: ["models", "list"],
-    queryFn: () => trpcClient.models.list.query(),
-  });
-  const modelId = modelsQuery.data?.[0]?.id ?? "";
-
-  const { sendMessage, streamingMessage, isStreaming } = useChatStream(chatId, modelId);
+  const { sendMessage, streamingMessage, isStreaming } = useChatStream(chatId);
 
   return (
     <div className="mx-auto flex h-screen max-w-2xl flex-col p-4">
       <MessageList messages={messagesQuery.data ?? []} streamingMessage={streamingMessage} />
-      <ChatInput onSend={sendMessage} disabled={isStreaming || !modelId} />
+      <ChatInput onSend={sendMessage} disabled={isStreaming} />
     </div>
   );
 }

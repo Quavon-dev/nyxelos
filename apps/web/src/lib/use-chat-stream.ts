@@ -16,8 +16,12 @@ export interface StreamingMessage {
  * invalidates the TanStack Query messages cache once the server has
  * persisted the final assistant message. See ARCHITECTURE.md section 14
  * (Streaming Architecture).
+ *
+ * The model is resolved server-side from `agent.modelId ?? chat.modelId`
+ * (see apps/server/src/routes/chat-stream.ts) — this hook only ever needs
+ * the chat id.
  */
-export function useChatStream(chatId: string, modelId: string) {
+export function useChatStream(chatId: string) {
   const [streamingMessage, setStreamingMessage] = useState<StreamingMessage | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const queryClient = useQueryClient();
@@ -46,7 +50,7 @@ export function useChatStream(chatId: string, modelId: string) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ chatId, modelId, message }),
+          body: JSON.stringify({ chatId, message }),
         });
 
         if (!res.ok || !res.body) {
@@ -69,7 +73,7 @@ export function useChatStream(chatId: string, modelId: string) {
         await queryClient.invalidateQueries({ queryKey: ["messages", chatId] });
       }
     },
-    [chatId, modelId, queryClient],
+    [chatId, queryClient],
   );
 
   return { sendMessage, streamingMessage, isStreaming };

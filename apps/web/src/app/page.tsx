@@ -1,33 +1,45 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { trpcClient, type ModelSummary } from "@/lib/trpc";
+import { trpcClient } from "@/lib/trpc";
 
 export default function HomePage() {
   const router = useRouter();
 
-  const modelsQuery = useQuery<ModelSummary[]>({
+  const modelsQuery = useQuery({
     queryKey: ["models", "list"],
     queryFn: () => trpcClient.models.list.query(),
   });
 
-  const startChat = useMutation({
-    mutationFn: async () => {
+  // Resolves (and, on first run, creates) the demo user's workspace so the
+  // rest of the page — including the settings/agents/MCP nav links — has
+  // somewhere to point to without requiring a click first.
+  const bootstrapQuery = useQuery({
+    queryKey: ["bootstrap"],
+    queryFn: async () => {
       const user = await trpcClient.demoUser.query();
       const workspaces = await trpcClient.workspaces.list.query({ userId: user.id });
       const workspace =
         workspaces[0] ??
         (await trpcClient.workspaces.create.mutate({ userId: user.id, name: "Personal" }));
+      return { user, workspace };
+    },
+  });
+
+  const startChat = useMutation({
+    mutationFn: async () => {
+      if (!bootstrapQuery.data) throw new Error("Still loading — try again in a moment.");
       const models = await trpcClient.models.list.query();
       const modelId = models[0]?.id;
       if (!modelId) {
         throw new Error("No models available. Start a local model or set an API key.");
       }
       return trpcClient.chats.create.mutate({
-        workspaceId: workspace.id,
+        workspaceId: bootstrapQuery.data.workspace.id,
         title: "Demo chat",
         modelId,
       });
@@ -37,12 +49,34 @@ export default function HomePage() {
     },
   });
 
+  const workspaceId = bootstrapQuery.data?.workspace.id;
+
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-8">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Nyxel</h1>
-        <p className="text-muted-foreground">Self-hosted agentic OS — Phase 0 scaffold.</p>
+        <p className="text-muted-foreground">Self-hosted agentic OS — Phase 1 scaffold.</p>
       </div>
+
+      {workspaceId && (
+        <nav className="flex gap-4 text-sm">
+          <Link
+            className="underline underline-offset-4"
+            href={`/workspace/${workspaceId}/settings`}
+          >
+            Custom instructions
+          </Link>
+          <Link className="underline underline-offset-4" href={`/workspace/${workspaceId}/agents`}>
+            Agents
+          </Link>
+          <Link
+            className="underline underline-offset-4"
+            href={`/workspace/${workspaceId}/mcp-servers`}
+          >
+            MCP servers
+          </Link>
+        </nav>
+      )}
 
       <Card className="space-y-2 p-4">
         <h2 className="font-medium">Detected models</h2>
