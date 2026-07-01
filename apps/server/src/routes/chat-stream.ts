@@ -5,7 +5,10 @@ import { z } from "zod";
 import { prepareMessageContentForModel } from "../attachment-processing";
 import { resolveAgentRuntimeConfig } from "../auto-agent";
 import { summarizeChatMessageForModel } from "../chat-message";
-import { getKnowledgeBaseContextForPrompt } from "../knowledge-base";
+import {
+	getKnowledgeBaseContextForPrompt,
+	runDocsAgentForWorkspace,
+} from "../knowledge-base";
 import { getInstalledProvidersForWorkspace } from "../models";
 import { buildToolsForAgent } from "../tools";
 import {
@@ -47,6 +50,12 @@ async function persistAssistantMessage(chatId: string, content: string) {
 			err,
 		);
 	}
+}
+
+function triggerKnowledgeBaseSync(workspaceId: string) {
+	runDocsAgentForWorkspace(workspaceId, "background").catch((err) => {
+		console.error(`Knowledge-base sync failed for workspace ${workspaceId}:`, err);
+	});
 }
 
 function isClosedStreamControllerError(err: unknown): boolean {
@@ -193,6 +202,7 @@ export function registerChatStreamRoute(app: Hono) {
 					}
 
 					await persistAssistantMessage(chatId, assistantText);
+					triggerKnowledgeBaseSync(chat.workspaceId);
 					if (!clientDisconnected) {
 						controller.close();
 					}
@@ -214,6 +224,7 @@ export function registerChatStreamRoute(app: Hono) {
 						err,
 					);
 					await persistAssistantMessage(chatId, assistantText);
+					triggerKnowledgeBaseSync(chat.workspaceId);
 					const missingSuffix = assistantText.startsWith(streamedText)
 						? assistantText.slice(streamedText.length)
 						: assistantText;

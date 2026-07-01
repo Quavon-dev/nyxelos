@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { KnowledgeGraphView } from "@/components/knowledge-base/graph-view";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,64 +15,6 @@ import { trpcClient } from "@/lib/trpc";
 function formatDate(value: Date | string | null) {
   if (!value) return "—";
   return new Date(value).toLocaleString();
-}
-
-function GraphPreview({
-  nodes,
-  edges,
-}: {
-  nodes: { id: string; label: string; group: string }[];
-  edges: { source: string; target: string }[];
-}) {
-  const radius = 130;
-  const centerX = 220;
-  const centerY = 180;
-  const positioned = nodes.map((node, index) => {
-    const angle = (index / Math.max(nodes.length, 1)) * Math.PI * 2;
-    return {
-      ...node,
-      x: centerX + Math.cos(angle) * radius,
-      y: centerY + Math.sin(angle) * radius,
-    };
-  });
-  const byId = new Map(positioned.map((node) => [node.id, node]));
-
-  return (
-    <div className="overflow-x-auto">
-      <svg viewBox="0 0 440 360" className="h-[360px] w-full min-w-[440px] rounded-md border">
-        <title>Knowledge base document graph</title>
-        {edges.map((edge) => {
-          const source = byId.get(edge.source);
-          const target = byId.get(edge.target);
-          if (!source || !target) return null;
-          return (
-            <line
-              key={`${edge.source}-${edge.target}`}
-              x1={source.x}
-              y1={source.y}
-              x2={target.x}
-              y2={target.y}
-              stroke="currentColor"
-              strokeOpacity="0.2"
-            />
-          );
-        })}
-        {positioned.map((node) => (
-          <g key={node.id}>
-            <circle cx={node.x} cy={node.y} r="10" fill="currentColor" fillOpacity="0.85" />
-            <text
-              x={node.x}
-              y={node.y - 16}
-              textAnchor="middle"
-              className="fill-current text-[10px]"
-            >
-              {node.label.length > 22 ? `${node.label.slice(0, 22)}…` : node.label}
-            </text>
-          </g>
-        ))}
-      </svg>
-    </div>
-  );
 }
 
 export default function KnowledgeBasePage() {
@@ -259,10 +202,7 @@ export default function KnowledgeBasePage() {
         </CardHeader>
         <CardContent>
           {graphQuery.data ? (
-            <GraphPreview
-              nodes={graphQuery.data.nodes.slice(0, 20)}
-              edges={graphQuery.data.edges.slice(0, 40)}
-            />
+            <KnowledgeGraphView nodes={graphQuery.data.nodes} edges={graphQuery.data.edges} />
           ) : (
             <p className="text-sm text-muted-foreground">Loading graph…</p>
           )}
