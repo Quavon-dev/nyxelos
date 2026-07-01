@@ -30,6 +30,47 @@ export function createPgRepository(connectionString: string): DbRepository {
       return created;
     },
 
+    async getInstallation() {
+      const row = await db.query.installation.findFirst({
+        where: eq(schema.installation.id, "main"),
+      });
+      return row ?? null;
+    },
+
+    async completeInstallation({ mode, ownerUserId, primaryWorkspaceId, appUrl }) {
+      const existing = await db.query.installation.findFirst({
+        where: eq(schema.installation.id, "main"),
+      });
+      if (existing) {
+        const [row] = await db
+          .update(schema.installation)
+          .set({
+            mode,
+            ownerUserId,
+            primaryWorkspaceId,
+            appUrl: appUrl ?? null,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.installation.id, "main"))
+          .returning();
+        if (!row) throw new Error("Failed to update installation");
+        return row;
+      }
+
+      const [row] = await db
+        .insert(schema.installation)
+        .values({
+          id: "main",
+          mode,
+          ownerUserId,
+          primaryWorkspaceId,
+          appUrl: appUrl ?? null,
+        })
+        .returning();
+      if (!row) throw new Error("Failed to create installation");
+      return row;
+    },
+
     async createWorkspace({ userId, name }) {
       const [row] = await db
         .insert(schema.workspace)
@@ -44,6 +85,15 @@ export function createPgRepository(connectionString: string): DbRepository {
         .select()
         .from(schema.workspace)
         .where(eq(schema.workspace.userId, userId));
+      return rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        customInstructions: r.customInstructions,
+      }));
+    },
+
+    async listWorkspaces() {
+      const rows = await db.select().from(schema.workspace);
       return rows.map((r) => ({
         id: r.id,
         name: r.name,
@@ -207,6 +257,72 @@ export function createPgRepository(connectionString: string): DbRepository {
 
     async deleteMcpServer(id) {
       await db.delete(schema.mcpServer).where(eq(schema.mcpServer.id, id));
+    },
+
+    async getKnowledgeBaseConfig(workspaceId) {
+      const row = await db.query.knowledgeBaseConfig.findFirst({
+        where: eq(schema.knowledgeBaseConfig.workspaceId, workspaceId),
+      });
+      return row ?? null;
+    },
+
+    async listKnowledgeBaseConfigs() {
+      return db.select().from(schema.knowledgeBaseConfig);
+    },
+
+    async upsertKnowledgeBaseConfig({
+      workspaceId,
+      vaultPath,
+      obsidianRestUrl,
+      obsidianApiKey,
+      docsAgentEnabled,
+    }) {
+      const existing = await db.query.knowledgeBaseConfig.findFirst({
+        where: eq(schema.knowledgeBaseConfig.workspaceId, workspaceId),
+      });
+      if (existing) {
+        const [row] = await db
+          .update(schema.knowledgeBaseConfig)
+          .set({
+            vaultPath,
+            obsidianRestUrl: obsidianRestUrl ?? null,
+            obsidianApiKey: obsidianApiKey ?? null,
+            docsAgentEnabled: docsAgentEnabled ?? existing.docsAgentEnabled,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.knowledgeBaseConfig.workspaceId, workspaceId))
+          .returning();
+        if (!row) throw new Error(`Knowledge base config not found: ${workspaceId}`);
+        return row;
+      }
+
+      const [row] = await db
+        .insert(schema.knowledgeBaseConfig)
+        .values({
+          workspaceId,
+          vaultPath,
+          obsidianRestUrl: obsidianRestUrl ?? null,
+          obsidianApiKey: obsidianApiKey ?? null,
+          docsAgentEnabled: docsAgentEnabled ?? true,
+          updatedAt: new Date(),
+        })
+        .returning();
+      if (!row) throw new Error("Failed to create knowledge base config");
+      return row;
+    },
+
+    async updateKnowledgeBaseSyncStatus({ workspaceId, lastDocsSyncAt, lastDocsSyncError }) {
+      const [row] = await db
+        .update(schema.knowledgeBaseConfig)
+        .set({
+          lastDocsSyncAt,
+          lastDocsSyncError: lastDocsSyncError ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.knowledgeBaseConfig.workspaceId, workspaceId))
+        .returning();
+      if (!row) throw new Error(`Knowledge base config not found: ${workspaceId}`);
+      return row;
     },
 
     async createAutomation({

@@ -14,6 +14,7 @@ export const agentAutonomyLevel = pgEnum("agent_autonomy_level", [
 ]);
 
 export const mcpTransport = pgEnum("mcp_transport", ["stdio", "http"]);
+export const installationMode = pgEnum("installation_mode", ["pc", "server"]);
 
 /** See ADR-0009: pending approvals are resolved out-of-band, not by pausing
  * the model's tool-calling loop mid-stream. */
@@ -34,6 +35,18 @@ export const auditStatus = pgEnum("audit_status", [
 
 /** A workspace is the top-level category a user sorts chats, agents, and
  * automations into (e.g. "Work", "Personal"). See ARCHITECTURE.md section 5. */
+export const installation = pgTable("installation", {
+  id: text("id").primaryKey(),
+  mode: installationMode("mode").notNull(),
+  ownerUserId: text("owner_user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  primaryWorkspaceId: text("primary_workspace_id").notNull(),
+  appUrl: text("app_url"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const workspace = pgTable("workspace", {
   id: text("id").primaryKey(),
   userId: text("user_id")
@@ -77,6 +90,19 @@ export const mcpServer = pgTable("mcp_server", {
   url: text("url"),
   enabled: boolean("enabled").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const knowledgeBaseConfig = pgTable("knowledge_base_config", {
+  workspaceId: text("workspace_id")
+    .primaryKey()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  vaultPath: text("vault_path").notNull().default("knowledge-base"),
+  obsidianRestUrl: text("obsidian_rest_url"),
+  obsidianApiKey: text("obsidian_api_key"),
+  docsAgentEnabled: boolean("docs_agent_enabled").notNull().default(true),
+  lastDocsSyncAt: timestamp("last_docs_sync_at"),
+  lastDocsSyncError: text("last_docs_sync_error"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 export const chat = pgTable("chat", {

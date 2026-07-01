@@ -3,129 +3,381 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { trpcClient } from "@/lib/trpc";
+import { Input } from "@/components/ui/input";
+import { trpcClient, type InstallationMode } from "@/lib/trpc";
+
+type InstallForm = {
+  mode: InstallationMode;
+  ownerName: string;
+  ownerEmail: string;
+  ownerPassword: string;
+  workspaceName: string;
+  appUrl: string;
+};
+
+const MODE_COPY: Record<
+  InstallationMode,
+  { title: string; description: string; database: string; network: string }
+> = {
+  pc: {
+    title: "PC mode",
+    description: "Single-user, SQLite, local-first. Fastest path for a workstation or laptop.",
+    database: "SQLite file on disk",
+    network: "Direct web/server ports on localhost",
+  },
+  server: {
+    title: "Server mode",
+    description: "Shared deployment with a domain, PostgreSQL, TLS, and reverse proxying via Caddy.",
+    database: "PostgreSQL container",
+    network: "HTTPS via Caddy on your own domain",
+  },
+};
 
 export default function HomePage() {
   const router = useRouter();
-
+  const installationQuery = useQuery({
+    queryKey: ["installation", "status"],
+    queryFn: () => trpcClient.installation.status.query(),
+  });
   const modelsQuery = useQuery({
     queryKey: ["models", "list"],
     queryFn: () => trpcClient.models.list.query(),
+    enabled: installationQuery.data?.isInstalled === true,
   });
 
-  // Resolves (and, on first run, creates) the demo user's workspace so the
-  // rest of the page — including the settings/agents/MCP nav links — has
-  // somewhere to point to without requiring a click first.
-  const bootstrapQuery = useQuery({
-    queryKey: ["bootstrap"],
-    queryFn: async () => {
-      const user = await trpcClient.demoUser.query();
-      const workspaces = await trpcClient.workspaces.list.query({ userId: user.id });
-      const workspace =
-        workspaces[0] ??
-        (await trpcClient.workspaces.create.mutate({ userId: user.id, name: "Personal" }));
-      return { user, workspace };
+  const [form, setForm] = useState<InstallForm>({
+    mode: "pc",
+    ownerName: "",
+    ownerEmail: "",
+    ownerPassword: "",
+    workspaceName: "Personal",
+    appUrl: "http://localhost:3000",
+  });
+
+  useEffect(() => {
+    if (!installationQuery.data) return;
+    setForm((current) => ({
+      ...current,
+      mode: installationQuery.data.recommendedMode,
+      appUrl: installationQuery.data.defaultAppUrl,
+    }));
+  }, [installationQuery.data]);
+
+  const install = useMutation({
+    mutationFn: () => trpcClient.installation.complete.mutate(form),
+    onSuccess: async () => {
+      await installationQuery.refetch();
+      router.refresh();
     },
   });
 
   const startChat = useMutation({
     mutationFn: async () => {
-      if (!bootstrapQuery.data) throw new Error("Still loading — try again in a moment.");
+      const workspaceId = installationQuery.data?.record?.primaryWorkspaceId;
+      if (!workspaceId) throw new Error("Installation is incomplete.");
       const models = await trpcClient.models.list.query();
       const modelId = models[0]?.id;
       if (!modelId) {
-        throw new Error("No models available. Start a local model or set an API key.");
+        throw new Error("No models available. Start Ollama/LM Studio or add an API key.");
       }
       return trpcClient.chats.create.mutate({
-        workspaceId: bootstrapQuery.data.workspace.id,
-        title: "Demo chat",
+        workspaceId,
+        title: "First chat",
         modelId,
       });
     },
-    onSuccess: (chat) => {
-      router.push(`/chat/${chat.id}`);
-    },
+    onSuccess: (chat) => router.push(`/chat/${chat.id}`),
   });
 
-  const workspaceId = bootstrapQuery.data?.workspace.id;
+  if (installationQuery.isLoading) {
+    return (
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(178,245,234,0.45),_transparent_30%),linear-gradient(180deg,_#f8faf7_0%,_#eef4ef_100%)] p-6">
+        <div className="mx-auto max-w-5xl">
+          <Card className="border-0 bg-white/80 p-8 backdrop-blur">
+            <p className="text-sm text-muted-foreground">Loading installation state…</p>
+          </Card>
+        </div>
+      </main>
+    );
+  }
+
+  if (!installationQuery.data?.isInstalled) {
+    const selectedMode = MODE_COPY[form.mode];
+
+    return (
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(255,214,153,0.45),_transparent_25%),radial-gradient(circle_at_top_right,_rgba(178,245,234,0.4),_transparent_30%),linear-gradient(180deg,_#f6f3eb_0%,_#eef4ef_100%)] p-6 md:p-10">
+        <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+          <section className="space-y-5">
+            <div className="space-y-3">
+              <p className="text-sm uppercase tracking-[0.24em] text-muted-foreground">Phase 5</p>
+              <h1 className="max-w-3xl text-4xl font-semibold tracking-tight md:text-6xl">
+                Install Nyxel once, then run it like a product.
+              </h1>
+              <p className="max-w-2xl text-base text-muted-foreground md:text-lg">
+                The setup wizard writes the first account, workspace, mode, and app URL into the
+                database so the stack can boot consistently on a PC or a server.
+              </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <Card className="border-white/60 bg-white/75 p-5 backdrop-blur">
+                <p className="text-sm font-medium">Mode-aware</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Recommends {installationQuery.data?.recommendedMode.toUpperCase()} from the active
+                  database driver.
+                </p>
+              </Card>
+              <Card className="border-white/60 bg-white/75 p-5 backdrop-blur">
+                <p className="text-sm font-medium">Caddy-ready</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Server mode assumes HTTPS termination and path routing through Caddy.
+                </p>
+              </Card>
+              <Card className="border-white/60 bg-white/75 p-5 backdrop-blur">
+                <p className="text-sm font-medium">Own the first account</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Creates the initial Better-Auth account and the primary workspace in one step.
+                </p>
+              </Card>
+            </div>
+          </section>
+
+          <Card className="border-white/60 bg-white/88 p-6 shadow-xl backdrop-blur">
+            <div className="mb-5 space-y-1">
+              <h2 className="text-xl font-semibold">Setup wizard</h2>
+              <p className="text-sm text-muted-foreground">
+                Choose the deployment mode, then define the owner and workspace.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {(["pc", "server"] as const).map((mode) => {
+                const active = form.mode === mode;
+                const copy = MODE_COPY[mode];
+                return (
+                  <button
+                    key={mode}
+                    className={`rounded-xl border p-4 text-left transition ${
+                      active
+                        ? "border-foreground bg-foreground text-background"
+                        : "border-border bg-background/70 hover:border-foreground/40"
+                    }`}
+                    onClick={() => setForm((current) => ({ ...current, mode }))}
+                    type="button"
+                  >
+                    <p className="font-medium">{copy.title}</p>
+                    <p
+                      className={`mt-2 text-sm ${
+                        active ? "text-background/80" : "text-muted-foreground"
+                      }`}
+                    >
+                      {copy.description}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 rounded-xl border bg-background/60 p-4 text-sm">
+              <p className="font-medium">{selectedMode.title}</p>
+              <p className="mt-1 text-muted-foreground">{selectedMode.description}</p>
+              <p className="mt-3">Database: {selectedMode.database}</p>
+              <p className="text-muted-foreground">Network: {selectedMode.network}</p>
+            </div>
+
+            <form
+              className="mt-5 space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                install.mutate();
+              }}
+            >
+              <label className="block space-y-2 text-sm">
+                <span>Owner name</span>
+                <Input
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, ownerName: event.target.value }))
+                  }
+                  placeholder="Jane Admin"
+                  required
+                  value={form.ownerName}
+                />
+              </label>
+
+              <label className="block space-y-2 text-sm">
+                <span>Owner email</span>
+                <Input
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, ownerEmail: event.target.value }))
+                  }
+                  placeholder="owner@example.com"
+                  required
+                  type="email"
+                  value={form.ownerEmail}
+                />
+              </label>
+
+              <label className="block space-y-2 text-sm">
+                <span>Owner password</span>
+                <Input
+                  minLength={8}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, ownerPassword: event.target.value }))
+                  }
+                  placeholder="At least 8 characters"
+                  required
+                  type="password"
+                  value={form.ownerPassword}
+                />
+              </label>
+
+              <label className="block space-y-2 text-sm">
+                <span>Primary workspace</span>
+                <Input
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, workspaceName: event.target.value }))
+                  }
+                  required
+                  value={form.workspaceName}
+                />
+              </label>
+
+              <label className="block space-y-2 text-sm">
+                <span>Public app URL</span>
+                <Input
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, appUrl: event.target.value }))
+                  }
+                  placeholder="https://nyxel.example.com"
+                  required
+                  type="url"
+                  value={form.appUrl}
+                />
+              </label>
+
+              <Button className="w-full" disabled={install.isPending} size="lg" type="submit">
+                {install.isPending ? "Installing…" : "Complete installation"}
+              </Button>
+              {install.isError && (
+                <p className="text-sm text-destructive">{(install.error as Error).message}</p>
+              )}
+            </form>
+          </Card>
+        </div>
+      </main>
+    );
+  }
+
+  const workspaceId = installationQuery.data.record?.primaryWorkspaceId;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Nyxel</h1>
-        <p className="text-muted-foreground">
-          Self-hosted agentic OS — Phase 2 (agents, skills, autonomy).
-        </p>
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(178,245,234,0.45),_transparent_30%),linear-gradient(180deg,_#f7faf8_0%,_#edf3ef_100%)] p-6 md:p-10">
+      <div className="mx-auto max-w-5xl space-y-6">
+        <section className="grid gap-4 md:grid-cols-[1.3fr_0.7fr]">
+          <Card className="border-white/60 bg-white/82 p-6 backdrop-blur">
+            <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">
+              {installationQuery.data.record?.mode === "server" ? "Server mode" : "PC mode"}
+            </p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-5xl">Nyxel is installed.</h1>
+            <p className="mt-3 max-w-2xl text-muted-foreground">
+              The instance is bound to{" "}
+              <span className="font-medium text-foreground">
+                {installationQuery.data.record?.appUrl ?? installationQuery.data.defaultAppUrl}
+              </span>
+              . The rest of the stack can now assume a stable owner and workspace.
+            </p>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <Button disabled={startChat.isPending} onClick={() => startChat.mutate()}>
+                {startChat.isPending ? "Starting…" : "Start first chat"}
+              </Button>
+              {workspaceId && (
+                <Button asChild variant="outline">
+                  <Link href={`/workspace/${workspaceId}/settings`}>Open workspace settings</Link>
+                </Button>
+              )}
+            </div>
+            {startChat.isError && (
+              <p className="mt-3 text-sm text-destructive">{(startChat.error as Error).message}</p>
+            )}
+          </Card>
+
+          <Card className="border-white/60 bg-white/70 p-6 backdrop-blur">
+            <p className="text-sm font-medium">Deployment summary</p>
+            <div className="mt-4 space-y-3 text-sm">
+              <p>Database driver: {installationQuery.data.driver}</p>
+              <p>Workspace id: {workspaceId}</p>
+              <p>Owner id: {installationQuery.data.record?.ownerUserId}</p>
+            </div>
+          </Card>
+        </section>
+
+        {workspaceId && (
+          <nav className="flex flex-wrap gap-4 text-sm">
+            <Link className="underline underline-offset-4" href={`/workspace/${workspaceId}/settings`}>
+              Custom instructions
+            </Link>
+            <Link className="underline underline-offset-4" href={`/workspace/${workspaceId}/agents`}>
+              Agents
+            </Link>
+            <Link
+              className="underline underline-offset-4"
+              href={`/workspace/${workspaceId}/mcp-servers`}
+            >
+              MCP servers
+            </Link>
+            <Link
+              className="underline underline-offset-4"
+              href={`/workspace/${workspaceId}/automations`}
+            >
+              Automations
+            </Link>
+            <Link
+              className="underline underline-offset-4"
+              href={`/workspace/${workspaceId}/approvals`}
+            >
+              Approvals
+            </Link>
+            <Link
+              className="underline underline-offset-4"
+              href={`/workspace/${workspaceId}/audit-log`}
+            >
+              Audit log
+            </Link>
+            <Link
+              className="underline underline-offset-4"
+              href={`/workspace/${workspaceId}/knowledge-base`}
+            >
+              Knowledge base
+            </Link>
+          </nav>
+        )}
+
+        <Card className="border-white/60 bg-white/82 p-6 backdrop-blur">
+          <h2 className="font-medium">Detected models</h2>
+          {modelsQuery.isLoading && (
+            <p className="mt-2 text-sm text-muted-foreground">Checking for local and cloud models…</p>
+          )}
+          {modelsQuery.data?.length === 0 && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              No models detected. Start Ollama/LM Studio or set an API key for a cloud provider.
+            </p>
+          )}
+          <ul className="mt-4 space-y-2">
+            {modelsQuery.data?.map((model) => (
+              <li
+                key={model.id}
+                className="flex items-center justify-between rounded-lg border bg-background/70 px-4 py-3 text-sm"
+              >
+                <span>{model.label}</span>
+                <span className="text-muted-foreground">{model.kind}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
       </div>
-
-      {workspaceId && (
-        <nav className="flex gap-4 text-sm">
-          <Link
-            className="underline underline-offset-4"
-            href={`/workspace/${workspaceId}/settings`}
-          >
-            Custom instructions
-          </Link>
-          <Link className="underline underline-offset-4" href={`/workspace/${workspaceId}/agents`}>
-            Agents
-          </Link>
-          <Link
-            className="underline underline-offset-4"
-            href={`/workspace/${workspaceId}/mcp-servers`}
-          >
-            MCP servers
-          </Link>
-          <Link
-            className="underline underline-offset-4"
-            href={`/workspace/${workspaceId}/automations`}
-          >
-            Automations
-          </Link>
-          <Link
-            className="underline underline-offset-4"
-            href={`/workspace/${workspaceId}/approvals`}
-          >
-            Approvals
-          </Link>
-          <Link
-            className="underline underline-offset-4"
-            href={`/workspace/${workspaceId}/audit-log`}
-          >
-            Audit log
-          </Link>
-        </nav>
-      )}
-
-      <Card className="space-y-2 p-4">
-        <h2 className="font-medium">Detected models</h2>
-        {modelsQuery.isLoading && (
-          <p className="text-sm text-muted-foreground">Checking for local models…</p>
-        )}
-        {modelsQuery.data?.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            No models detected. Start Ollama or LM Studio, or set ANTHROPIC_API_KEY.
-          </p>
-        )}
-        <ul className="space-y-1">
-          {modelsQuery.data?.map((m) => (
-            <li key={m.id} className="flex justify-between text-sm">
-              <span>{m.label}</span>
-              <span className="text-muted-foreground">{m.kind}</span>
-            </li>
-          ))}
-        </ul>
-      </Card>
-
-      <div className="space-y-2">
-        <Button onClick={() => startChat.mutate()} disabled={startChat.isPending}>
-          {startChat.isPending ? "Starting…" : "Start demo chat"}
-        </Button>
-        {startChat.isError && (
-          <p className="text-sm text-destructive">{(startChat.error as Error).message}</p>
-        )}
-      </div>
-    </div>
+    </main>
   );
 }

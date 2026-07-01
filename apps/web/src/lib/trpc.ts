@@ -10,11 +10,30 @@ export type ModelSummary = {
 
 export type AutonomyLevel = "chat" | "assisted" | "autonomous" | "super_agent";
 export type McpTransportKind = "stdio" | "http";
+export type InstallationMode = "pc" | "server";
 
 type DemoUser = {
   id: string;
   name: string;
   email: string;
+};
+
+export type InstallationSummary = {
+  id: string;
+  mode: InstallationMode;
+  ownerUserId: string;
+  primaryWorkspaceId: string;
+  appUrl: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type InstallationStatus = {
+  isInstalled: boolean;
+  driver: "pg" | "sqlite";
+  recommendedMode: InstallationMode;
+  defaultAppUrl: string;
+  record: InstallationSummary | null;
 };
 
 export type WorkspaceSummary = {
@@ -133,9 +152,63 @@ export type McpToolSummary = {
   inputSchema: Record<string, unknown>;
 };
 
+export type KnowledgeBaseConfigSummary = {
+  workspaceId: string;
+  vaultPath: string;
+  obsidianRestUrl: string | null;
+  obsidianApiKey: string | null;
+  docsAgentEnabled: boolean;
+  lastDocsSyncAt: Date | null;
+  lastDocsSyncError: string | null;
+  updatedAt: Date;
+};
+
+export type KnowledgeBaseOverview = {
+  config: KnowledgeBaseConfigSummary & {
+    obsidianApiKeySet: boolean;
+    absoluteVaultPath: string;
+  };
+  stats: {
+    noteCount: number;
+    edgeCount: number;
+  };
+  recentDocuments: KnowledgeBaseDocument[];
+  obsidian: {
+    reachable: boolean;
+    error: string | null;
+  };
+};
+
+export type KnowledgeBaseDocument = {
+  path: string;
+  title: string;
+  modifiedAt: Date;
+  links: string[];
+};
+
+export type KnowledgeBaseGraph = {
+  nodes: { id: string; label: string; group: string }[];
+  edges: { source: string; target: string }[];
+};
+
 type NyxelTrpcClient = {
   demoUser: {
     query(): Promise<DemoUser>;
+  };
+  installation: {
+    status: {
+      query(): Promise<InstallationStatus>;
+    };
+    complete: {
+      mutate(input: {
+        mode: InstallationMode;
+        ownerName: string;
+        ownerEmail: string;
+        ownerPassword: string;
+        workspaceName: string;
+        appUrl?: string;
+      }): Promise<InstallationSummary>;
+    };
   };
   models: {
     list: {
@@ -256,6 +329,29 @@ type NyxelTrpcClient = {
   auditLog: {
     list: {
       query(input: { workspaceId: string; limit?: number }): Promise<AuditLogSummary[]>;
+    };
+  };
+  knowledgeBase: {
+    overview: {
+      query(input: { workspaceId: string }): Promise<KnowledgeBaseOverview>;
+    };
+    updateConfig: {
+      mutate(input: {
+        workspaceId: string;
+        vaultPath: string;
+        obsidianRestUrl?: string | null;
+        obsidianApiKey?: string | null;
+        docsAgentEnabled?: boolean;
+      }): Promise<KnowledgeBaseConfigSummary>;
+    };
+    documents: {
+      query(input: { workspaceId: string }): Promise<KnowledgeBaseDocument[]>;
+    };
+    graph: {
+      query(input: { workspaceId: string }): Promise<KnowledgeBaseGraph>;
+    };
+    runDocsAgent: {
+      mutate(input: { workspaceId: string }): Promise<{ ok: boolean; skipped: boolean; notePath?: string }>;
     };
   };
 };

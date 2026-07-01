@@ -1,7 +1,14 @@
 import { getDb } from "@nyxel/db";
 import { listAvailableModels } from "@nyxel/model-providers";
 import { z } from "zod";
+import {
+  buildKnowledgeBaseGraph,
+  getKnowledgeBaseOverview,
+  listKnowledgeBaseDocuments,
+  runDocsAgentForWorkspace,
+} from "../knowledge-base";
 import { resolveApprovalDecision } from "../approvals";
+import { auth } from "../auth";
 import { ensureMcpServerConnected, mcpManager } from "../mcp-runtime";
 import { computeNextRunAt, runAutomation } from "../scheduler";
 import { skillRegistry } from "../skills-registry";
@@ -10,12 +17,70 @@ import { publicProcedure, router } from "./trpc";
 const autonomyLevelSchema = z.enum(["chat", "assisted", "autonomous", "super_agent"]);
 const mcpTransportSchema = z.enum(["stdio", "http"]);
 const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);
+const installationModeSchema = z.enum(["pc", "server"]);
 const AUTOMATABLE_LEVELS = new Set(["autonomous", "super_agent"]);
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({ ok: true, name: "nyxel-server" })),
 
   demoUser: publicProcedure.query(() => getDb().getOrCreateDemoUser()),
+
+  installation: router({
+    status: publicProcedure.query(async () => {
+      const db = getDb();
+      const installation = await db.getInstallation();
+      const recommendedMode = db.driver === "pg" ? "server" : "pc";
+      const defaultAppUrl =
+        process.env.PUBLIC_APP_URL ??
+        (recommendedMode === "server"
+          ? `https://${process.env.NYXEL_DOMAIN ?? "nyxel.example.com"}`
+          : "http://localhost:3000");
+
+      return {
+        isInstalled: installation !== null,
+        driver: db.driver,
+        recommendedMode,
+        defaultAppUrl,
+        record: installation,
+      };
+    }),
+    complete: publicProcedure
+      .input(
+        z.object({
+          mode: installationModeSchema,
+          ownerName: z.string().min(2),
+          ownerEmail: z.string().email(),
+          ownerPassword: z.string().min(8),
+          workspaceName: z.string().min(1),
+          appUrl: z.string().url().optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const db = getDb();
+        const existing = await db.getInstallation();
+        if (existing) return existing;
+
+        const signUpResult = await auth.api.signUpEmail({
+          body: {
+            name: input.ownerName,
+            email: input.ownerEmail,
+            password: input.ownerPassword,
+          },
+        });
+
+        const workspace = await db.createWorkspace({
+          userId: signUpResult.user.id,
+          name: input.workspaceName,
+        });
+
+        return db.completeInstallation({
+          mode: input.mode,
+          ownerUserId: signUpResult.user.id,
+          primaryWorkspaceId: workspace.id,
+          appUrl: input.appUrl ?? null,
+        });
+      }),
+  }),
 
   models: router({
     list: publicProcedure.query(() => listAvailableModels()),
@@ -203,6 +268,41 @@ export const appRouter = router({
     list: publicProcedure
       .input(z.object({ workspaceId: z.string(), limit: z.number().min(1).max(500).optional() }))
       .query(({ input }) => getDb().listAuditLogByWorkspace(input.workspaceId, input.limit)),
+  }),
+
+  knowledgeBase: router({
+    overview: publicProcedure
+      .input(z.object({ workspaceId: z.string() }))
+      .query(({ input }) => getKnowledgeBaseOverview(input.workspaceId)),
+    updateConfig: publicProcedure
+      .input(
+        z.object({
+          workspaceId: z.string(),
+          vaultPath: z.string().min(1),
+          obsidianRestUrl: z.string().url().nullable().optional(),
+          obsidianApiKey: z.string().nullable().optional(),
+          docsAgentEnabled: z.boolean().optional(),
+        }),
+      )
+      .mutation(({ input }) =>
+        getDb().upsertKnowledgeBaseConfig({
+          workspaceId: input.workspaceId,
+          vaultPath: input.vaultPath,
+          obsidianRestUrl: input.obsidianRestUrl ?? null,
+          obsidianApiKey: input.obsidianApiKey ?? null,
+          docsAgentEnabled: input.docsAgentEnabled,
+        }),
+      ),
+    documents: publicProcedure
+      .input(z.object({ workspaceId: z.string() }))
+      .query(({ input }) => listKnowledgeBaseDocuments(input.workspaceId)),
+    graph: publicProcedure.input(z.object({ workspaceId: z.string() })).query(async ({ input }) => {
+      const documents = await listKnowledgeBaseDocuments(input.workspaceId);
+      return buildKnowledgeBaseGraph(documents);
+    }),
+    runDocsAgent: publicProcedure
+      .input(z.object({ workspaceId: z.string() }))
+      .mutation(({ input }) => runDocsAgentForWorkspace(input.workspaceId, "manual")),
   }),
 });
 

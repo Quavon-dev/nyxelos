@@ -7,17 +7,20 @@
 
 services:
   server:
+    image: nyxel/server:pc
     build:
       context: .
       dockerfile: apps/server/Dockerfile
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
+      NYXEL_MODE: pc
       DB_DRIVER: sqlite
       DATABASE_URL: /data/nyxel.sqlite
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-me}
       BETTER_AUTH_URL: http://localhost:3001
       WEB_ORIGIN: http://localhost:3000
+      PUBLIC_APP_URL: http://localhost:3000
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       LMSTUDIO_BASE_URL: http://host.docker.internal:1234
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -25,8 +28,10 @@ services:
       - nyxel-data:/data
     ports:
       - "3001:3001"
+    restart: unless-stopped
 
   web:
+    image: nyxel/web:pc
     build:
       context: .
       dockerfile: apps/web/Dockerfile
@@ -36,6 +41,7 @@ services:
       - "3000:3000"
     depends_on:
       - server
+    restart: unless-stopped
 
 volumes:
   nyxel-data:

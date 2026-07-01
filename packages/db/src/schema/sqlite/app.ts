@@ -5,6 +5,7 @@ export type MessageRole = "user" | "assistant" | "system" | "tool";
 
 /** See ../pg/app.ts — Phase 2 implements "autonomous"/"super_agent" behavior. */
 export type AgentAutonomyLevel = "chat" | "assisted" | "autonomous" | "super_agent";
+export type InstallationMode = "pc" | "server";
 
 export type McpTransport = "stdio" | "http";
 
@@ -14,6 +15,18 @@ export type AuditActor = "chat" | "automation" | "approval" | "delegate";
 export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
 
 /** Mirrors ../pg/app.ts. See ARCHITECTURE.md section 5 for the domain model. */
+export const installation = sqliteTable("installation", {
+  id: text("id").primaryKey(),
+  mode: text("mode").notNull().$type<InstallationMode>(),
+  ownerUserId: text("owner_user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  primaryWorkspaceId: text("primary_workspace_id").notNull(),
+  appUrl: text("app_url"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
 export const workspace = sqliteTable("workspace", {
   id: text("id").primaryKey(),
   userId: text("user_id")
@@ -54,6 +67,19 @@ export const mcpServer = sqliteTable("mcp_server", {
   url: text("url"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const knowledgeBaseConfig = sqliteTable("knowledge_base_config", {
+  workspaceId: text("workspace_id")
+    .primaryKey()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  vaultPath: text("vault_path").notNull().default("knowledge-base"),
+  obsidianRestUrl: text("obsidian_rest_url"),
+  obsidianApiKey: text("obsidian_api_key"),
+  docsAgentEnabled: integer("docs_agent_enabled", { mode: "boolean" }).notNull().default(true),
+  lastDocsSyncAt: integer("last_docs_sync_at", { mode: "timestamp" }),
+  lastDocsSyncError: text("last_docs_sync_error"),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
 export const chat = sqliteTable("chat", {

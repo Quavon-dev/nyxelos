@@ -17,21 +17,26 @@ services:
     restart: unless-stopped
 
   server:
+    image: nyxel/server:server
     build:
       context: .
       dockerfile: apps/server/Dockerfile
     environment:
+      NYXEL_MODE: server
       DB_DRIVER: pg
       DATABASE_URL: postgres://nyxel:${POSTGRES_PASSWORD}@postgres:5432/nyxel
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
       BETTER_AUTH_URL: https://${NYXEL_DOMAIN}
       WEB_ORIGIN: https://${NYXEL_DOMAIN}
+      PUBLIC_APP_URL: https://${NYXEL_DOMAIN}
+      NYXEL_DOMAIN: ${NYXEL_DOMAIN:?set NYXEL_DOMAIN in .env}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:
       - postgres
     restart: unless-stopped
 
   web:
+    image: nyxel/web:server
     build:
       context: .
       dockerfile: apps/web/Dockerfile
@@ -50,6 +55,7 @@ services:
       - "443:443"
     environment:
       NYXEL_DOMAIN: ${NYXEL_DOMAIN:?set NYXEL_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - nyxel-caddy-data:/data

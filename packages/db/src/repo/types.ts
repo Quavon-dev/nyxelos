@@ -1,6 +1,7 @@
 export type MessageRole = "user" | "assistant" | "system" | "tool";
 
 export type AgentAutonomyLevel = "chat" | "assisted" | "autonomous" | "super_agent";
+export type InstallationMode = "pc" | "server";
 
 export type McpTransport = "stdio" | "http";
 
@@ -13,6 +14,16 @@ export interface WorkspaceRecord {
   id: string;
   name: string;
   customInstructions: string | null;
+}
+
+export interface InstallationRecord {
+  id: string;
+  mode: InstallationMode;
+  ownerUserId: string;
+  primaryWorkspaceId: string;
+  appUrl: string | null;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface ChatRecord {
@@ -104,6 +115,17 @@ export interface McpServerRecord {
   createdAt: Date;
 }
 
+export interface KnowledgeBaseConfigRecord {
+  workspaceId: string;
+  vaultPath: string;
+  obsidianRestUrl: string | null;
+  obsidianApiKey: string | null;
+  docsAgentEnabled: boolean;
+  lastDocsSyncAt: Date | null;
+  lastDocsSyncError: string | null;
+  updatedAt: Date;
+}
+
 /**
  * A dialect-agnostic data access interface. `packages/db` ships one
  * implementation per SQL dialect (pg.repo.ts, sqlite.repo.ts) so the rest of
@@ -115,9 +137,17 @@ export interface DbRepository {
   readonly driver: "pg" | "sqlite";
 
   getOrCreateDemoUser(): Promise<{ id: string; name: string; email: string }>;
+  getInstallation(): Promise<InstallationRecord | null>;
+  completeInstallation(input: {
+    mode: InstallationMode;
+    ownerUserId: string;
+    primaryWorkspaceId: string;
+    appUrl?: string | null;
+  }): Promise<InstallationRecord>;
 
   createWorkspace(input: { userId: string; name: string }): Promise<WorkspaceRecord>;
   listWorkspacesByUser(userId: string): Promise<WorkspaceRecord[]>;
+  listWorkspaces(): Promise<WorkspaceRecord[]>;
   getWorkspace(workspaceId: string): Promise<WorkspaceRecord | null>;
   updateWorkspaceInstructions(input: {
     workspaceId: string;
@@ -160,6 +190,21 @@ export interface DbRepository {
   listMcpServersByWorkspace(workspaceId: string): Promise<McpServerRecord[]>;
   getMcpServer(id: string): Promise<McpServerRecord | null>;
   deleteMcpServer(id: string): Promise<void>;
+
+  getKnowledgeBaseConfig(workspaceId: string): Promise<KnowledgeBaseConfigRecord | null>;
+  listKnowledgeBaseConfigs(): Promise<KnowledgeBaseConfigRecord[]>;
+  upsertKnowledgeBaseConfig(input: {
+    workspaceId: string;
+    vaultPath: string;
+    obsidianRestUrl?: string | null;
+    obsidianApiKey?: string | null;
+    docsAgentEnabled?: boolean;
+  }): Promise<KnowledgeBaseConfigRecord>;
+  updateKnowledgeBaseSyncStatus(input: {
+    workspaceId: string;
+    lastDocsSyncAt?: Date | null;
+    lastDocsSyncError?: string | null;
+  }): Promise<KnowledgeBaseConfigRecord>;
 
   createAutomation(input: {
     workspaceId: string;

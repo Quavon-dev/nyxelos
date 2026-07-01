@@ -37,6 +37,46 @@ export function createSqliteRepository(filePath: string): DbRepository {
       return row;
     },
 
+    async getInstallation() {
+      const row = db.select().from(schema.installation).where(eq(schema.installation.id, "main")).get();
+      return row ?? null;
+    },
+
+    async completeInstallation({ mode, ownerUserId, primaryWorkspaceId, appUrl }) {
+      const now = new Date();
+      const existing = db
+        .select()
+        .from(schema.installation)
+        .where(eq(schema.installation.id, "main"))
+        .get();
+
+      if (existing) {
+        const row = db
+          .update(schema.installation)
+          .set({ mode, ownerUserId, primaryWorkspaceId, appUrl: appUrl ?? null, updatedAt: now })
+          .where(eq(schema.installation.id, "main"))
+          .returning()
+          .get();
+        if (!row) throw new Error("Failed to update installation");
+        return row;
+      }
+
+      const row = db
+        .insert(schema.installation)
+        .values({
+          id: "main",
+          mode,
+          ownerUserId,
+          primaryWorkspaceId,
+          appUrl: appUrl ?? null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning()
+        .get();
+      return row;
+    },
+
     async createWorkspace({ userId, name }) {
       const row = db
         .insert(schema.workspace)
@@ -52,6 +92,15 @@ export function createSqliteRepository(filePath: string): DbRepository {
         .from(schema.workspace)
         .where(eq(schema.workspace.userId, userId))
         .all();
+      return rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        customInstructions: r.customInstructions,
+      }));
+    },
+
+    async listWorkspaces() {
+      const rows = db.select().from(schema.workspace).all();
       return rows.map((r) => ({
         id: r.id,
         name: r.name,
@@ -229,6 +278,79 @@ export function createSqliteRepository(filePath: string): DbRepository {
 
     async deleteMcpServer(id) {
       db.delete(schema.mcpServer).where(eq(schema.mcpServer.id, id)).run();
+    },
+
+    async getKnowledgeBaseConfig(workspaceId) {
+      const row = db
+        .select()
+        .from(schema.knowledgeBaseConfig)
+        .where(eq(schema.knowledgeBaseConfig.workspaceId, workspaceId))
+        .get();
+      return row ?? null;
+    },
+
+    async listKnowledgeBaseConfigs() {
+      return db.select().from(schema.knowledgeBaseConfig).all();
+    },
+
+    async upsertKnowledgeBaseConfig({
+      workspaceId,
+      vaultPath,
+      obsidianRestUrl,
+      obsidianApiKey,
+      docsAgentEnabled,
+    }) {
+      const now = new Date();
+      const existing = db
+        .select()
+        .from(schema.knowledgeBaseConfig)
+        .where(eq(schema.knowledgeBaseConfig.workspaceId, workspaceId))
+        .get();
+      if (existing) {
+        const row = db
+          .update(schema.knowledgeBaseConfig)
+          .set({
+            vaultPath,
+            obsidianRestUrl: obsidianRestUrl ?? null,
+            obsidianApiKey: obsidianApiKey ?? null,
+            docsAgentEnabled: docsAgentEnabled ?? existing.docsAgentEnabled,
+            updatedAt: now,
+          })
+          .where(eq(schema.knowledgeBaseConfig.workspaceId, workspaceId))
+          .returning()
+          .get();
+        if (!row) throw new Error(`Knowledge base config not found: ${workspaceId}`);
+        return row;
+      }
+
+      const row = db
+        .insert(schema.knowledgeBaseConfig)
+        .values({
+          workspaceId,
+          vaultPath,
+          obsidianRestUrl: obsidianRestUrl ?? null,
+          obsidianApiKey: obsidianApiKey ?? null,
+          docsAgentEnabled: docsAgentEnabled ?? true,
+          updatedAt: now,
+        })
+        .returning()
+        .get();
+      return row;
+    },
+
+    async updateKnowledgeBaseSyncStatus({ workspaceId, lastDocsSyncAt, lastDocsSyncError }) {
+      const row = db
+        .update(schema.knowledgeBaseConfig)
+        .set({
+          lastDocsSyncAt,
+          lastDocsSyncError: lastDocsSyncError ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.knowledgeBaseConfig.workspaceId, workspaceId))
+        .returning()
+        .get();
+      if (!row) throw new Error(`Knowledge base config not found: ${workspaceId}`);
+      return row;
     },
 
     async createAutomation({

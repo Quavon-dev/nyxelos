@@ -22,6 +22,20 @@
       "when": 1782898763894,
       "tag": "0002_military_magma",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1782899800000,
+      "tag": "0003_late_archive",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782901800000,
+      "tag": "0004_self_hosting_polish",
+      "breakpoints": true
     }
   ]
 }

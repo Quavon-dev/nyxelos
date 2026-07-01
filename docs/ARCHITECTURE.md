@@ -1,6 +1,6 @@
 # NyxelOS — Architecture Plan for a Self-Hosted, Open Source agentic OS
 
-Date: July 1, 2026 · Status: Phases 0-2 implemented and verified (see `knowledge-base/02-Dev-Log/`); Phase 3 (knowledge base) not yet started
+Date: July 1, 2026 · Status: Phases 0-2 implemented and verified (see `knowledge-base/02-Dev-Log/`); Phase 3 (knowledge base) started; Phase 5 (self-hosting polish) implemented
 
 ## 1. Vision and Guiding Principles
 
@@ -100,7 +100,7 @@ Responses are streamed token by token from the Bun/Hono server to the frontend v
 | Phase 2 — Autonomy ✅ done     | Time-driven autonomous agents (DB-backed cron scheduler), approval workflow for sensitive actions, super-agent orchestration/delegation, audit log  |
 | Phase 3 — Knowledge base      | Obsidian integration via local REST API/MCP, automatic docs agent, graph view in the UI                                                             |
 | Phase 4 — Local data          | macOS companion as an MCP server (calendar, contacts, photos), CLI/AppleScript fallback                                                             |
-| Phase 5 — Self-hosting polish | Setup wizard, Docker images for both modes, Caddy integration for server mode, installation documentation                                           |
+| Phase 5 — Self-hosting polish ✅ done | Setup wizard, Docker images for both modes, Caddy integration for server mode, installation documentation                                     |
 | Phase 6 — Expansion           | Skill/plugin marketplace, Windows companion, multi-user/team roles, mobile-optimized UI                                                             |
 
 ## 16. Recommended Custom Skills for Development
