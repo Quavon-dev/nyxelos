@@ -8,6 +8,14 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -19,7 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { type McpTransportKind, trpcClient } from "@/lib/trpc";
+import { type McpServerSummary, type McpTransportKind, trpcClient } from "@/lib/trpc";
 
 function openAuthorizationWindow(authorizationUrl: string) {
   const popup = window.open(authorizationUrl, "_blank", "noopener,noreferrer");
@@ -67,6 +75,8 @@ export default function McpServersPage() {
     mutationFn: (id: string) => trpcClient.mcpServers.delete.mutate({ id }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["mcpServers", workspaceId] }),
   });
+
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<McpServerSummary | null>(null);
 
   const [testedServerId, setTestedServerId] = useState<string | null>(null);
   const testConnection = useMutation({
@@ -175,7 +185,7 @@ export default function McpServersPage() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => deleteServer.mutate(server.id)}
+                                  onClick={() => setDeleteConfirmTarget(server)}
                                 >
                                   Delete
                                 </Button>
@@ -310,6 +320,35 @@ export default function McpServersPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(deleteConfirmTarget)}
+        onOpenChange={(open) => !open && setDeleteConfirmTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete MCP server</DialogTitle>
+            <DialogDescription>
+              This permanently removes &quot;{deleteConfirmTarget?.name}&quot;. Agents will no
+              longer be able to reach it. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter showCloseButton>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (deleteConfirmTarget) {
+                  deleteServer.mutate(deleteConfirmTarget.id);
+                  setDeleteConfirmTarget(null);
+                }
+              }}
+              disabled={deleteServer.isPending}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
