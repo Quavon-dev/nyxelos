@@ -33,10 +33,15 @@ export function MessageBubble({
 	onRegenerate?: () => void;
 }) {
 	const isUser = sender === "user";
-	const parsed = !isUser && !streaming ? parseAssistantContent(content) : null;
+	// Strip the trailing ```nyxel-activity block first so parseAssistantContent
+	// (and its plain-text multiselect fallback heuristic) never scans the raw
+	// reasoning/tool-call JSON — it's a single escaped-newline JSON line, but
+	// there's no reason to let it anywhere near text-sniffing logic.
+	const historyActivity = !isUser && !streaming ? parseAgentActivity(content) : null;
+	const contentWithoutActivity = historyActivity?.body ?? content;
+	const parsed = !isUser && !streaming ? parseAssistantContent(contentWithoutActivity) : null;
 	const userAttachment = isUser ? parseChatMessageContent(content) : null;
-	const historyActivity = !isUser && !streaming ? parseAgentActivity(parsed?.body ?? content) : null;
-	const body = historyActivity?.body ?? parsed?.body ?? content;
+	const body = parsed?.body ?? contentWithoutActivity;
 	const activityReasoning = streaming ? reasoning : historyActivity?.activity?.reasoning;
 	const activitySteps = streaming ? (steps ?? []) : (historyActivity?.activity?.steps ?? []);
 	const copyText = isUser ? (userAttachment?.text ?? content) : body;

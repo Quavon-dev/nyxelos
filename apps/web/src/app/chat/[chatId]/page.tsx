@@ -10,6 +10,7 @@ import type {
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatTopBar } from "@/components/chat/chat-top-bar";
 import { MessageList } from "@/components/chat/message-list";
+import { parseAgentActivity } from "@/lib/chat-agent-activity";
 import { parseChatMessageContent } from "@/lib/chat-message";
 import { parseAssistantContent } from "@/lib/chat-prompts";
 import {
@@ -26,7 +27,10 @@ function getLastAssistantContent(
 	const lastMessage = messages.at(-1);
 	if (lastMessage?.role !== "assistant") return null;
 
-	const content = lastMessage.content.trim();
+	// Strip the trailing ```nyxel-activity block (see chat-agent-activity.ts)
+	// before this text is ever shown verbatim — e.g. the "Nyxel asked: …"
+	// banner below — otherwise the raw reasoning/tool-call JSON leaks into it.
+	const content = parseAgentActivity(lastMessage.content).body.trim();
 	return content || null;
 }
 
