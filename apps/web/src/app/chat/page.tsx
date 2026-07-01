@@ -9,6 +9,7 @@ import {
 	ChatComposerToolbar,
 	type ChatToolSelection,
 } from "@/components/chat/chat-composer-toolbar";
+import { WorkingDirectoryPicker } from "@/components/chat/working-directory-picker";
 import {
 	Select,
 	SelectContent,
@@ -16,7 +17,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { serializeChatMessageContent } from "@/lib/chat-message";
 import {
@@ -230,6 +230,10 @@ export default function ChatLandingPage() {
 								))}
 							</SelectContent>
 						</Select>
+						<WorkingDirectoryPicker
+							value={workingDirectory}
+							onChange={setWorkingDirectory}
+						/>
 						{/* Same compact toolbar used in an existing chat thread: Skills
 						 * and Artifacts only show up as pills once the user has pinned
 						 * them via the "..." menu, so this row stays uncluttered until
@@ -261,23 +265,6 @@ export default function ChatLandingPage() {
 						>
 							<ArrowUp className="size-4" />
 						</button>
-					</div>
-					<div className="rounded-xl border border-dashed px-3 py-2">
-						<div className="mb-1 flex items-center justify-between gap-2">
-							<p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-								Working directory
-							</p>
-							<p className="text-[11px] text-muted-foreground">
-								Fixed after chat creation
-							</p>
-						</div>
-						<Input
-							value={workingDirectory}
-							onChange={(e) => setWorkingDirectory(e.target.value)}
-							placeholder="/Users/aaron/dev/quavon/PROJECTS/agentic-os"
-							spellCheck={false}
-							className="h-9 border-none bg-muted/60 px-3 text-sm shadow-none focus-visible:ring-2"
-						/>
 					</div>
 				</div>
 

@@ -271,14 +271,6 @@ export default function ChatPage() {
 
 	return (
 		<div className="mx-auto flex h-full max-w-3xl flex-col p-4">
-			{chat?.workingDirectory && (
-				<div className="mb-3 rounded-xl border border-dashed px-3 py-2 text-sm text-muted-foreground">
-					<span className="font-medium text-foreground">
-						Working directory:
-					</span>{" "}
-					{chat.workingDirectory}
-				</div>
-			)}
 			<MessageList
 				messages={messagesQuery.data ?? []}
 				streamingMessage={streamingMessage}
