@@ -1,7 +1,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
-import { detectLocalModels } from "./detect";
+import { detectLocalModels, getLmStudioApiKey } from "./detect";
 
 export interface CloudModelDefinition {
   id: string;
@@ -165,6 +165,7 @@ export function resolveModel(
   const compatible = createOpenAICompatible({
     name: prefix,
     baseURL: inferOpenAiCompatibleBaseUrl(prefix),
+    apiKey: inferOpenAiCompatibleApiKey(prefix),
   });
   return compatible(nativeId);
 }
@@ -189,4 +190,9 @@ function inferOpenAiCompatibleBaseUrl(prefix: string): string {
   const baseUrl = envByPrefix[prefix] ?? defaultByPrefix[prefix];
   if (!baseUrl) throw new Error(`Unknown model id: ${prefix}`);
   return `${baseUrl.replace(/\/+$/, "")}/v1`;
+}
+
+function inferOpenAiCompatibleApiKey(prefix: string): string | undefined {
+  if (prefix === "lmstudio") return getLmStudioApiKey();
+  return undefined;
 }

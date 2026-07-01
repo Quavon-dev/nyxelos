@@ -148,3 +148,5 @@ bun.lockb.bak
 
 # Swift Package Manager build artifacts
 .build/
+apps/server/nyxel.sqlite-shm
+apps/server/nyxel.sqlite-wal

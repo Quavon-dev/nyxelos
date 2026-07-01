@@ -25,6 +25,7 @@ type OpenAiRuntimeProbe = {
   providerKey: string;
   providerLabel: string;
   baseUrl: string;
+  apiKey?: string | null;
 };
 
 const LOCAL_OPENAI_COMPATIBLE_PROBES: OpenAiRuntimeProbe[] = [
@@ -32,6 +33,7 @@ const LOCAL_OPENAI_COMPATIBLE_PROBES: OpenAiRuntimeProbe[] = [
     providerKey: "lmstudio",
     providerLabel: "LM Studio",
     baseUrl: process.env.LMSTUDIO_BASE_URL ?? "http://localhost:1234",
+    apiKey: getLmStudioApiKey(),
   },
   {
     providerKey: "vllm",
@@ -66,6 +68,15 @@ export function getOllamaBaseUrl(): string {
 
 export function getLmStudioBaseUrl(): string {
   return process.env.LMSTUDIO_BASE_URL ?? "http://localhost:1234";
+}
+
+export function getLmStudioApiKey(): string | undefined {
+  return (
+    process.env.LM_API_TOKEN ??
+    process.env.LMSTUDIO_API_KEY ??
+    process.env.LMSTUDIO_API_TOKEN ??
+    undefined
+  );
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
@@ -135,6 +146,7 @@ export async function probeOpenAiCompatibleEndpoint(input: {
 export async function detectLmStudioModels(): Promise<DetectedLocalModel[]> {
   const detected = await probeOpenAiCompatibleEndpoint({
     baseUrl: getLmStudioBaseUrl(),
+    apiKey: getLmStudioApiKey(),
     providerKey: "lmstudio",
     providerLabel: "LM Studio",
   });
