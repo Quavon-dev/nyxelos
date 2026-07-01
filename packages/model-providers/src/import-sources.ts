@@ -108,7 +108,7 @@ export async function scanProviderImportSources(): Promise<ProviderImportSource[
         id: "codex-cli-session",
         label: "Codex CLI session",
         details:
-          "Detected local OpenAI account sign-in, but account/session tokens are not imported as API keys.",
+          "Detected local OpenAI account sign-in. Setup can open the OpenAI API key page and guide the provider import.",
         kind: "desktop_auth",
         status: "detected",
       });
@@ -132,7 +132,8 @@ export async function scanProviderImportSources(): Promise<ProviderImportSource[
     sources.push({
       id: "codex-desktop",
       label: "Codex Desktop",
-      details: "Detected installed app. Desktop session auth is not imported as an OpenAI API key.",
+      details:
+        "Detected installed app. Setup can continue with browser-assisted OpenAI API key import.",
       kind: "desktop_auth",
       status: "detected",
     });
@@ -144,7 +145,7 @@ export async function scanProviderImportSources(): Promise<ProviderImportSource[
       id: "chatgpt-auth",
       label: "ChatGPT app auth",
       details:
-        "Detected local ChatGPT app data. ChatGPT session auth is not treated as an API key and is not auto-imported.",
+        "Detected local ChatGPT app data. Setup can continue with browser-assisted OpenAI API key import.",
       kind: "desktop_auth",
       status: "detected",
     });
@@ -176,7 +177,7 @@ export async function scanProviderImportSources(): Promise<ProviderImportSource[
       id: "lmstudio-installed",
       label: "LM Studio",
       details:
-        "Detected installed LM Studio, but its local server is not probeable yet. If auth is enabled, set LM_API_TOKEN before running setup.",
+        "Detected installed LM Studio. Setup can probe a local server URL, loaded models, and optional API token interactively.",
       kind: "local_runtime",
       status: "detected",
     });
