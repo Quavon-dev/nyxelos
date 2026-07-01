@@ -567,10 +567,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
         .select()
         .from(schema.automation)
         .where(
-          and(
-            eq(schema.automation.enabled, true),
-            eq(schema.automation.triggerType, "file_watch"),
-          ),
+          and(eq(schema.automation.enabled, true), eq(schema.automation.triggerType, "file_watch")),
         )
         .all();
     },

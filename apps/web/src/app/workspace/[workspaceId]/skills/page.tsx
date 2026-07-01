@@ -153,11 +153,7 @@ export default function SkillsPage() {
           value={builtinSkills.length}
           icon={<Sparkles className="size-4" />}
         />
-        <StatCard
-          label="Custom"
-          value={customSkills.length}
-          icon={<Wrench className="size-4" />}
-        />
+        <StatCard label="Custom" value={customSkills.length} icon={<Wrench className="size-4" />} />
       </div>
 
       <Card>
@@ -342,8 +338,8 @@ export default function SkillsPage() {
               />
               <p className="text-xs text-muted-foreground">
                 The body of an async function <code>(input, ctx) =&gt; {"{ ... }"}</code>. Runs
-                in-process with the same permission checks as other skills (ADR-0007) — it can
-                still reach other APIs directly, so keep sensitive on unless you're sure.
+                in-process with the same permission checks as other skills (ADR-0007) — it can still
+                reach other APIs directly, so keep sensitive on unless you're sure.
               </p>
             </div>
           )}

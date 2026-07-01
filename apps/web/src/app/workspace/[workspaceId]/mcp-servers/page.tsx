@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { type McpTransportKind, trpcClient } from "@/lib/trpc";
+
+function openAuthorizationWindow(authorizationUrl: string) {
+  const popup = window.open(authorizationUrl, "_blank", "noopener,noreferrer");
+  if (!popup) {
+    window.location.href = authorizationUrl;
+  }
+}
 
 export default function McpServersPage() {
   const params = useParams<{ workspaceId: string }>();
@@ -64,7 +71,24 @@ export default function McpServersPage() {
   const testConnection = useMutation({
     mutationFn: (id: string) => trpcClient.mcpServers.listTools.query({ id }),
     onMutate: (id) => setTestedServerId(id),
+    onSuccess: (result) => {
+      if (result.status === "auth_required") {
+        openAuthorizationWindow(result.authorizationUrl);
+      }
+    },
   });
+
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== "nyxel:mcp-auth-complete") return;
+      if (typeof event.data.serverId !== "string") return;
+      void testConnection.mutate(event.data.serverId);
+    }
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [testConnection]);
 
   const servers = serversQuery.data ?? [];
 
@@ -95,52 +119,87 @@ export default function McpServersPage() {
                 </TableHeader>
                 <TableBody>
                   {servers.map((server) => (
-                    <TableRow key={server.id}>
-                      <TableCell className="font-medium">{server.name}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="uppercase">
-                          {server.transport}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="max-w-[260px] truncate text-muted-foreground">
-                        {server.transport === "stdio" ? server.command : server.url}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col gap-2">
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => testConnection.mutate(server.id)}
-                              disabled={testConnection.isPending && testedServerId === server.id}
-                            >
-                              {testConnection.isPending && testedServerId === server.id
-                                ? "Connecting…"
-                                : "Test connection"}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => deleteServer.mutate(server.id)}
-                            >
-                              Delete
-                            </Button>
-                          </div>
-                          {testedServerId === server.id && testConnection.isSuccess && (
-                            <p className="text-xs text-muted-foreground">
-                              {testConnection.data.length === 0
-                                ? "Connected, but exposes no tools."
-                                : `Tools: ${testConnection.data.map((t) => t.name).join(", ")}`}
-                            </p>
-                          )}
-                          {testedServerId === server.id && testConnection.isError && (
-                            <p className="text-xs text-destructive">
-                              {(testConnection.error as Error).message}
-                            </p>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                    (() => {
+                      const testedResult =
+                        testedServerId === server.id && testConnection.isSuccess
+                          ? testConnection.data
+                          : null;
+                      const authRequired =
+                        testedResult?.status === "auth_required"
+                          ? {
+                              authorizationUrl: testedResult.authorizationUrl,
+                              message: testedResult.message,
+                            }
+                          : null;
+                      const invalidConfig =
+                        testedResult?.status === "invalid_config"
+                          ? { message: testedResult.message }
+                          : null;
+
+                      return (
+                        <TableRow key={server.id}>
+                          <TableCell className="font-medium">{server.name}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="uppercase">
+                              {server.transport}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="max-w-[260px] truncate text-muted-foreground">
+                            {server.transport === "stdio" ? server.command : server.url}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-2">
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => testConnection.mutate(server.id)}
+                                  disabled={testConnection.isPending && testedServerId === server.id}
+                                >
+                                  {testConnection.isPending && testedServerId === server.id
+                                    ? "Connecting…"
+                                    : "Test connection"}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => deleteServer.mutate(server.id)}
+                                >
+                                  Delete
+                                </Button>
+                              </div>
+                              {testedResult?.status === "ready" && (
+                                <p className="text-xs text-muted-foreground">
+                                  {testedResult.tools.length === 0
+                                    ? "Connected, but exposes no tools."
+                                    : `Tools: ${testedResult.tools.map((t) => t.name).join(", ")}`}
+                                </p>
+                              )}
+                              {authRequired && (
+                                <div className="space-y-1 text-xs text-muted-foreground">
+                                  <p>{authRequired.message}</p>
+                                  <button
+                                    type="button"
+                                    className="font-medium text-foreground underline underline-offset-2"
+                                    onClick={() => openAuthorizationWindow(authRequired.authorizationUrl)}
+                                  >
+                                    Continue sign-in
+                                  </button>
+                                </div>
+                              )}
+                              {invalidConfig && (
+                                <p className="text-xs text-destructive">{invalidConfig.message}</p>
+                              )}
+                              {testedServerId === server.id && testConnection.isError && (
+                                <p className="text-xs text-destructive">
+                                  {(testConnection.error as Error).message}
+                                </p>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })()
                   ))}
                 </TableBody>
               </Table>
@@ -152,7 +211,10 @@ export default function McpServersPage() {
       <Card>
         <CardHeader>
           <CardTitle>Add server</CardTitle>
-          <CardDescription>Register a new stdio or HTTP MCP server.</CardDescription>
+          <CardDescription>
+            Register a new stdio or HTTP MCP server. For remote servers, use the actual MCP
+            endpoint URL, not the provider's documentation page.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-2">
@@ -205,13 +267,17 @@ export default function McpServersPage() {
             </div>
           ) : (
             <div className="grid gap-2">
-              <Label htmlFor="mcp-url">URL</Label>
+              <Label htmlFor="mcp-url">MCP endpoint URL</Label>
               <Input
                 id="mcp-url"
                 placeholder="https://example.com/mcp"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">
+                Example: use https://api.notion.com/mcp or another direct MCP endpoint, not a
+                docs URL.
+              </p>
             </div>
           )}
 

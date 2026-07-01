@@ -22,7 +22,9 @@ export interface SkillCatalogEntry {
  * DB-backed dynamic skills ("custom"). Used by the Skills tab and the agent
  * skill picker. See ADR-0013.
  */
-export async function listSkillCatalogForWorkspace(workspaceId: string): Promise<SkillCatalogEntry[]> {
+export async function listSkillCatalogForWorkspace(
+  workspaceId: string,
+): Promise<SkillCatalogEntry[]> {
   const builtins: SkillCatalogEntry[] = skillRegistry.list().map((skill) => ({
     id: skill.id,
     name: skill.name,

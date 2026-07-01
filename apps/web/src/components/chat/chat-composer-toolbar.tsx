@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { trpcClient } from "@/lib/trpc";
+import { type McpToolListResult, trpcClient } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 
 export interface ChatToolSelection {
@@ -110,6 +110,26 @@ function pillClass(active: boolean) {
   );
 }
 
+function openAuthorizationWindow(authorizationUrl: string) {
+  const popup = window.open(authorizationUrl, "_blank", "noopener,noreferrer");
+  if (!popup) {
+    window.location.href = authorizationUrl;
+  }
+}
+
+function getAuthPrompt(result: McpToolListResult | undefined) {
+  if (!result || result.status !== "auth_required") return null;
+  return {
+    message: result.message,
+    authorizationUrl: result.authorizationUrl,
+  };
+}
+
+function getInvalidConfigMessage(result: McpToolListResult | undefined) {
+  if (!result || result.status !== "invalid_config") return null;
+  return result.message;
+}
+
 export function ChatComposerToolbar({
   workspaceId,
   mode,
@@ -163,7 +183,23 @@ export function ChatComposerToolbar({
     enabled: Boolean(expandedServerId),
   });
 
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== "nyxel:mcp-auth-complete") return;
+      if (event.data.serverId !== expandedServerId) return;
+      void toolsQuery.refetch();
+    }
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [expandedServerId, toolsQuery]);
+
   const servers = mcpServersQuery.data ?? [];
+  const toolsResult = toolsQuery.data;
+  const availableTools = toolsResult?.status === "ready" ? toolsResult.tools : [];
+  const authPrompt = getAuthPrompt(toolsResult);
+  const invalidConfigMessage = getInvalidConfigMessage(toolsResult);
   const effective: ChatToolSelection = toolSelection ?? {
     skillsEnabled: true,
     mcpServerIds: servers.filter((s) => s.enabled).map((s) => s.id),
@@ -495,10 +531,30 @@ export function ChatComposerToolbar({
                         {toolsQuery.isLoading && (
                           <p className="text-xs text-muted-foreground">Loading tools…</p>
                         )}
-                        {toolsQuery.data?.length === 0 && (
+                        {toolsQuery.isError && (
+                          <p className="text-xs text-destructive">
+                            {(toolsQuery.error as Error).message}
+                          </p>
+                        )}
+                        {authPrompt && (
+                          <div className="space-y-1.5 text-xs text-muted-foreground">
+                            <p>{authPrompt.message}</p>
+                            <button
+                              type="button"
+                              className="font-medium text-foreground underline underline-offset-2"
+                              onClick={() => openAuthorizationWindow(authPrompt.authorizationUrl)}
+                            >
+                              Sign in to load tools
+                            </button>
+                          </div>
+                        )}
+                        {invalidConfigMessage && (
+                          <p className="text-xs text-destructive">{invalidConfigMessage}</p>
+                        )}
+                        {toolsResult?.status === "ready" && availableTools.length === 0 && (
                           <p className="text-xs text-muted-foreground">No tools exposed.</p>
                         )}
-                        {toolsQuery.data?.map((mcpTool) => (
+                        {availableTools.map((mcpTool) => (
                           <div key={mcpTool.name} className="flex items-center gap-2">
                             <Checkbox
                               id={`${server.id}-${mcpTool.name}`}
@@ -507,7 +563,7 @@ export function ChatComposerToolbar({
                                 toggleTool(
                                   server.id,
                                   mcpTool.name,
-                                  (toolsQuery.data ?? []).map((t) => t.name),
+                                  availableTools.map((t) => t.name),
                                 )
                               }
                             />

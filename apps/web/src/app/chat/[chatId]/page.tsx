@@ -39,8 +39,9 @@ export default function ChatPage() {
     enabled: Boolean(chat?.agentId),
   });
   const skillsQuery = useQuery({
-    queryKey: ["skills", "list"],
-    queryFn: () => trpcClient.skills.list.query(),
+    queryKey: ["skills", "list", workspaceId],
+    queryFn: () => trpcClient.skills.list.query({ workspaceId: workspaceId! }),
+    enabled: Boolean(workspaceId),
   });
   const mcpServersQuery = useQuery({
     queryKey: ["mcpServers", workspaceId],

@@ -1,4 +1,8 @@
-import { readFile as fsReadFile, readdir as fsReadDir, writeFile as fsWriteFile } from "node:fs/promises";
+import {
+  readdir as fsReadDir,
+  readFile as fsReadFile,
+  writeFile as fsWriteFile,
+} from "node:fs/promises";
 import path from "node:path";
 import type { SkillContext, SkillDefinition, SkillPermissions } from "./types";
 

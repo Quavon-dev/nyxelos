@@ -123,12 +123,10 @@ export function buildDynamicSkillDefinition(record: SkillRecord): SkillDefinitio
           // A custom-code skill can still reach arbitrary Node/Bun APIs; the
           // approval workflow (sensitive: true by default) is the actual
           // safety net for what it's allowed to *do*, not what it can *see*.
-          // biome-ignore lint/security/noGlobalEval: intentional — this is the whole point of a user-authored "custom code" skill kind.
-          const fn = new Function(
-            "input",
-            "ctx",
-            `return (async () => { ${code} })();`,
-          ) as (input: unknown, ctx: ReturnType<typeof createSkillContext>) => Promise<unknown>;
+          const fn = new Function("input", "ctx", `return (async () => { ${code} })();`) as (
+            input: unknown,
+            ctx: ReturnType<typeof createSkillContext>,
+          ) => Promise<unknown>;
           return fn(input, ctx);
         },
       };

@@ -181,6 +181,22 @@ export type McpToolSummary = {
   inputSchema: Record<string, unknown>;
 };
 
+export type McpToolListResult =
+  | {
+      status: "ready";
+      tools: McpToolSummary[];
+    }
+  | {
+      status: "auth_required";
+      authorizationUrl: string;
+      callbackUrl: string;
+      message: string;
+    }
+  | {
+      status: "invalid_config";
+      message: string;
+    };
+
 export type KnowledgeBaseConfigSummary = {
   workspaceId: string;
   vaultPath: string;
@@ -426,7 +442,10 @@ type NyxelTrpcClient = {
       mutate(input: { id: string }): Promise<void>;
     };
     listTools: {
-      query(input: { id: string }): Promise<McpToolSummary[]>;
+      query(input: { id: string }): Promise<McpToolListResult>;
+    };
+    finishAuth: {
+      mutate(input: { id: string; code: string }): Promise<{ ok: boolean }>;
     };
   };
   automations: {

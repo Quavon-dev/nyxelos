@@ -2,13 +2,33 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Plug, Sparkles, Wrench } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
-import { trpcClient } from "@/lib/trpc";
+import { type McpToolListResult, trpcClient } from "@/lib/trpc";
+
+function openAuthorizationWindow(authorizationUrl: string) {
+  const popup = window.open(authorizationUrl, "_blank", "noopener,noreferrer");
+  if (!popup) {
+    window.location.href = authorizationUrl;
+  }
+}
+
+function getAuthPrompt(result: McpToolListResult | undefined) {
+  if (!result || result.status !== "auth_required") return null;
+  return {
+    message: result.message,
+    authorizationUrl: result.authorizationUrl,
+  };
+}
+
+function getInvalidConfigMessage(result: McpToolListResult | undefined) {
+  if (!result || result.status !== "invalid_config") return null;
+  return result.message;
+}
 
 export interface ChatToolSelection {
   skillIds: string[];
@@ -34,8 +54,9 @@ export function ChatToolsPopover({
   const [expandedServerId, setExpandedServerId] = useState<string | null>(null);
 
   const skillsQuery = useQuery({
-    queryKey: ["skills", "list"],
-    queryFn: () => trpcClient.skills.list.query(),
+    queryKey: ["skills", "list", workspaceId],
+    queryFn: () => trpcClient.skills.list.query({ workspaceId: workspaceId! }),
+    enabled: Boolean(workspaceId),
   });
   const mcpServersQuery = useQuery({
     queryKey: ["mcpServers", workspaceId],
@@ -48,8 +69,24 @@ export function ChatToolsPopover({
     enabled: Boolean(expandedServerId),
   });
 
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== "nyxel:mcp-auth-complete") return;
+      if (event.data.serverId !== expandedServerId) return;
+      void toolsQuery.refetch();
+    }
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [expandedServerId, toolsQuery]);
+
   const skills = skillsQuery.data ?? [];
   const servers = mcpServersQuery.data ?? [];
+  const toolsResult = toolsQuery.data;
+  const availableTools = toolsResult?.status === "ready" ? toolsResult.tools : [];
+  const authPrompt = getAuthPrompt(toolsResult);
+  const invalidConfigMessage = getInvalidConfigMessage(toolsResult);
 
   // Displayed state: the explicit selection once customized, otherwise
   // "everything" — matches the workspace-default behavior a plain chat gets.
@@ -221,10 +258,30 @@ export function ChatToolsPopover({
                       {toolsQuery.isLoading && (
                         <p className="text-xs text-muted-foreground">Loading tools…</p>
                       )}
-                      {toolsQuery.data?.length === 0 && (
+                      {toolsQuery.isError && (
+                        <p className="text-xs text-destructive">
+                          {(toolsQuery.error as Error).message}
+                        </p>
+                      )}
+                      {authPrompt && (
+                        <div className="space-y-1.5 text-xs text-muted-foreground">
+                          <p>{authPrompt.message}</p>
+                          <button
+                            type="button"
+                            className="font-medium text-foreground underline underline-offset-2"
+                            onClick={() => openAuthorizationWindow(authPrompt.authorizationUrl)}
+                          >
+                            Sign in to load tools
+                          </button>
+                        </div>
+                      )}
+                      {invalidConfigMessage && (
+                        <p className="text-xs text-destructive">{invalidConfigMessage}</p>
+                      )}
+                      {toolsResult?.status === "ready" && availableTools.length === 0 && (
                         <p className="text-xs text-muted-foreground">No tools exposed.</p>
                       )}
-                      {toolsQuery.data?.map((mcpTool) => (
+                      {availableTools.map((mcpTool) => (
                         <div key={mcpTool.name} className="flex items-center gap-2">
                           <Checkbox
                             id={`tool-${server.id}-${mcpTool.name}`}
@@ -233,7 +290,7 @@ export function ChatToolsPopover({
                               toggleTool(
                                 server.id,
                                 mcpTool.name,
-                                (toolsQuery.data ?? []).map((t) => t.name),
+                                availableTools.map((t) => t.name),
                               )
                             }
                           />

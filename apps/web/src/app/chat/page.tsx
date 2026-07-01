@@ -77,8 +77,9 @@ export default function ChatLandingPage() {
     enabled: Boolean(workspaceId),
   });
   const skillsQuery = useQuery({
-    queryKey: ["skills", "list"],
-    queryFn: () => trpcClient.skills.list.query(),
+    queryKey: ["skills", "list", workspaceId],
+    queryFn: () => trpcClient.skills.list.query({ workspaceId: workspaceId! }),
+    enabled: Boolean(workspaceId),
   });
 
   const [message, setMessage] = useState("");

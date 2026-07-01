@@ -224,7 +224,9 @@ const RECENT_NOTES_TO_INCLUDE = 3;
  * the handful of most recently modified notes — not the whole vault, which
  * would blow the context budget as the knowledge base grows.
  */
-export async function getKnowledgeBaseContextForPrompt(workspaceId: string): Promise<string | null> {
+export async function getKnowledgeBaseContextForPrompt(
+  workspaceId: string,
+): Promise<string | null> {
   const db = getDb();
   const config = await db.getKnowledgeBaseConfig(workspaceId);
   if (config && !config.injectIntoPrompts) return null;
@@ -240,7 +242,9 @@ export async function getKnowledgeBaseContextForPrompt(workspaceId: string): Pro
     .map((doc) => `- ${doc.path} — ${doc.title}`)
     .join("\n");
 
-  const alwaysInclude = documents.filter((doc) => noteGroupFromPath(doc.path) === ALWAYS_INCLUDE_GROUP);
+  const alwaysInclude = documents.filter(
+    (doc) => noteGroupFromPath(doc.path) === ALWAYS_INCLUDE_GROUP,
+  );
   const alwaysIncludePaths = new Set(alwaysInclude.map((doc) => doc.path));
   const recent = documents
     .slice()

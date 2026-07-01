@@ -1,4 +1,5 @@
 import { getDb } from "@nyxel/db";
+import { McpAuthorizationRequiredError, McpInvalidConfigurationError } from "@nyxel/mcp-client";
 import { listAvailableModels, probeOpenAiCompatibleEndpoint } from "@nyxel/model-providers";
 import { z } from "zod";
 import { resolveApprovalDecision } from "../approvals";
@@ -10,7 +11,7 @@ import {
   listKnowledgeBaseDocuments,
   runDocsAgentForWorkspace,
 } from "../knowledge-base";
-import { ensureMcpServerConnected, mcpManager } from "../mcp-runtime";
+import { completeMcpServerAuthorization, ensureMcpServerConnected, mcpManager } from "../mcp-runtime";
 import { getInstalledProvidersForWorkspace } from "../models";
 import { importProviderSourceToWorkspace, listProviderImportSources } from "../provider-imports";
 import { computeNextRunAt, runAutomation } from "../scheduler";
@@ -32,6 +33,90 @@ const skillKindSchema = z.enum([
 ]);
 const automationTriggerTypeSchema = z.enum(["cron", "file_watch"]);
 const AUTOMATABLE_LEVELS = new Set(["autonomous", "super_agent"]);
+
+function normalizeMcpHttpEndpoint(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return trimmed;
+
+  if (trimmed.startsWith("/")) {
+    if (trimmed.startsWith("/guides/")) {
+      throw new Error(
+        "That looks like a documentation link, not an MCP endpoint. Use the actual server URL instead, such as https://mcp.notion.com/mcp.",
+      );
+    }
+    throw new Error("HTTP MCP endpoints must be absolute URLs, for example https://mcp.notion.com/mcp.");
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      throw new Error("invalid-protocol");
+    }
+    return parsed.toString();
+  } catch {
+    try {
+      return new URL(`https://${trimmed}`).toString();
+    } catch {
+      throw new Error(
+        "HTTP MCP endpoints must be absolute URLs, for example https://mcp.notion.com/mcp.",
+      );
+    }
+  }
+}
+
+const mcpServerCreateSchema = z
+  .object({
+    workspaceId: z.string(),
+    name: z.string().min(1),
+    transport: mcpTransportSchema,
+    command: z.string().optional(),
+    args: z.array(z.string()).optional(),
+    url: z.string().optional(),
+  })
+  .superRefine((input, ctx) => {
+    if (input.transport === "stdio" && !input.command?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A stdio MCP server needs a command.',
+        path: ["command"],
+      });
+    }
+    if (input.transport === "http") {
+      if (!input.url?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'An HTTP MCP server needs a full endpoint URL such as https://example.com/mcp.',
+          path: ["url"],
+        });
+        return;
+      }
+      try {
+        normalizeMcpHttpEndpoint(input.url);
+      } catch {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Use the MCP endpoint itself, not a docs path. Example: https://example.com/mcp",
+          path: ["url"],
+        });
+      }
+    }
+  });
+
+function toMcpToolsResponse(err: McpAuthorizationRequiredError) {
+  return {
+    status: "auth_required" as const,
+    authorizationUrl: err.authorizationUrl,
+    callbackUrl: err.callbackUrl,
+    message: err.message,
+  };
+}
+
+function toMcpConfigResponse(err: McpInvalidConfigurationError) {
+  return {
+    status: "invalid_config" as const,
+    message: err.message,
+  };
+}
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({ ok: true, name: "nyxel-server" })),
@@ -335,17 +420,14 @@ export const appRouter = router({
       .input(z.object({ workspaceId: z.string() }))
       .query(({ input }) => getDb().listMcpServersByWorkspace(input.workspaceId)),
     create: publicProcedure
-      .input(
-        z.object({
-          workspaceId: z.string(),
-          name: z.string().min(1),
-          transport: mcpTransportSchema,
-          command: z.string().optional(),
-          args: z.array(z.string()).optional(),
-          url: z.string().optional(),
+      .input(mcpServerCreateSchema)
+      .mutation(({ input }) =>
+        getDb().createMcpServer({
+          ...input,
+          command: input.command?.trim(),
+          url: input.url?.trim(),
         }),
-      )
-      .mutation(({ input }) => getDb().createMcpServer(input)),
+      ),
     delete: publicProcedure
       .input(z.object({ id: z.string() }))
       .mutation(({ input }) => getDb().deleteMcpServer(input.id)),
@@ -355,9 +437,30 @@ export const appRouter = router({
     listTools: publicProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
       const server = await getDb().getMcpServer(input.id);
       if (!server) throw new Error(`Unknown MCP server: ${input.id}`);
-      await ensureMcpServerConnected(server);
-      return mcpManager.listTools(server.id);
+      try {
+        await ensureMcpServerConnected(server);
+        return {
+          status: "ready" as const,
+          tools: await mcpManager.listTools(server.id),
+        };
+      } catch (err) {
+        if (err instanceof McpAuthorizationRequiredError) {
+          return toMcpToolsResponse(err);
+        }
+        if (err instanceof McpInvalidConfigurationError) {
+          return toMcpConfigResponse(err);
+        }
+        throw err;
+      }
     }),
+    finishAuth: publicProcedure
+      .input(z.object({ id: z.string(), code: z.string().min(1) }))
+      .mutation(async ({ input }) => {
+        const server = await getDb().getMcpServer(input.id);
+        if (!server) throw new Error(`Unknown MCP server: ${input.id}`);
+        await completeMcpServerAuthorization(server, input.code);
+        return { ok: true };
+      }),
   }),
 
   automations: router({

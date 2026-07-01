@@ -1,2 +1,6 @@
 export { McpClientManager } from "./manager";
-export type { McpServerConfig, McpToolSummary, McpTransportKind } from "./types";
+export {
+	McpAuthorizationRequiredError,
+	McpInvalidConfigurationError,
+} from "./types";
+export type { McpOAuthConfig, McpServerConfig, McpToolSummary, McpTransportKind } from "./types";
