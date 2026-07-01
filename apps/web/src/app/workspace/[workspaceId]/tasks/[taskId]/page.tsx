@@ -130,9 +130,11 @@ export default function TaskDetailPage() {
   const events = taskQuery.data?.events ?? [];
   const runs = taskQuery.data?.runs ?? [];
   const linkedApprovals = (approvalsQuery.data ?? []).filter((a) => a.taskId === taskId);
-  const followUpPrompt = task?.resultSummary
-    ? parseAssistantContent(task.resultSummary).prompt
-    : null;
+  const latestRunOutput = [...runs]
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    .at(-1)?.finalOutput;
+  const promptSource = latestRunOutput ?? task?.resultSummary ?? null;
+  const followUpPrompt = promptSource ? parseAssistantContent(promptSource).prompt : null;
   const autoStartRef = useRef(false);
 
   useEffect(() => {
