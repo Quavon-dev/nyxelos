@@ -1,20 +1,137 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Database, Globe, ShieldCheck } from "lucide-react";
+import {
+  ArrowRight,
+  Blocks,
+  Bot,
+  CheckSquare,
+  ClipboardCheck,
+  Clock,
+  Database,
+  Globe,
+  Library,
+  MessageSquare,
+  Plug,
+  ShieldCheck,
+  Wrench,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Area, AreaChart, XAxis } from "recharts";
 import { BrandMark } from "@/components/brand-mark";
-import { Spinner } from "@/components/loading";
-import { PageHeader } from "@/components/page-header";
+import { CardListSkeleton, Spinner, StatCardsSkeleton } from "@/components/loading";
+import { PageHeader, StatCard } from "@/components/page-header";
 import { SystemScreen } from "@/components/system-screen";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ChartContainer } from "@/components/ui/chart";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { type InstallationMode, trpcClient } from "@/lib/trpc";
+import {
+  type AuditLogSummary,
+  type AuditStatus,
+  type InstallationMode,
+  trpcClient,
+} from "@/lib/trpc";
+
+const AUDIT_STATUS_LABEL: Record<AuditStatus, string> = {
+  success: "Success",
+  error: "Error",
+  pending_approval: "Pending approval",
+  rejected: "Rejected",
+};
+
+const AUDIT_STATUS_BADGE: Record<AuditStatus, string> = {
+  success: "border-0 bg-green-500/15 text-green-700 dark:bg-green-500/10 dark:text-green-400",
+  error: "border-0 bg-rose-500/15 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400",
+  pending_approval:
+    "border-0 bg-amber-500/15 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300",
+  rejected: "border-0 bg-muted text-muted-foreground",
+};
+
+const OPEN_TASK_STATUSES = new Set([
+  "pending",
+  "planning",
+  "ready",
+  "running",
+  "blocked",
+  "waiting_approval",
+]);
+
+const QUICK_LINKS = [
+  {
+    label: "Agents",
+    description: "Saved model + tool configurations.",
+    icon: Bot,
+    path: "agents",
+  },
+  {
+    label: "Tasks",
+    description: "Multi-step work handed to an agent.",
+    icon: CheckSquare,
+    path: "tasks",
+  },
+  {
+    label: "Skills",
+    description: "File-based capabilities agents can call.",
+    icon: Blocks,
+    path: "skills",
+  },
+  {
+    label: "Tools",
+    description: "Workspace-configurable tool catalog.",
+    icon: Wrench,
+    path: "tools",
+  },
+  {
+    label: "Connectors",
+    description: "MCP servers wired into this workspace.",
+    icon: Plug,
+    path: "mcp-servers",
+  },
+  {
+    label: "Automations",
+    description: "Cron and file-watch triggers.",
+    icon: Clock,
+    path: "automations",
+  },
+  {
+    label: "Approvals",
+    description: "Sensitive actions awaiting a decision.",
+    icon: ClipboardCheck,
+    path: "approvals",
+  },
+  {
+    label: "Knowledge Base",
+    description: "The Obsidian vault agents can read.",
+    icon: Library,
+    path: "knowledge-base",
+  },
+] as const;
+
+/** Buckets audit entries into the last 14 calendar days for the activity sparkline. */
+function buildDailyActivity(entries: AuditLogSummary[]) {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    const key = new Date(entry.createdAt).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const days: { date: string; calls: number }[] = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    days.push({ date: key, calls: counts.get(key) ?? 0 });
+  }
+  return days;
+}
 
 type InstallForm = {
   mode: InstallationMode;
@@ -68,14 +185,64 @@ export default function HomePage() {
     queryKey: ["installation", "status"],
     queryFn: () => trpcClient.installation.status.query(),
   });
+  const workspaceId = installationQuery.data?.record?.primaryWorkspaceId;
+  const dashboardEnabled = installationQuery.data?.isInstalled === true && Boolean(workspaceId);
+
   const modelsQuery = useQuery({
     queryKey: ["models", "list"],
-    queryFn: () =>
-      trpcClient.models.list.query({
-        workspaceId: installationQuery.data?.record?.primaryWorkspaceId,
-      }),
+    queryFn: () => trpcClient.models.list.query({ workspaceId }),
     enabled: installationQuery.data?.isInstalled === true,
   });
+  const chatsQuery = useQuery({
+    queryKey: ["chats", "list", workspaceId],
+    queryFn: () => trpcClient.chats.list.query({ workspaceId: workspaceId! }),
+    enabled: dashboardEnabled,
+  });
+  const agentsQuery = useQuery({
+    queryKey: ["agents", "list", workspaceId],
+    queryFn: () => trpcClient.agents.list.query({ workspaceId: workspaceId! }),
+    enabled: dashboardEnabled,
+  });
+  const tasksQuery = useQuery({
+    queryKey: ["tasks", "list", workspaceId],
+    queryFn: () => trpcClient.tasks.list.query({ workspaceId: workspaceId! }),
+    enabled: dashboardEnabled,
+  });
+  const approvalsQuery = useQuery({
+    queryKey: ["approvals", "list", workspaceId, "pending"],
+    queryFn: () =>
+      trpcClient.approvals.list.query({ workspaceId: workspaceId!, status: "pending" }),
+    enabled: dashboardEnabled,
+  });
+  const skillsQuery = useQuery({
+    queryKey: ["skills", "list", workspaceId],
+    queryFn: () => trpcClient.skills.list.query({ workspaceId: workspaceId! }),
+    enabled: dashboardEnabled,
+  });
+  const mcpServersQuery = useQuery({
+    queryKey: ["mcpServers", "list", workspaceId],
+    queryFn: () => trpcClient.mcpServers.list.query({ workspaceId: workspaceId! }),
+    enabled: dashboardEnabled,
+  });
+  const auditLogQuery = useQuery({
+    queryKey: ["auditLog", "list", workspaceId, 50],
+    queryFn: () => trpcClient.auditLog.list.query({ workspaceId: workspaceId!, limit: 50 }),
+    enabled: dashboardEnabled,
+    refetchInterval: 15_000,
+  });
+
+  const statsLoading =
+    chatsQuery.isLoading ||
+    agentsQuery.isLoading ||
+    tasksQuery.isLoading ||
+    approvalsQuery.isLoading ||
+    skillsQuery.isLoading ||
+    mcpServersQuery.isLoading;
+
+  const openTaskCount =
+    tasksQuery.data?.filter((task) => OPEN_TASK_STATUSES.has(task.status)).length ?? 0;
+  const auditEntries = auditLogQuery.data ?? [];
+  const dailyActivity = buildDailyActivity(auditEntries);
 
   const [form, setForm] = useState<InstallForm>({
     mode: "pc",
@@ -315,10 +482,8 @@ export default function HomePage() {
     );
   }
 
-  const workspaceId = installationQuery.data.record?.primaryWorkspaceId;
-
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 p-4 sm:p-6 md:p-8">
+    <div className="mx-auto w-full max-w-6xl space-y-6 p-4 sm:p-6 md:p-8">
       <PageHeader
         title="Overview"
         description={
@@ -342,7 +507,77 @@ export default function HomePage() {
         }
       />
 
-      <section className="grid gap-4 lg:grid-cols-[0.7fr_1.3fr]">
+      {statsLoading ? (
+        <StatCardsSkeleton count={6} />
+      ) : (
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <StatCard
+            label="Chats"
+            value={chatsQuery.data?.length ?? 0}
+            icon={<MessageSquare className="size-4" />}
+          />
+          <StatCard
+            label="Agents"
+            value={agentsQuery.data?.length ?? 0}
+            icon={<Bot className="size-4" />}
+          />
+          <StatCard
+            label="Open tasks"
+            value={openTaskCount}
+            icon={<CheckSquare className="size-4" />}
+          />
+          <StatCard
+            label="Pending approvals"
+            value={approvalsQuery.data?.length ?? 0}
+            icon={<ClipboardCheck className="size-4" />}
+          />
+          <StatCard
+            label="Skills"
+            value={skillsQuery.data?.length ?? 0}
+            icon={<Blocks className="size-4" />}
+          />
+          <StatCard
+            label="Connectors"
+            value={mcpServersQuery.data?.length ?? 0}
+            icon={<Plug className="size-4" />}
+          />
+        </section>
+      )}
+
+      <section className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Activity, last 14 days</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {auditLogQuery.isLoading ? (
+              <Skeleton className="h-32 w-full rounded-lg" />
+            ) : (
+              <ChartContainer
+                className="aspect-auto h-32 w-full"
+                config={{ calls: { label: "Tool calls", color: "var(--chart-1)" } }}
+              >
+                <AreaChart data={dailyActivity} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="overviewActivityGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="date" tickLine={false} axisLine={false} minTickGap={24} />
+                  <Area
+                    dataKey="calls"
+                    type="monotone"
+                    stroke="var(--chart-1)"
+                    fill="url(#overviewActivityGradient)"
+                    strokeWidth={1.5}
+                  />
+                </AreaChart>
+              </ChartContainer>
+            )}
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Deployment summary</CardTitle>
@@ -353,7 +588,9 @@ export default function HomePage() {
             <p className="truncate">Owner id: {installationQuery.data.record?.ownerUserId}</p>
           </CardContent>
         </Card>
+      </section>
 
+      <section className="grid gap-4 lg:grid-cols-[0.7fr_1.3fr]">
         <Card>
           <CardHeader>
             <CardTitle>Detected models</CardTitle>
@@ -390,7 +627,70 @@ export default function HomePage() {
             </ul>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent activity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {auditLogQuery.isLoading ? (
+              <CardListSkeleton rows={4} />
+            ) : auditEntries.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No activity logged yet — it shows up here the first time an agent calls a tool.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {auditEntries.slice(0, 6).map((entry) => (
+                  <li
+                    key={entry.id}
+                    className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3 text-sm"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{entry.toolLabel}</p>
+                      <p className="text-xs text-muted-foreground capitalize">{entry.actor}</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(entry.createdAt).toLocaleString()}
+                      </span>
+                      <Badge variant="outline" className={AUDIT_STATUS_BADGE[entry.status]}>
+                        {AUDIT_STATUS_LABEL[entry.status] ?? entry.status}
+                      </Badge>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
       </section>
+
+      {workspaceId && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-medium text-muted-foreground">Jump to</h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {QUICK_LINKS.map(({ label, description, icon: Icon, path }) => (
+              <Link
+                key={path}
+                href={`/workspace/${workspaceId}/${path}`}
+                className="group flex items-start gap-3 rounded-xl border bg-card p-4 shadow-xs transition hover:border-primary/40 hover:bg-accent"
+              >
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                  <Icon className="size-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-1 text-sm font-medium">
+                    {label}
+                    <ArrowRight className="size-3.5 shrink-0 -translate-x-0.5 opacity-0 transition group-hover:translate-x-0 group-hover:opacity-100" />
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
