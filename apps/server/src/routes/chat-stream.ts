@@ -41,7 +41,7 @@ const bodySchema = z.object({
    * the existing last user turn — drops the stale assistant reply instead
    * of appending a duplicate user turn. */
   regenerate: z.boolean().optional(),
-  /** Client-side "Nachdenken" toggle — requests extended thinking/reasoning
+  /** Client-side "Thinking" toggle — requests extended thinking/reasoning
    * from providers that support it (Anthropic thinking budget, OpenAI
    * reasoning effort); a harmless no-op everywhere else. */
   reasoning: z.boolean().optional(),
