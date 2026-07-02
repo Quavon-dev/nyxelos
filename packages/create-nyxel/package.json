@@ -1,0 +1,41 @@
+{
+  "name": "create-nyxel",
+  "version": "0.1.0",
+  "description": "Set up NyxelOS for usage (Docker Compose + published images) — no source checkout required.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "create-nyxel": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Quavon-dev/nyxelos.git",
+    "directory": "packages/create-nyxel"
+  },
+  "keywords": [
+    "nyxel",
+    "nyxelos",
+    "create-nyxel",
+    "setup",
+    "docker-compose",
+    "agentic-os"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  }
+}

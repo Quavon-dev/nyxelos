@@ -22,9 +22,24 @@ Run NyxelOS entirely on your hardware or deploy it across a server cluster. Full
 ---
 ### 📖 Getting Started & Deployment Modes
 
+#### 🚀 Just want to run it? `npx create-nyxel`
+No checkout, no build toolchain — this pulls the published `ghcr.io/quavon-dev/nyxelos-*` images and writes only the Docker Compose files you need to run NyxelOS.
+```bash
+npx create-nyxel
+# or: bunx create-nyxel
+
+cd nyxel
+docker compose up -d
+```
+See [`packages/create-nyxel`](packages/create-nyxel) for all options (`--mode`, `--dir`, `--tag`, `--domain`, ...).
+
+> 💡 Everything below this point (`git clone`, `bun install`, `docker compose -f docker-compose.*.yml up --build`) is the **development** workflow — building from source. Use it if you're contributing to NyxelOS, not just running it.
+
 #### 💻 Local Development (Dev Machines / Quick Test)
 Ideal for development and personal testing without Docker. Requires [Bun](https://bun.sh) 1.3+.
 ```bash
+git clone https://github.com/Quavon-dev/nyxelos.git
+cd nyxelos
 bun install
 
 # Setup environment files
@@ -45,8 +60,8 @@ Give Nyxel access to your local ecosystem! The `apps/companion-macos` package fu
 
 This is the bridge between AI and your desktop life. Full detail in [`apps/companion-macos/README.md`](apps/companion-macos/README.md).
 
-#### 🐳 Docker Compose Deployment (PC Mode / Server Mode)
-Deploying via Docker is the recommended path for stability.
+#### 🐳 Building the Docker Images From Source (PC Mode / Server Mode)
+Prefer to build from this checkout instead of using the published images? Same compose files, with `--build`:
 
 **🖥️ PC Mode (Testing/Home Server):**
 ```bash
@@ -111,11 +126,17 @@ apps/
 packages/
   db/: Drizzle Schema & Repository Layer (Postgres/SQLite) 🗄️
   model-providers/: Handles routing between local and cloud AI models. ☁️⚡️
+  create-nyxel/: The `npx create-nyxel` / `bunx create-nyxel` setup CLI. 🚀
 ```
 
 ### ⚙️ Development Tools
 *   **DB Migration:** Use `bun run db:generate` and `bun run db:migrate`.
 *   **Knowledge Base:** All documentation lives in the Obsidian vault, automatically synced via ADR-0013.
+
+### 🤖 CI/CD
+*   **Pull requests:** lint, typecheck, and build run on every PR (`.github/workflows/ci.yml`), alongside a conventional-commit PR title check, CodeQL analysis, and a dependency review.
+*   **Docker images:** `apps/server` and `apps/web` are built on every PR (validation only) and pushed to `ghcr.io/quavon-dev/nyxelos-server` / `nyxelos-web` on merges to `main` and version tags (`.github/workflows/docker.yml`).
+*   **`create-nyxel`:** built and smoke-tested on every PR, published to npm on `create-nyxel@<version>` tags (`.github/workflows/package.yml`).
 
 🔗 **Architecture Plan:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 🔗 **Installation Guide:** [`docs/INSTALL.md`](docs/INSTALL.md)

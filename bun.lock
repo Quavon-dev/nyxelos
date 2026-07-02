@@ -87,6 +87,17 @@
         "typescript": "^5.9.0",
       },
     },
+    "packages/create-nyxel": {
+      "name": "create-nyxel",
+      "version": "0.1.0",
+      "bin": {
+        "create-nyxel": "./dist/index.js",
+      },
+      "devDependencies": {
+        "@types/node": "^22.0.0",
+        "typescript": "^5.9.0",
+      },
+    },
     "packages/db": {
       "name": "@nyxel/db",
       "version": "0.1.0",
@@ -770,6 +781,8 @@
     "cors": ["cors@2.8.6", "", { "dependencies": { "object-assign": "^4", "vary": "^1" } }, "sha512-tJtZBBHA6vjIAaF6EnIaq6laBBP9aq/Y3ouVJjEfoHbRBcHBAHYcMh/w8LDrk2PvIMMq8gmopa5D4V8RmbrxGw=="],
 
     "cosmiconfig": ["cosmiconfig@9.0.2", "", { "dependencies": { "env-paths": "^2.2.1", "import-fresh": "^3.3.0", "js-yaml": "^4.1.0", "parse-json": "^5.2.0" }, "peerDependencies": { "typescript": ">=4.9.5" }, "optionalPeers": ["typescript"] }, "sha512-gtTZxTDau1wL7Y7zifc2dd8jHSK/k6BTx/2Xp/BpdlAdnlYWFVt7qhJqgwi7637yRwRQ3qL4ZidbB4I8tA5VOg=="],
+
+    "create-nyxel": ["create-nyxel@workspace:packages/create-nyxel"],
 
     "cron-parser": ["cron-parser@5.6.1", "", { "dependencies": { "luxon": "^3.7.2" } }, "sha512-QBm4o1PwZiuY7KFbVvW7FLC8bozy7YWzv+Fz6KRS7sQghzcbDZCGxr/Bc5b6TQreAoSwuWVP491dIcK0THCX6A=="],
 
