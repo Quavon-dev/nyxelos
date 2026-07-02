@@ -7,10 +7,13 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ModelAvatar } from "@/lib/model-provider-icons";
 
 export interface ChatTopBarModel {
 	id: string;
 	label: string;
+	provider?: string;
+	providerLabel?: string;
 }
 
 function IconButton({
@@ -73,15 +76,7 @@ export function ChatTopBar({
 						type="button"
 						className="flex min-w-0 items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
 					>
-						<span
-							className="flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-primary-foreground"
-							style={{
-								backgroundImage:
-									"linear-gradient(135deg, var(--primary), var(--chart-2))",
-							}}
-						>
-							N
-						</span>
+						<ModelAvatar model={activeModel ?? { id: "", label: "Select model" }} />
 						<span className="truncate">{activeModel?.label ?? "Select model"}</span>
 						<ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
 					</button>
@@ -94,6 +89,7 @@ export function ChatTopBar({
 					)}
 					{models.map((m) => (
 						<DropdownMenuItem key={m.id} onSelect={() => onModelChange(m.id)}>
+							<ModelAvatar model={m} className="size-4" />
 							<span className="truncate">{m.label}</span>
 							{m.id === modelId && <Check className="ml-auto size-3.5 shrink-0" />}
 						</DropdownMenuItem>
