@@ -519,6 +519,70 @@ export type VideoModelSummary = {
 	tier: "standard" | "pro";
 };
 
+/** Node kinds the canvas builder renders and the runner executes — keep in
+ * sync with WorkflowNodeKind in @nyxel/db / apps/server/src/trpc/router.ts's
+ * workflowNodeKindSchema. */
+export type WorkflowNodeKind =
+	| "text_prompt"
+	| "image_upload"
+	| "video_upload"
+	| "generate_image"
+	| "generate_video"
+	| "edit_video"
+	| "output";
+
+/** A workflow's graph — plain JSON matching React Flow's own node/edge
+ * shape, `data` untyped per node kind (validated by each node's own
+ * inspector panel, not here). */
+export type WorkflowDefinition = {
+	nodes: {
+		id: string;
+		type: WorkflowNodeKind;
+		position: { x: number; y: number };
+		data: Record<string, unknown>;
+	}[];
+	edges: { id: string; source: string; target: string }[];
+	viewport?: { x: number; y: number; zoom: number };
+};
+
+export type WorkflowSummary = {
+	id: string;
+	workspaceId: string;
+	name: string;
+	description: string | null;
+	definition: WorkflowDefinition;
+	createdAt: Date;
+	updatedAt: Date;
+};
+
+export type WorkflowRunStatus = "queued" | "running" | "completed" | "failed" | "partial";
+export type WorkflowRunNodeStatus = "queued" | "running" | "completed" | "failed" | "skipped";
+
+export type WorkflowRunSummary = {
+	id: string;
+	workflowId: string;
+	workspaceId: string;
+	status: WorkflowRunStatus;
+	errorMessage: string | null;
+	startedAt: Date | null;
+	completedAt: Date | null;
+	createdAt: Date;
+};
+
+export type WorkflowRunNodeSummary = {
+	id: string;
+	runId: string;
+	nodeId: string;
+	status: WorkflowRunNodeStatus;
+	progress: number;
+	libraryFileId: string | null;
+	errorMessage: string | null;
+	startedAt: Date | null;
+	completedAt: Date | null;
+	createdAt: Date;
+	updatedAt: Date;
+};
+
 export type AutomationTriggerType = "cron" | "file_watch";
 export type AutomationRunStatus = "success" | "error" | "pending_approval";
 
@@ -876,6 +940,23 @@ export type ModelInstallationSummary = {
 	updatedAt: Date;
 };
 
+/** Per-(workspace, model) generation overrides — see models.getParameters. */
+export type ModelParameterSummary = {
+	workspaceId: string;
+	modelId: string;
+	customName: string | null;
+	customInstructions: string | null;
+	maxOutputTokens: number | null;
+	temperature: number | null;
+	topP: number | null;
+	frequencyPenalty: number | null;
+	presencePenalty: number | null;
+	stopSequences: string[];
+	reasoningEffort: "low" | "medium" | "high" | null;
+	createdAt: Date;
+	updatedAt: Date;
+};
+
 export type ProbedModelProvider = {
 	providerKey: string;
 	providerLabel: string;
@@ -936,6 +1017,13 @@ type NyxelTrpcClient = {
 			query(input: {
 				workspaceId: string;
 			}): Promise<ModelInstallationSummary[]>;
+		};
+		generationCatalog: {
+			query(): Promise<{
+				image: { id: string; label: string }[];
+				speech: { id: string; label: string }[];
+				transcription: { id: string; label: string }[];
+			}>;
 		};
 		capabilities: {
 			query(input: {
@@ -1018,6 +1106,30 @@ type NyxelTrpcClient = {
 				workspaceId: string;
 				sourceId: string;
 			}): Promise<ModelInstallationSummary>;
+		};
+		getParameters: {
+			query(input: {
+				workspaceId: string;
+				modelId: string;
+			}): Promise<ModelParameterSummary | null>;
+		};
+		saveParameters: {
+			mutate(input: {
+				workspaceId: string;
+				modelId: string;
+				customName?: string | null;
+				customInstructions?: string | null;
+				maxOutputTokens?: number | null;
+				temperature?: number | null;
+				topP?: number | null;
+				frequencyPenalty?: number | null;
+				presencePenalty?: number | null;
+				stopSequences?: string[];
+				reasoningEffort?: "low" | "medium" | "high" | null;
+			}): Promise<ModelParameterSummary>;
+		};
+		resetParameters: {
+			mutate(input: { workspaceId: string; modelId: string }): Promise<void>;
 		};
 	};
 	skills: {
@@ -1132,6 +1244,36 @@ type NyxelTrpcClient = {
 				timestampSeconds?: number;
 				fps?: number;
 			}): Promise<LibraryFileSummary>;
+		};
+	};
+	workflows: {
+		list: {
+			query(input: { workspaceId: string }): Promise<WorkflowSummary[]>;
+		};
+		get: {
+			query(input: { id: string }): Promise<WorkflowSummary | null>;
+		};
+		create: {
+			mutate(input: {
+				workspaceId: string;
+				name: string;
+				description?: string;
+				definition?: WorkflowDefinition;
+			}): Promise<WorkflowSummary>;
+		};
+		update: {
+			mutate(input: {
+				id: string;
+				name?: string;
+				description?: string | null;
+				definition?: WorkflowDefinition;
+			}): Promise<WorkflowSummary>;
+		};
+		duplicate: {
+			mutate(input: { id: string }): Promise<WorkflowSummary>;
+		};
+		delete: {
+			mutate(input: { id: string }): Promise<{ ok: boolean }>;
 		};
 	};
 	tools: {

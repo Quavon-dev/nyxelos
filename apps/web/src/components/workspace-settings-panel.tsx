@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { ModelParametersDialog } from "@/components/model-parameters-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -435,6 +436,7 @@ function InstalledProviderCard({
   invalidateModelQueries: () => void;
 }) {
   const [newModelId, setNewModelId] = useState("");
+  const [configuringModelId, setConfiguringModelId] = useState<string | null>(null);
   const datalistId = `model-catalog-${provider.id}`;
 
   const catalogQuery = useQuery({
@@ -482,19 +484,40 @@ function InstalledProviderCard({
                   {modelId}
                 </span>
                 <CapabilityBadges capabilities={capabilities} />
-                <button
-                  type="button"
-                  className="ml-auto text-muted-foreground hover:text-destructive"
-                  onClick={() => removeModel.mutate({ id: provider.id, modelId })}
-                  disabled={removeModel.isPending}
-                  aria-label={`Remove ${modelId}`}
-                >
-                  <X className="size-3.5" />
-                </button>
+                <div className="ml-auto flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => setConfiguringModelId(modelId)}
+                    aria-label={`Configure ${modelId}`}
+                  >
+                    <Settings2 className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() => removeModel.mutate({ id: provider.id, modelId })}
+                    disabled={removeModel.isPending}
+                    aria-label={`Remove ${modelId}`}
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
               </div>
             );
           })}
         </div>
+        {configuringModelId && (
+          <ModelParametersDialog
+            workspaceId={provider.workspaceId}
+            modelId={`custom:${provider.id}/${configuringModelId}`}
+            modelLabel={`${configuringModelId} (${provider.label})`}
+            open={configuringModelId !== null}
+            onOpenChange={(open) => {
+              if (!open) setConfiguringModelId(null);
+            }}
+          />
+        )}
         <div className="flex items-center gap-2 pt-1">
           <Input
             list={suggestions.length > 0 ? datalistId : undefined}
