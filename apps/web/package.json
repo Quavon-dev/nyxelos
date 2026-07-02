@@ -24,7 +24,7 @@
     "clsx": "^2.1.1",
     "highlight.js": "^11.11.1",
     "katex": "^0.17.0",
-    "lucide-react": "^1.22.0",
+    "lucide-react": "^1.23.0",
     "marked": "^18.0.5",
     "next": "latest",
     "radix-ui": "^1.6.1",
