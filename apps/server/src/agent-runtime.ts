@@ -251,6 +251,7 @@ async function runDirectExecution(
   run: AgentRunRecord,
   instructionOverride?: string,
   abortSignal?: AbortSignal,
+  workingDirectory?: string | null,
 ): Promise<{ text: string; toolStepCount: number }> {
   const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
   const systemPrompt = await buildSystemPrompt(agent, true);
@@ -265,6 +266,7 @@ async function runDirectExecution(
       installedProviders,
       tools,
       abortSignal,
+      cwd: workingDirectory ?? undefined,
       // Unattended runs have no human to catch a shallow answer — let the
       // model think before acting where the provider supports it.
       reasoningEffort: "medium",
@@ -282,6 +284,7 @@ export async function executeManagedTask(input: {
   chatId?: string | null;
   automationId?: string | null;
   instructionOverride?: string;
+  workingDirectory?: string | null;
 }): Promise<{ task: TaskRecord; run: AgentRunRecord; output: string }> {
   const db = getDb();
   const task = await db.getTask(input.taskId);
@@ -328,6 +331,7 @@ async function runManagedTask(
     chatId?: string | null;
     automationId?: string | null;
     instructionOverride?: string;
+    workingDirectory?: string | null;
   },
   task: TaskRecord,
   run: AgentRunRecord,
@@ -471,6 +475,7 @@ async function runManagedTask(
       run,
       input.instructionOverride,
       abortSignal,
+      input.workingDirectory,
     );
     output = execution.text;
     toolStepCount = execution.toolStepCount;
@@ -541,6 +546,7 @@ export async function startTaskExecutionIfIdle(input: {
   chatId?: string | null;
   automationId?: string | null;
   instructionOverride?: string;
+  workingDirectory?: string | null;
 }): Promise<{ task: TaskRecord; run: AgentRunRecord; output: string } | null> {
   const db = getDb();
   const task = await db.getTask(input.taskId);
@@ -560,5 +566,6 @@ export async function startTaskExecutionIfIdle(input: {
     chatId: input.chatId ?? task.sourceChatId ?? null,
     automationId: input.automationId ?? null,
     instructionOverride: input.instructionOverride,
+    workingDirectory: input.workingDirectory,
   });
 }

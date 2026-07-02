@@ -968,6 +968,7 @@ export async function dispatchSeoFix(
 		taskId: task.id,
 		agent,
 		trigger: "extension",
+		workingDirectory: project.repoPath,
 	});
 
 	for (const finding of findings) {
@@ -1060,6 +1061,7 @@ export async function generateSeoBlogPost(
 			taskId: task.id,
 			agent,
 			trigger: "extension",
+			workingDirectory: project.repoPath,
 		});
 
 		const fileMatch = result.output.match(/FILE:\s*(\S+)/i);
