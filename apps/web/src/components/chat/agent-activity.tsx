@@ -98,7 +98,9 @@ function generatedMediaFromOutput(
   const record = output as Record<string, unknown>;
   if (
     typeof record.mimeType === "string" &&
-    (record.mimeType.startsWith("video/") || record.mimeType.startsWith("image/")) &&
+    (record.mimeType.startsWith("video/") ||
+      record.mimeType.startsWith("image/") ||
+      record.mimeType.startsWith("audio/")) &&
     typeof record.libraryFileId === "string" &&
     LIBRARY_FILE_ID_PATTERN.test(record.libraryFileId)
   ) {
@@ -263,6 +265,13 @@ function ToolStepRow({ step }: { step: AgentActivityStep }) {
             controls
             className="w-full max-w-72"
           />
+        </div>
+      )}
+
+      {generatedMedia?.mimeType.startsWith("audio/") && (
+        <div className="border-t border-border/60 p-2.5">
+          {/* biome-ignore lint/a11y/useMediaCaption: generated speech has no caption track to attach */}
+          <audio src={libraryFileUrl(generatedMedia.libraryFileId)} controls className="w-full max-w-72" />
         </div>
       )}
 

@@ -14,16 +14,30 @@ import {
 import type { SkillDefinition } from "@nyxel/skills-sdk";
 import { generateSpeech, NoSpeechGeneratedError, NoTranscriptGeneratedError, transcribe } from "ai";
 import { z } from "zod";
+import { saveLibraryUpload } from "../library";
 import { getInstalledProvidersForWorkspace } from "../models";
 import { allowedDirsFromConfig, baseFields } from "./shared";
+
+const AUDIO_EXTENSION_BY_FORMAT: Record<string, string> = {
+	mp3: "mp3",
+	opus: "opus",
+	aac: "aac",
+	flac: "flac",
+	wav: "wav",
+	pcm: "pcm",
+};
 
 /**
  * Text-to-speech via the AI SDK's `generateSpeech()`, resolved against the
  * workspace's installed OpenAI provider the same way generate_image resolves
  * resolveImageModel — see resolveSpeechModel in @nyxel/model-providers.
- * Returns the audio as base64 (OpenAI's 4096-char input cap on `/v1/audio/
- * speech` keeps a single clip small enough to inline, same reasoning as
- * generate_image; unlike generate_video there's no library round-trip).
+ * Saved into the workspace library rather than returned as inline base64 —
+ * same reasoning as generate_image: even a clip from OpenAI's 4096-char
+ * input cap can be several hundred KB to low-MB depending on format/length,
+ * enough to blow the chat model's own context window once fed back as the
+ * tool result on the next turn. Returns a `libraryFileId` the frontend
+ * resolves through libraryFileUrl() — see agent-activity.tsx's
+ * generatedMediaFromOutput.
  */
 export function buildGenerateSpeechTool(record: ToolRecord): SkillDefinition {
 	return {
@@ -78,13 +92,22 @@ export function buildGenerateSpeechTool(record: ToolRecord): SkillDefinition {
 						instructions && supportsSpeechInstructions(resolved.modelId) ? instructions : undefined,
 					speed,
 				});
+				const mimeType = result.audio.mediaType || "audio/mpeg";
+				const extension = AUDIO_EXTENSION_BY_FORMAT[format ?? "mp3"] ?? "mp3";
+				const file = await saveLibraryUpload({
+					workspaceId: record.workspaceId,
+					folderId: null,
+					fileName: `generated-speech-${Date.now()}.${extension}`,
+					mimeType,
+					bytes: Buffer.from(result.audio.base64, "base64"),
+				});
 				return {
 					text,
 					model: resolved.modelId,
 					voice: voice ?? DEFAULT_SPEECH_VOICE,
 					provider: resolved.providerLabel,
-					mimeType: result.audio.mediaType || "audio/mpeg",
-					base64: result.audio.base64,
+					mimeType,
+					libraryFileId: file.id,
 				};
 			} catch (err) {
 				if (NoSpeechGeneratedError.isInstance(err)) {

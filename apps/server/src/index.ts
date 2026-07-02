@@ -53,4 +53,11 @@ console.log(`Nyxel server listening on http://localhost:${port}`);
 export default {
   port,
   fetch: app.fetch,
+  // Bun's default is 10s of connection inactivity before it force-closes the
+  // socket — the chat SSE stream can go quiet for well over that while a
+  // tool call runs (image/speech generation, slow model calls), so the
+  // connection was dying mid-turn with no bytes ever flushed: no error to
+  // the client, and chat-stream.ts's catch block skips persisting anything
+  // once cancel() has already marked it disconnected. 255 is Bun's max.
+  idleTimeout: 255,
 };
