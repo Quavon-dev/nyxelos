@@ -4,8 +4,8 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
 import { CLI_DEFAULT_MODEL_SENTINEL } from "./cli";
 import {
-  detectLocalModels,
   type DetectedModelCapabilities,
+  detectLocalModels,
   fetchAnthropicModels,
   fetchOllamaModelCapabilities,
   fetchOpenAiCompatibleCapabilities,
@@ -231,7 +231,8 @@ export async function listAvailableModels(
   const capabilitiesByProvider = new Map(
     await Promise.all(
       enabledProviders.map(
-        async (provider) => [provider.id, await capabilitiesForInstalledProvider(provider)] as const,
+        async (provider) =>
+          [provider.id, await capabilitiesForInstalledProvider(provider)] as const,
       ),
     ),
   );
@@ -505,14 +506,20 @@ export async function getModelCapabilities(
 ): Promise<ModelCapabilities> {
   const installed = parseInstalledModelId(modelId, installedProviders);
   if (installed) {
-    if (installed.provider.providerKind === "anthropic" || installed.provider.providerKind === "openai") {
+    if (
+      installed.provider.providerKind === "anthropic" ||
+      installed.provider.providerKind === "openai"
+    ) {
       return FULL_CLOUD_CAPABILITIES;
     }
     // claude_cli/codex_cli: MVP is text-only passthrough over stdin — no
     // native image/document upload to the CLI process (attachments still
     // work via the existing text-extraction fallback in
     // attachment-processing.ts).
-    if (installed.provider.providerKind === "claude_cli" || installed.provider.providerKind === "codex_cli") {
+    if (
+      installed.provider.providerKind === "claude_cli" ||
+      installed.provider.providerKind === "codex_cli"
+    ) {
       return DEFAULT_CAPABILITIES;
     }
     if (installed.provider.providerKind === "openrouter") {
@@ -536,7 +543,9 @@ export async function getModelCapabilities(
   const [prefix, ...rest] = modelId.split("/");
   const nativeModelId = rest.join("/");
   if (prefix === "ollama" && nativeModelId) {
-    const caps = await fetchOllamaModelCapabilities(getOllamaBaseUrl(), nativeModelId).catch(() => null);
+    const caps = await fetchOllamaModelCapabilities(getOllamaBaseUrl(), nativeModelId).catch(
+      () => null,
+    );
     return caps ? fromDetectedCapabilities(caps) : DEFAULT_CAPABILITIES;
   }
   if (prefix && nativeModelId && prefix !== "ollama") {
