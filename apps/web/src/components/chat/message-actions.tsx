@@ -91,7 +91,7 @@ export function MessageActions({
 			{!isUser && (
 				<ActionButton
 					onClick={handleSpeak}
-					label={speaking ? "Vorlesen stoppen" : "Vorlesen"}
+					label={speaking ? "Stop reading" : "Read aloud"}
 					active={speaking}
 				>
 					{speaking ? (
@@ -101,16 +101,16 @@ export function MessageActions({
 					)}
 				</ActionButton>
 			)}
-			<ActionButton onClick={handleCopy} label="Kopieren">
+			<ActionButton onClick={handleCopy} label="Copy">
 				{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
 			</ActionButton>
 			{isUser && onEdit && (
-				<ActionButton onClick={onEdit} label="Bearbeiten">
+				<ActionButton onClick={onEdit} label="Edit">
 					<Pencil className="size-3.5" />
 				</ActionButton>
 			)}
 			{!isUser && onRegenerate && (
-				<ActionButton onClick={onRegenerate} label="Neu generieren">
+				<ActionButton onClick={onRegenerate} label="Regenerate">
 					<RotateCw className="size-3.5" />
 				</ActionButton>
 			)}
@@ -118,14 +118,14 @@ export function MessageActions({
 				<>
 					<ActionButton
 						onClick={() => setRating((r) => (r === "up" ? null : "up"))}
-						label="Gute Antwort"
+						label="Good answer"
 						active={rating === "up"}
 					>
 						<ThumbsUp className="size-3.5" />
 					</ActionButton>
 					<ActionButton
 						onClick={() => setRating((r) => (r === "down" ? null : "down"))}
-						label="Schlechte Antwort"
+						label="Bad answer"
 						active={rating === "down"}
 					>
 						<ThumbsDown className="size-3.5" />

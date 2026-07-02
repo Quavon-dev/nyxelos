@@ -23,20 +23,20 @@ import { libraryFileUrl } from "@/lib/trpc";
 import { MarkdownContent } from "./markdown-content";
 
 const STEP_META: Record<string, { verb: string; icon: typeof FileText }> = {
-  workspace_file_read: { verb: "Gelesen", icon: FileText },
-  workspace_file_read_range: { verb: "Gelesen", icon: FileText },
-  workspace_file_stat: { verb: "Geprüft", icon: FileSearch },
-  workspace_file_list: { verb: "Durchsucht", icon: FolderOpen },
-  workspace_file_write: { verb: "Geschrieben", icon: FilePlus },
-  workspace_file_append: { verb: "Ergänzt", icon: FilePlus },
-  workspace_file_patch: { verb: "Bearbeitet", icon: Pencil },
-  workspace_file_move: { verb: "Verschoben", icon: Move },
-  workspace_file_delete: { verb: "Gelöscht", icon: Trash2 },
-  write_note: { verb: "Notiz erstellt", icon: FilePlus },
-  delegate_to_agent: { verb: "Delegiert", icon: Users },
-  generate_image: { verb: "Bild generiert", icon: ImageIcon },
-  generate_video: { verb: "Video generiert", icon: Film },
-  edit_video: { verb: "Video bearbeitet", icon: Scissors },
+  workspace_file_read: { verb: "Read", icon: FileText },
+  workspace_file_read_range: { verb: "Read", icon: FileText },
+  workspace_file_stat: { verb: "Checked", icon: FileSearch },
+  workspace_file_list: { verb: "Listed", icon: FolderOpen },
+  workspace_file_write: { verb: "Written", icon: FilePlus },
+  workspace_file_append: { verb: "Appended", icon: FilePlus },
+  workspace_file_patch: { verb: "Edited", icon: Pencil },
+  workspace_file_move: { verb: "Moved", icon: Move },
+  workspace_file_delete: { verb: "Deleted", icon: Trash2 },
+  write_note: { verb: "Note created", icon: FilePlus },
+  delegate_to_agent: { verb: "Delegated", icon: Users },
+  generate_image: { verb: "Image generated", icon: ImageIcon },
+  generate_video: { verb: "Video generated", icon: Film },
+  edit_video: { verb: "Video edited", icon: Scissors },
 };
 
 /** Matches the `{ mimeType, base64 }` shape shared by generate_image,
@@ -95,7 +95,7 @@ function generatedMediaFromOutput(
 }
 
 function stepMeta(name: string) {
-  return STEP_META[name] ?? { verb: "Verwendet", icon: Wrench };
+  return STEP_META[name] ?? { verb: "Used", icon: Wrench };
 }
 
 function stepTarget(step: AgentActivityStep): string {
@@ -260,7 +260,7 @@ export function TypingIndicator() {
 
 /**
  * Renders a model turn's "thinking" trail — reasoning text (what Gemini
- * labels "Gedanken") and the tool calls it made, in call order. Shown live
+ * labels "Thoughts") and the tool calls it made, in call order. Shown live
  * while streaming and, once persisted, replayed from the trailing
  * ```nyxel-activity block on history reload — see chat-agent-activity.ts.
  */
@@ -272,7 +272,7 @@ export function AgentActivity({
   reasoning?: string;
   steps: AgentActivityStep[];
   /** True while the model is actively reasoning and hasn't produced answer
-   * text yet — auto-opens the panel and shows a live "Denkt nach…" header so
+   * text yet — auto-opens the panel and shows a live "Thinking…" header so
    * thinking is visible as it happens instead of hiding behind a collapsed
    * row. Collapses again once the answer starts, unless the user pinned it. */
   thinking?: boolean;
@@ -292,7 +292,7 @@ export function AgentActivity({
             className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs font-medium text-muted-foreground"
           >
             <Lightbulb className="size-3.5 shrink-0" />
-            {thinking ? <span className="thinking-shimmer">Denkt nach…</span> : "Gedanken"}
+            {thinking ? <span className="thinking-shimmer">Thinking…</span> : "Thoughts"}
             <ChevronDown
               className={`ml-auto size-3.5 shrink-0 transition-transform ${reasoningOpen ? "rotate-180" : ""}`}
             />

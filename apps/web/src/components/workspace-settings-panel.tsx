@@ -115,7 +115,7 @@ const SECTIONS = [
 type SectionId = (typeof SECTIONS)[number]["id"];
 
 // Mirrors the grouped-sidebar look of the desktop settings modal (e.g.
-// "Einstellungen" vs "Desktop-App") — only the groups that map to something
+// "Settings" vs "Desktop App") — only the groups that map to something
 // real in this app, nothing invented.
 const NAV_GROUPS: { label: string; sections: SectionId[] }[] = [
   { label: "Workspace", sections: ["general", "instructions", "approvals"] },

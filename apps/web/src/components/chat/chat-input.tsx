@@ -95,7 +95,7 @@ export function ChatInput({
   }
 
   const placeholder = assistantPrompt
-    ? "Eigene Antwort schreiben…"
+    ? "Write your own answer…"
     : assistantQuestion
       ? "Answer the question…"
       : "Message Nyxel…";
@@ -126,7 +126,7 @@ export function ChatInput({
               requestAnimationFrame(() => textareaRef.current?.focus());
             }}
             onChooseCustomAnswer={() => requestAnimationFrame(() => textareaRef.current?.focus())}
-            note="Waehl einen Vorschlag oder tippe unten eine eigene Antwort."
+            note="Pick a suggestion or type your own answer below."
           />
         )}
         {!assistantPrompt && assistantQuestion && (
@@ -199,7 +199,7 @@ export function ChatInput({
           <button
             type="submit"
             disabled={disabled || (!value.trim() && attachedFiles.length === 0)}
-            aria-label={disabled ? "Nyxel arbeitet…" : "Senden"}
+            aria-label={disabled ? "Nyxel is working…" : "Send"}
             className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
           >
             {disabled ? (

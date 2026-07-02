@@ -27,7 +27,7 @@ export function MultiSelectPromptCard({
 	note?: string;
 }) {
 	const interactive = mode === "interactive";
-	const customLabel = prompt.customLabel ?? "Eigene Antwort schreiben";
+	const customLabel = prompt.customLabel ?? "Write your own answer";
 
 	if (!interactive) {
 		return (
@@ -38,7 +38,7 @@ export function MultiSelectPromptCard({
 							{prompt.question}
 						</p>
 						<p className="text-xs text-muted-foreground">
-							Drei Vorschlaege und eine eigene Antwort.
+							Three suggestions and your own answer.
 						</p>
 					</div>
 					<div className="flex flex-wrap gap-2">
@@ -69,7 +69,7 @@ export function MultiSelectPromptCard({
 						{prompt.question}
 					</p>
 					<p className="text-xs text-muted-foreground">
-						Waehle einen Vorschlag oder schreibe eine eigene Antwort.
+						Pick a suggestion or write your own answer.
 					</p>
 				</div>
 
@@ -81,7 +81,7 @@ export function MultiSelectPromptCard({
 							className="w-full justify-between"
 							size="sm"
 						>
-							<span>Antwort auswaehlen</span>
+							<span>Choose an answer</span>
 							<ChevronDown className="size-4 opacity-60" />
 						</Button>
 					</DropdownMenuTrigger>

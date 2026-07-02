@@ -28,7 +28,7 @@ A new "Skills" tab (`apps/web/.../skills/page.tsx`) covers both halves of the as
 
 ## Consequences
 
-- Every chat, automation, and scheduled agent run in a workspace now sees the same living project memory by default, without the user having to paste it in or the agent having to go fetch it — matching "immer mit einer knowledge base arbeiten die automatisch an das modell übergeben wird".
+- Every chat, automation, and scheduled agent run in a workspace now sees the same living project memory by default, without the user having to paste it in or the agent having to go fetch it — matching the original requirement to "always work with a knowledge base that gets automatically passed to the model".
 - Skills are no longer a fixed, code-only list — a user can grant an agent file access (read/write/list) or knowledge-base search from the UI in under a minute, and the DB row is the source of truth (no server restart needed).
 - `custom_code` skills run in-process with the same trust model as every other skill (ADR-0007): the permission context stops *accidental* out-of-scope access, not a *deliberately* malicious skill, which could still reach other Node/Bun APIs directly. This is an explicit, documented trade-off, not an oversight — real sandboxing (separate worker/container per skill) remains a follow-up.
 - Automations can now react to the filesystem, not just the clock, which is the more common "automation" mental model for non-cron users.

@@ -1,5 +1,5 @@
 export const EMPTY_ASSISTANT_RESPONSE =
-	"Ich konnte gerade keine sichtbare Antwort erzeugen. Bitte versuchen Sie es erneut oder formulieren Sie Ihre Anfrage etwas anders.";
+	"I couldn't produce a visible response just now. Please try again or rephrase your request.";
 
 export function ensureVisibleAssistantResponse(text: string): string {
 	return text.trim() ? text : EMPTY_ASSISTANT_RESPONSE;
@@ -11,6 +11,6 @@ export function buildStreamFailureResponse(
 ): string {
 	return ensureVisibleAssistantResponse(
 		streamedText ||
-			`Ich konnte die Antwort nicht vollständig streamen. ${messageText}`,
+			`I couldn't stream the full response. ${messageText}`,
 	);
 }

@@ -127,7 +127,7 @@ export function MessageBubble({
                   if (e.key === "Escape") cancelEdit();
                 }}
                 rows={3}
-                // biome-ignore lint/a11y/noAutofocus: opening the editor is the user's explicit click on "Bearbeiten" — focus belongs here.
+                // biome-ignore lint/a11y/noAutofocus: opening the editor is the user's explicit click on "Edit" — focus belongs here.
                 autoFocus
                 className="w-full resize-none rounded-lg border border-input bg-background p-2 text-[15px] leading-relaxed outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />

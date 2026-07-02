@@ -63,7 +63,7 @@ function AutonomyBadge({ level }: { level: AutonomyLevel }) {
 
 /** Header + "select all" toggle shared by the skills/tools/MCP checklists in
  * the create/edit form — lets a user attach everything in one click instead
- * of ticking each box, per the "mehr auf einmal auswählen" ask. */
+ * of ticking each box, per the "select more at once" ask. */
 function SelectAllRow({
   label,
   allIds,

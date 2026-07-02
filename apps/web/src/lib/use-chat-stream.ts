@@ -8,7 +8,7 @@ import { extractSseEvents } from "./chat-stream-parser";
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL ?? "http://localhost:3001";
 
 const EMPTY_ASSISTANT_RESPONSE =
-  "Ich konnte gerade keine sichtbare Antwort erzeugen. Bitte versuchen Sie es erneut oder formulieren Sie Ihre Anfrage etwas anders.";
+  "I couldn't produce a visible response just now. Please try again or rephrase your request.";
 
 export interface StreamingMessage {
   role: "assistant";

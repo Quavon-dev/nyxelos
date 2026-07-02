@@ -280,7 +280,7 @@ export function ChatComposerToolbar({
    * messages — the pre-chat composer (app/chat/page.tsx) has no thread yet,
    * so it stays hidden there and only appears inside an actual chat. */
   showContextWindow?: boolean;
-  /** "Nachdenken" toggle — requests extended thinking/reasoning for the
+  /** "Thinking" toggle — requests extended thinking/reasoning for the
    * turn. The pill only renders when a handler is wired up. */
   reasoningEnabled?: boolean;
   onReasoningChange?: (enabled: boolean) => void;
@@ -783,13 +783,13 @@ export function ChatComposerToolbar({
           onClick={() => onReasoningChange(!reasoningEnabled)}
           title={
             reasoningEnabled
-              ? "Nachdenken aktiv — das Modell denkt vor der Antwort ausführlich nach"
-              : "Nachdenken aktivieren (extended thinking / reasoning)"
+              ? "Thinking active — model reasons at length before answering"
+              : "Enable thinking (extended thinking / reasoning)"
           }
           className={cn(pillClass(reasoningEnabled), "shrink-0")}
         >
           <BrainCircuit className="size-3.5" />
-          Nachdenken
+          Thinking
         </button>
       )}
 
@@ -993,16 +993,16 @@ export function ChatComposerToolbar({
           disabled={!voice.supported}
           title={
             !voice.supported
-              ? "Diktieren wird in diesem Browser nicht unterstützt"
+              ? "Dictation not supported in this browser"
               : voice.status === "recording"
-                ? "Aufnahme stoppen"
+                ? "Stop recording"
                 : voice.status === "loading"
-                  ? `Whisper-Modell wird geladen… ${voice.progress}%`
+                  ? `Loading Whisper model… ${voice.progress}%`
                   : voice.status === "transcribing"
-                    ? "Transkribiert…"
+                    ? "Transcribing…"
                     : voice.status === "error"
-                      ? `Diktieren fehlgeschlagen: ${voice.error ?? "Unbekannter Fehler"} — erneut versuchen`
-                      : "Diktieren (lokales Whisper-Modell, keine Cloud)"
+                      ? `Dictation failed: ${voice.error ?? "Unknown error"} — try again`
+                      : "Dictate (local Whisper model, no cloud)"
           }
           className={cn(
             "flex size-8 items-center justify-center rounded-full transition-colors disabled:opacity-30",

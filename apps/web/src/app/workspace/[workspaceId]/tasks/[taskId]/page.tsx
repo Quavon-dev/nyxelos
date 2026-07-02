@@ -133,6 +133,8 @@ export default function TaskDetailPage() {
       invalidate();
     },
   });
+  const followUpError =
+    followUpTask.error instanceof Error ? followUpTask.error.message : null;
 
   const [actingApprovalId, setActingApprovalId] = useState<string | null>(null);
   const invalidateApprovals = () => {
@@ -365,7 +367,7 @@ export default function TaskDetailPage() {
               onChooseCustomAnswer={() => {
                 requestAnimationFrame(() => followUpTextareaRef.current?.focus());
               }}
-              note="Wähle einen Vorschlag oder schreibe eine eigene Antwort unten."
+              note="Pick a suggestion or write your own answer below."
             />
           )}
           <Textarea
@@ -374,7 +376,7 @@ export default function TaskDetailPage() {
             onChange={(e) => setFollowUpInstruction(e.target.value)}
             placeholder={
               followUpPrompt
-                ? "Eigene Antwort schreiben..."
+                ? "Write your own answer..."
                 : "Add the next instruction for this agent..."
             }
             rows={followUpPrompt ? 3 : 4}
@@ -390,6 +392,9 @@ export default function TaskDetailPage() {
               This keeps the agent session going without creating a new task.
             </p>
           </div>
+          {followUpError && (
+            <p className="text-sm text-destructive">Failed to send: {followUpError}</p>
+          )}
         </CardContent>
       </Card>
 

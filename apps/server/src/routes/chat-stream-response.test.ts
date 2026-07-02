@@ -16,18 +16,18 @@ describe("chat stream response helpers", () => {
 	});
 
 	it("keeps visible model text unchanged", () => {
-		expect(ensureVisibleAssistantResponse("Hallo Welt")).toBe("Hallo Welt");
+		expect(ensureVisibleAssistantResponse("Hello world")).toBe("Hello world");
 	});
 
 	it("prefers already streamed content on mid-stream failure", () => {
 		expect(
-			buildStreamFailureResponse("Teilantwort", "provider disconnected"),
-		).toBe("Teilantwort");
+			buildStreamFailureResponse("Partial answer", "provider disconnected"),
+		).toBe("Partial answer");
 	});
 
 	it("builds a visible failure response when nothing was streamed", () => {
 		expect(buildStreamFailureResponse("", "provider disconnected")).toBe(
-			"Ich konnte die Antwort nicht vollständig streamen. provider disconnected",
+			"I couldn't stream the full response. provider disconnected",
 		);
 	});
 });

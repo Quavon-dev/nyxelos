@@ -34,7 +34,7 @@ function getPendingAssistantQuestion(messages: Array<{ role: string; content: st
   return /[?؟]\s*$/.test(content) ||
     content.includes("?") ||
     content.includes("Could you") ||
-    content.includes("Bitte")
+    content.includes("Please")
     ? content
     : null;
 }
@@ -155,7 +155,7 @@ export default function ChatPage() {
     enabled: Boolean(workspaceId),
   });
 
-  // "Nachdenken" (extended thinking) — remembered across chats so the person
+  // "Thinking" (extended thinking) — remembered across chats so the person
   // doesn't have to re-enable their preferred mode on every new thread.
   const [reasoningEnabled, setReasoningEnabled] = useState(false);
   useEffect(() => {
