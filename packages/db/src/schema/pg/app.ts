@@ -349,7 +349,8 @@ export type ToolKind =
 	| "browser_read_page"
 	| "browser_run_playwright_code"
 	| "github_repo_fetch"
-	| "github_code_search";
+	| "github_code_search"
+	| "generate_image";
 
 /** A user-defined tool, built from a declarative `kind` instead of
  * hand-written TypeScript. Complements the process-wide hardcoded skills in

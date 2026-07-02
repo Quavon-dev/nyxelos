@@ -137,7 +137,8 @@ export type ToolKind =
 	| "browser_read_page"
 	| "browser_run_playwright_code"
 	| "github_repo_fetch"
-	| "github_code_search";
+	| "github_code_search"
+	| "generate_image";
 
 export type AutomationTriggerType = "cron" | "file_watch";
 export type AutomationRunStatus = "success" | "error" | "pending_approval";

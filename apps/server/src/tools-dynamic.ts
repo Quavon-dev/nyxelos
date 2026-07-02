@@ -21,6 +21,7 @@ import {
 	buildFilePatchTool,
 	buildNotebookEditTool,
 } from "./tools-builtin/edit";
+import { buildGenerateImageTool } from "./tools-builtin/image";
 import {
 	buildFileStatTool,
 	buildFileViewImageTool,
@@ -295,6 +296,8 @@ export function buildDynamicToolDefinition(
 			return buildGithubRepoFetchTool(record);
 		case "github_code_search":
 			return buildGithubCodeSearchTool(record);
+		case "generate_image":
+			return buildGenerateImageTool(record);
 
 		default:
 			// Exhaustiveness guard — a future ToolKind added to the DB schema
@@ -359,4 +362,5 @@ export const TOOL_KIND_CATEGORY: Record<
 	browser_run_playwright_code: "browser",
 	github_repo_fetch: "web",
 	github_code_search: "web",
+	generate_image: "web",
 };

@@ -157,6 +157,7 @@ const toolKindSchema = z.enum([
 	"browser_run_playwright_code",
 	"github_repo_fetch",
 	"github_code_search",
+	"generate_image",
 ]);
 /** Kinds that default to `sensitive: false` (pure reads/lookups) when a
  * caller doesn't explicitly pass `sensitive` — mirrors the read-vs-write
@@ -183,6 +184,7 @@ const NON_SENSITIVE_DEFAULT_TOOL_KINDS = new Set([
 	"browser_screenshot",
 	"github_repo_fetch",
 	"github_code_search",
+	"generate_image",
 ]);
 const automationTriggerTypeSchema = z.enum(["cron", "file_watch"]);
 const taskStatusSchema = z.enum([

@@ -256,6 +256,11 @@ const TOOL_KINDS: { value: ToolKind; label: string; description: string }[] = [
     label: "Search GitHub code",
     description: "Search code on GitHub via the GitHub code search API.",
   },
+  {
+    value: "generate_image",
+    label: "Generate image",
+    description: "Generate an image from a text prompt (OpenAI gpt-image-1 or dall-e-3).",
+  },
 ];
 
 const DEFAULT_SENSITIVE_KINDS = new Set<ToolKind>([
