@@ -63,6 +63,19 @@ function pendingApprovalResult(approvalId: string, toolLabel: string) {
 	};
 }
 
+/**
+ * Model providers (Gemini in particular) validate function/tool names
+ * against `^[a-zA-Z_][a-zA-Z0-9_.:-]{0,127}$`. MCP server display names are
+ * free text (e.g. "SEO/GEO/AEO Analyzer") and were being used verbatim in
+ * the tool key, so any server name with a space or slash broke every tool
+ * call for that server with a 400 from the provider. Sanitize before using
+ * a name as part of a model-facing tool key.
+ */
+function sanitizeToolNamePart(name: string): string {
+	const cleaned = name.replace(/[^a-zA-Z0-9_.:-]/g, "_");
+	return /^[a-zA-Z_]/.test(cleaned) ? cleaned : `_${cleaned}`;
+}
+
 function classifyBuiltinSkillKind(skillId: string): ToolKind | null {
 	switch (skillId) {
 		case "workspace_file_read":
@@ -444,7 +457,12 @@ export async function buildToolsForAgent(
 		for (const mcpTool of mcpTools) {
 			if (allowedToolNames && !allowedToolNames.has(mcpTool.name)) continue;
 			// Namespaced so identically-named tools from two servers don't collide.
-			const toolKey = `${server.name}__${mcpTool.name}`;
+			// Sanitized because this key doubles as the model-facing function name
+			// (see sanitizeToolNamePart) — server display names are free text.
+			const toolKey = `${sanitizeToolNamePart(server.name)}__${sanitizeToolNamePart(mcpTool.name)}`.slice(
+				0,
+				128,
+			);
 			tools[toolKey] = dynamicTool({
 				description:
 					mcpTool.description ??
