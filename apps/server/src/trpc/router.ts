@@ -61,6 +61,13 @@ import {
 	startTaskExecutionIfIdle,
 } from "../agent-runtime";
 import {
+	getPlugin,
+	installPluginFromGithub,
+	listPlugins,
+	setPluginEnabled,
+	uninstallPlugin,
+} from "../plugins";
+import {
 	createFileSkill,
 	deleteFileSkill,
 	importSkillFromUrl,
@@ -619,6 +626,55 @@ export const appRouter = router({
 		importFromUrl: publicProcedure
 			.input(z.object({ workspaceId: z.string(), url: z.string().url() }))
 			.mutation(({ input }) => importSkillFromUrl(input)),
+	}),
+
+	// Plugins are larger, folder-based bundles pulled whole from a GitHub repo
+	// (Claude Code plugin format — .claude-plugin/plugin.json + skills/ +
+	// agents/ + arbitrary supporting files) rather than the single-file
+	// skills above. See apps/server/src/plugins.ts.
+	plugins: router({
+		list: publicProcedure
+			.input(z.object({ workspaceId: z.string() }))
+			.query(({ input }) => listPlugins(input.workspaceId)),
+		get: publicProcedure
+			.input(z.object({ id: z.string() }))
+			.query(({ input }) => getPlugin(input.id)),
+		install: publicProcedure
+			.input(z.object({ workspaceId: z.string(), repoUrl: z.string().min(1) }))
+			.mutation(async ({ input }) => {
+				const result = await installPluginFromGithub(input);
+				// No dedicated "plugin" audit actor kind (see AuditActor) — reusing
+				// "extension" since both are marketplace-style installable units
+				// rather than adding a pg enum migration for one more value.
+				await logAudit({
+					workspaceId: input.workspaceId,
+					actor: "extension",
+					toolLabel: "plugins.install",
+					input: { repoUrl: input.repoUrl },
+					output: { slug: result.plugin.slug, skillCount: result.skills.length },
+					status: "success",
+				});
+				return result;
+			}),
+		setEnabled: publicProcedure
+			.input(z.object({ id: z.string(), enabled: z.boolean() }))
+			.mutation(({ input }) => setPluginEnabled(input.id, input.enabled)),
+		uninstall: publicProcedure
+			.input(z.object({ id: z.string() }))
+			.mutation(async ({ input }) => {
+				const existing = await getPlugin(input.id);
+				await uninstallPlugin(input.id);
+				if (existing) {
+					await logAudit({
+						workspaceId: existing.workspaceId,
+						actor: "extension",
+						toolLabel: "plugins.uninstall",
+						input: { slug: existing.slug },
+						status: "success",
+					});
+				}
+				return { ok: true };
+			}),
 	}),
 
 	tools: router({

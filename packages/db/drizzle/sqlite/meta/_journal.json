@@ -183,6 +183,13 @@
       "when": 1783000013000,
       "tag": "0025_seo_project_reanalyze_schedule",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1783000014000,
+      "tag": "0026_plugins",
+      "breakpoints": true
     }
   ]
 }

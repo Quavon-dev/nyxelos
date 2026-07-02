@@ -131,6 +131,16 @@ export type ToolKind =
 export type AutomationTriggerType = "cron" | "file_watch";
 export type AutomationRunStatus = "success" | "error" | "pending_approval";
 
+/** A sub-agent bundled in an installed plugin's `agents/*.md` directory
+ * (Claude Code plugin format) — parsed and stored for display; not wired
+ * into NyxelOS's own agent runtime automatically. See ../pg/app.ts. */
+export interface PluginAgentDefinition {
+	slug: string;
+	name: string;
+	description: string;
+	body: string;
+}
+
 /** Mirrors ../pg/app.ts. See ARCHITECTURE.md section 5 for the domain model. */
 export const installation = sqliteTable("installation", {
 	id: text("id").primaryKey(),
@@ -569,6 +579,53 @@ export const extension = sqliteTable("extension", {
 		.default({})
 		.$type<Record<string, unknown>>(),
 	installedAt: integer("installed_at", { mode: "timestamp" }).notNull(),
+});
+
+/** An installed plugin — a full folder-based bundle (Claude Code plugin
+ * format: `.claude-plugin/plugin.json` + `skills/`, `agents/`, and other
+ * supporting files) pulled from a GitHub repo and kept on disk under
+ * `installDir` rather than flattened into a single markdown body. Every
+ * `skills/<slug>/SKILL.md` the plugin ships is registered as a file skill
+ * (see packages/skills-sdk/src/file-skill.ts loadFileSkillBundle) whose id
+ * is tracked in `skillSlugs`; `agents/*.md` sub-agents are parsed into
+ * `agentDefs` for display since NyxelOS agents are DB rows, not files. See
+ * ../pg/app.ts. */
+export const plugin = sqliteTable("plugin", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	slug: text("slug").notNull(),
+	name: text("name").notNull(),
+	description: text("description").notNull(),
+	version: text("version"),
+	author: text("author"),
+	homepage: text("homepage"),
+	repoUrl: text("repo_url").notNull(),
+	// Raw parsed .claude-plugin/plugin.json (or {} for repos that ship skills
+	// without a manifest) — kept verbatim so the UI can show anything a future
+	// manifest field adds without a schema change.
+	manifest: text("manifest", { mode: "json" })
+		.notNull()
+		.default({})
+		.$type<Record<string, unknown>>(),
+	// file_skill_bundle__ ids (see file-skill.ts) contributed by this plugin's
+	// skills/ directory — used to merge them into the workspace skill catalog
+	// and to clean them up on uninstall.
+	skillSlugs: text("skill_slugs", { mode: "json" })
+		.notNull()
+		.default([])
+		.$type<string[]>(),
+	agentDefs: text("agent_defs", { mode: "json" })
+		.notNull()
+		.default([])
+		.$type<PluginAgentDefinition[]>(),
+	fileCount: integer("file_count").notNull().default(0),
+	// Absolute path under NYXEL_PLUGINS_DIR/<workspaceId>/<slug>/ where every
+	// downloaded file lives, preserving the repo's folder structure.
+	installDir: text("install_dir").notNull(),
+	enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
 export const seoProject = sqliteTable("seo_project", {

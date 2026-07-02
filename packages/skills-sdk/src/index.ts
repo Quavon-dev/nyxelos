@@ -1,6 +1,8 @@
 export { defineSkill } from "./define-skill";
 export {
 	loadFileSkill,
+	loadFileSkillBundle,
+	loadFileSkillBundlesFromDir,
 	loadFileSkillsFromDir,
 	parseSkillMarkdown,
 	serializeSkillMarkdown,

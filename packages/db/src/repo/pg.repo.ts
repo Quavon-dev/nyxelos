@@ -1555,6 +1555,80 @@ export function createPgRepository(connectionString: string): DbRepository {
 			await db.delete(schema.extension).where(eq(schema.extension.id, id));
 		},
 
+		async createPlugin({
+			workspaceId,
+			slug,
+			name,
+			description,
+			version,
+			author,
+			homepage,
+			repoUrl,
+			manifest,
+			skillSlugs,
+			agentDefs,
+			fileCount,
+			installDir,
+		}) {
+			const [row] = await db
+				.insert(schema.plugin)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					slug,
+					name,
+					description,
+					version: version ?? null,
+					author: author ?? null,
+					homepage: homepage ?? null,
+					repoUrl,
+					manifest,
+					skillSlugs,
+					agentDefs,
+					fileCount,
+					installDir,
+					enabled: true,
+				})
+				.returning();
+			if (!row) throw new Error("Failed to create plugin");
+			return row;
+		},
+
+		async listPluginsByWorkspace(workspaceId) {
+			return db
+				.select()
+				.from(schema.plugin)
+				.where(eq(schema.plugin.workspaceId, workspaceId));
+		},
+
+		async getPlugin(id) {
+			const row = await db.query.plugin.findFirst({
+				where: eq(schema.plugin.id, id),
+			});
+			return row ?? null;
+		},
+
+		async getPluginBySlug(workspaceId, slug) {
+			const row = await db.query.plugin.findFirst({
+				where: and(eq(schema.plugin.workspaceId, workspaceId), eq(schema.plugin.slug, slug)),
+			});
+			return row ?? null;
+		},
+
+		async setPluginEnabled(id, enabled) {
+			const [row] = await db
+				.update(schema.plugin)
+				.set({ enabled })
+				.where(eq(schema.plugin.id, id))
+				.returning();
+			if (!row) throw new Error(`Plugin not found: ${id}`);
+			return row;
+		},
+
+		async deletePlugin(id) {
+			await db.delete(schema.plugin).where(eq(schema.plugin.id, id));
+		},
+
 		async createSeoProject({ workspaceId, extensionId, domain, repoPath }) {
 			const [row] = await db
 				.insert(schema.seoProject)

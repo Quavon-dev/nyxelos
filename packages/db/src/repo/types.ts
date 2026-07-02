@@ -79,6 +79,14 @@ export interface ChatToolPolicy {
 	approveMcpTools: boolean;
 }
 
+/** A sub-agent bundled in an installed plugin's `agents/*.md` directory. */
+export interface PluginAgentDefinition {
+	slug: string;
+	name: string;
+	description: string;
+	body: string;
+}
+
 export const DEFAULT_CHAT_TOOL_POLICY: ChatToolPolicy = {
 	mode: "default",
 	approveFileWrites: true,
@@ -403,6 +411,25 @@ export interface ExtensionRecord {
 	enabled: boolean;
 	config: Record<string, unknown>;
 	installedAt: Date;
+}
+
+export interface PluginRecord {
+	id: string;
+	workspaceId: string;
+	slug: string;
+	name: string;
+	description: string;
+	version: string | null;
+	author: string | null;
+	homepage: string | null;
+	repoUrl: string;
+	manifest: Record<string, unknown>;
+	skillSlugs: string[];
+	agentDefs: PluginAgentDefinition[];
+	fileCount: number;
+	installDir: string;
+	enabled: boolean;
+	createdAt: Date;
 }
 
 export interface SeoProjectRecord {
@@ -907,6 +934,27 @@ export interface DbRepository {
 		config: Record<string, unknown>,
 	): Promise<ExtensionRecord>;
 	uninstallExtension(id: string): Promise<void>;
+
+	createPlugin(input: {
+		workspaceId: string;
+		slug: string;
+		name: string;
+		description: string;
+		version?: string | null;
+		author?: string | null;
+		homepage?: string | null;
+		repoUrl: string;
+		manifest: Record<string, unknown>;
+		skillSlugs: string[];
+		agentDefs: PluginAgentDefinition[];
+		fileCount: number;
+		installDir: string;
+	}): Promise<PluginRecord>;
+	listPluginsByWorkspace(workspaceId: string): Promise<PluginRecord[]>;
+	getPlugin(id: string): Promise<PluginRecord | null>;
+	getPluginBySlug(workspaceId: string, slug: string): Promise<PluginRecord | null>;
+	setPluginEnabled(id: string, enabled: boolean): Promise<PluginRecord>;
+	deletePlugin(id: string): Promise<void>;
 
 	createSeoProject(input: {
 		workspaceId: string;
