@@ -526,8 +526,10 @@ export function WorkspaceSettingsPanel({
     queryKey: ["extensions", "list", workspaceId],
     queryFn: () => trpcClient.extensions.list.query({ workspaceId }),
   });
-  const invalidateExtensions = () =>
+  const invalidateExtensions = () => {
     queryClient.invalidateQueries({ queryKey: ["extensions", "list", workspaceId] });
+    queryClient.invalidateQueries({ queryKey: ["plugins", "list", workspaceId] });
+  };
   const installExtension = useMutation({
     mutationFn: (key: string) => trpcClient.extensions.install.mutate({ workspaceId, key }),
     onSuccess: invalidateExtensions,
@@ -1350,6 +1352,16 @@ export function WorkspaceSettingsPanel({
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground">{entry.description}</p>
+                      {entry.pluginRepoUrl && !installed && (
+                        <p className="text-xs text-muted-foreground">
+                          Installing this also pulls in its companion plugin (skills + specialist
+                          agents) from{" "}
+                          <span className="text-foreground">
+                            {entry.pluginRepoUrl.replace("https://github.com/", "")}
+                          </span>
+                          .
+                        </p>
+                      )}
                       <div className="flex gap-2">
                         {installed ? (
                           <>
@@ -1374,10 +1386,30 @@ export function WorkspaceSettingsPanel({
                             disabled={installExtension.isPending}
                             onClick={() => installExtension.mutate(entry.key)}
                           >
-                            Install
+                            {installExtension.isPending && installExtension.variables === entry.key
+                              ? "Installing…"
+                              : "Install"}
                           </Button>
                         )}
                       </div>
+                      {installExtension.isSuccess &&
+                        installExtension.variables === entry.key &&
+                        installExtension.data.pluginInstall && (
+                          <p
+                            className={
+                              installExtension.data.pluginInstall.status === "failed"
+                                ? "text-xs text-destructive"
+                                : "text-xs text-emerald-600"
+                            }
+                          >
+                            {installExtension.data.pluginInstall.status === "installed" &&
+                              `Plugin installed — ${installExtension.data.pluginInstall.skillCount ?? 0} skill(s), ${installExtension.data.pluginInstall.agentCount ?? 0} specialist agent(s) now available.`}
+                            {installExtension.data.pluginInstall.status === "already_installed" &&
+                              "Companion plugin was already installed."}
+                            {installExtension.data.pluginInstall.status === "failed" &&
+                              `Companion plugin install failed: ${installExtension.data.pluginInstall.error}. You can retry from the Plugins page.`}
+                          </p>
+                        )}
                     </div>
                   );
                 })}

@@ -539,6 +539,15 @@ export type ExtensionCatalogEntry = {
 	category: string;
 	icon: string;
 	route: string;
+	pluginRepoUrl?: string;
+};
+
+export type ExtensionPluginInstallResult = {
+	status: "installed" | "already_installed" | "failed";
+	plugin?: PluginSummary;
+	skillCount?: number;
+	agentCount?: number;
+	error?: string;
 };
 
 export type ExtensionSummary = {
@@ -1194,7 +1203,10 @@ type NyxelTrpcClient = {
 			query(input: { workspaceId: string }): Promise<ExtensionSummary[]>;
 		};
 		install: {
-			mutate(input: { workspaceId: string; key: string }): Promise<ExtensionSummary>;
+			mutate(input: { workspaceId: string; key: string }): Promise<{
+				extension: ExtensionSummary;
+				pluginInstall: ExtensionPluginInstallResult | null;
+			}>;
 		};
 		setEnabled: {
 			mutate(input: { id: string; enabled: boolean }): Promise<ExtensionSummary>;
@@ -1251,6 +1263,9 @@ type NyxelTrpcClient = {
 		listOpenFindings: {
 			query(input: { seoProjectId: string }): Promise<SeoFindingSummary[]>;
 		};
+		listAllFindings: {
+			query(input: { seoProjectId: string }): Promise<SeoFindingSummary[]>;
+		};
 		listBlogPosts: {
 			query(input: { seoProjectId: string }): Promise<SeoBlogPostSummary[]>;
 		};
@@ -1261,7 +1276,13 @@ type NyxelTrpcClient = {
 			mutate(input: {
 				seoProjectId: string;
 				findingIds: string[];
-			}): Promise<{ taskId: string; runId: string; output: string }>;
+			}): Promise<{
+				taskId: string;
+				runId: string;
+				output: string;
+				modelId: string;
+				pluginSkillsUsed: string[];
+			}>;
 		};
 		generateBlogPost: {
 			mutate(input: {

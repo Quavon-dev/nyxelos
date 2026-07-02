@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { rm } from "node:fs/promises";
 import { getDb } from "@nyxel/db";
 import {
+	ensureExtensionPlugin,
+	findPluginByRepoUrl,
 	installPluginFromGithub,
 	loadPluginSkillDefinitions,
 	parseGithubRepoUrl,
@@ -219,5 +221,77 @@ describe("installPluginFromGithub", () => {
 		await expect(installPluginFromGithub({ workspaceId, repoUrl: "not a url" })).rejects.toThrow(
 			/doesn't look like a GitHub repo URL/,
 		);
+	});
+});
+
+describe("ensureExtensionPlugin", () => {
+	const installedPluginIds: string[] = [];
+
+	afterEach(async () => {
+		while (installedPluginIds.length > 0) {
+			const id = installedPluginIds.pop();
+			if (id) await uninstallPlugin(id);
+		}
+	});
+
+	it("installs the companion plugin the first time an extension activates", async () => {
+		const workspaceId = await withWorkspace();
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = installFetchMock();
+		let result: Awaited<ReturnType<typeof ensureExtensionPlugin>>;
+		try {
+			result = await ensureExtensionPlugin(workspaceId, `https://github.com/${OWNER}/${REPO}`);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		if (result.plugin) installedPluginIds.push(result.plugin.id);
+
+		expect(result.status).toBe("installed");
+		expect(result.skillCount).toBe(2);
+		expect(result.agentCount).toBe(1);
+
+		const found = await findPluginByRepoUrl(workspaceId, `https://github.com/${OWNER}/${REPO}`);
+		expect(found?.id).toBe(result.plugin?.id);
+	});
+
+	it("does not reinstall (and re-download) an already-installed companion plugin", async () => {
+		const workspaceId = await withWorkspace();
+		const originalFetch = globalThis.fetch;
+		let fetchCallCount = 0;
+		const mock = installFetchMock();
+		globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
+			fetchCallCount++;
+			return mock(...args);
+		}) as typeof fetch;
+		let first: Awaited<ReturnType<typeof ensureExtensionPlugin>>;
+		let second: Awaited<ReturnType<typeof ensureExtensionPlugin>>;
+		try {
+			first = await ensureExtensionPlugin(workspaceId, `https://github.com/${OWNER}/${REPO}`);
+			const countAfterFirst = fetchCallCount;
+			second = await ensureExtensionPlugin(workspaceId, `https://github.com/${OWNER}/${REPO}`);
+			expect(fetchCallCount).toBe(countAfterFirst); // no additional network calls
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+		if (first.plugin) installedPluginIds.push(first.plugin.id);
+
+		expect(second.status).toBe("already_installed");
+		expect(second.plugin?.id).toBe(first.plugin?.id);
+	});
+
+	it("reports failure instead of throwing when the install fails", async () => {
+		const workspaceId = await withWorkspace();
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async () =>
+			new Response("nope", { status: 500 })) as unknown as typeof fetch;
+		let result: Awaited<ReturnType<typeof ensureExtensionPlugin>>;
+		try {
+			result = await ensureExtensionPlugin(workspaceId, `https://github.com/${OWNER}/${REPO}`);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+
+		expect(result.status).toBe("failed");
+		expect(result.error).toBeTruthy();
 	});
 });

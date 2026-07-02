@@ -1802,6 +1802,14 @@ export function createPgRepository(connectionString: string): DbRepository {
 				.orderBy(desc(schema.seoFinding.createdAt));
 		},
 
+		async listSeoFindingsByProject(seoProjectId) {
+			return db
+				.select()
+				.from(schema.seoFinding)
+				.where(eq(schema.seoFinding.seoProjectId, seoProjectId))
+				.orderBy(desc(schema.seoFinding.createdAt));
+		},
+
 		async getSeoFinding(id) {
 			const row = await db.query.seoFinding.findFirst({
 				where: eq(schema.seoFinding.id, id),
