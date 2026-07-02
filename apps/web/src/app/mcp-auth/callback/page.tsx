@@ -2,7 +2,7 @@
 
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { SystemPanel, SystemScreen } from "@/components/system-screen";
 import { Button } from "@/components/ui/button";
 import { trpcClient } from "@/lib/trpc";
@@ -28,6 +28,14 @@ const DETAIL: Record<AuthState["status"], string> = {
 const pendingAuthExchanges = new Map<string, ReturnType<typeof trpcClient.mcpServers.finishAuth.mutate>>();
 
 export default function McpAuthCallbackPage() {
+  return (
+    <Suspense>
+      <McpAuthCallbackContent />
+    </Suspense>
+  );
+}
+
+function McpAuthCallbackContent() {
   const searchParams = useSearchParams();
   const code = searchParams.get("code");
   const error = searchParams.get("error");

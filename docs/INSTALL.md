@@ -5,10 +5,23 @@ This project ships two self-hosting modes:
 - `PC mode`: SQLite, direct localhost ports, optimized for one person on one machine.
 - `Server mode`: PostgreSQL, HTTPS, and Caddy for a shared or remotely reachable deployment.
 
+## Quick start (no checkout)
+
+```bash
+npx create-nyxel   # or: bunx create-nyxel
+cd nyxel
+docker compose up -d
+```
+
+This writes the same compose files described below, pointed at the published
+`ghcr.io/quavon-dev/nyxelos-server` / `nyxelos-web` images — no repository
+checkout required. The rest of this guide covers building the images from
+source instead, which the CLI does for you automatically.
+
 ## Prerequisites
 
 - Docker Engine with the Compose plugin
-- A checked-out copy of this repository
+- A checked-out copy of this repository (skip this if you used `create-nyxel` above)
 - One strong `BETTER_AUTH_SECRET`
 - For server mode: a DNS record pointing `NYXEL_DOMAIN` at the host
 

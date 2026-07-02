@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowUp, Code2, FileText, Palette, Search } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import {
 	type AttachedFile,
 	ChatComposerToolbar,
@@ -62,6 +62,14 @@ function GreetingOrb() {
 }
 
 export default function ChatLandingPage() {
+	return (
+		<Suspense>
+			<ChatLandingPageContent />
+		</Suspense>
+	);
+}
+
+function ChatLandingPageContent() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const installationQuery = useInstallation();
