@@ -25,10 +25,12 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      # Scoped to files touched by this PR/push (vcs.defaultBranch in
-      # biome.json), rather than the whole repo, so this gate doesn't block
-      # on pre-existing lint debt outside the change under review.
-      - run: bunx biome ci --changed --reporter=github
+      # Scoped to files touched by this PR/push, rather than the whole repo,
+      # so this gate doesn't block on pre-existing lint debt outside the
+      # change under review. actions/checkout doesn't create a local "main"
+      # branch (only origin/main), so --since is passed explicitly rather
+      # than relying on biome.json's vcs.defaultBranch to resolve it.
+      - run: bunx biome ci --changed --since=origin/main --reporter=github
 
   typecheck:
     name: Typecheck

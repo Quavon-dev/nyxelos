@@ -12,6 +12,10 @@ jobs:
   dependency-review:
     name: Scan dependency changes
     runs-on: ubuntu-latest
+    # Requires the repository's "Dependency graph" setting (Settings ->
+    # Security -> Dependency graph) to be enabled. Non-blocking here so this
+    # check doesn't fail every PR until that's turned on.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/dependency-review-action@v4
