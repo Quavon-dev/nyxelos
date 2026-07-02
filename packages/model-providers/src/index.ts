@@ -20,6 +20,16 @@ export { DEFAULT_IMAGE_MODEL_ID, OPENAI_IMAGE_MODELS, resolveImageModel } from "
 export type { ModelPricing } from "./pricing";
 export { estimateCostMicros } from "./pricing";
 export type { ProviderImportSource } from "./import-sources";
+export type { ResolvedVideoProvider, VideoGenerationPlan, VideoModelDefinition } from "./video";
+export {
+  DEFAULT_VIDEO_MODEL_ID,
+  DEFAULT_VIDEO_SECONDS,
+  DEFAULT_VIDEO_SIZE,
+  getVideoModel,
+  OPENAI_VIDEO_MODELS,
+  resolveVideoProvider,
+  selectVideoModelForPrompt,
+} from "./video";
 export { scanProviderImportSources } from "./import-sources";
 export type {
   CloudModelDefinition,

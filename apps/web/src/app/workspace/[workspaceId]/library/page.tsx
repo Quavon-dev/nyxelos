@@ -7,6 +7,7 @@ import {
   ExternalLink,
   File as FileIcon,
   FileText,
+  Film,
   Folder as FolderIcon,
   FolderPlus,
   HardDrive,
@@ -80,6 +81,7 @@ function formatDate(value: Date | string): string {
 
 function iconForFile(file: LibraryFileSummary) {
   if (file.kind === "image") return ImageIcon;
+  if (file.kind === "video") return Film;
   if (file.mimeType === "application/pdf" || file.kind === "document") return FileText;
   return FileIcon;
 }
@@ -147,6 +149,7 @@ function buildFolderOptions(
 const KIND_FILTERS: { value: LibraryItemKind | "all"; label: string }[] = [
   { value: "all", label: "All files" },
   { value: "image", label: "Images" },
+  { value: "video", label: "Videos" },
   { value: "document", label: "Documents" },
   { value: "other", label: "Other" },
 ];
@@ -210,6 +213,7 @@ export default function LibraryPage() {
 
   const totalStorageBytes = useMemo(() => files.reduce((sum, f) => sum + f.sizeBytes, 0), [files]);
   const imageCount = useMemo(() => files.filter((f) => f.kind === "image").length, [files]);
+  const videoCount = useMemo(() => files.filter((f) => f.kind === "video").length, [files]);
 
   const createFolder = useMutation({
     mutationFn: () =>
@@ -383,10 +387,11 @@ export default function LibraryPage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard label="Files" value={files.length} icon={<FileIcon className="size-4" />} />
         <StatCard label="Folders" value={folders.length} icon={<FolderIcon className="size-4" />} />
         <StatCard label="Images" value={imageCount} icon={<Images className="size-4" />} />
+        <StatCard label="Videos" value={videoCount} icon={<Film className="size-4" />} />
         <StatCard
           label="Storage used"
           value={formatBytes(totalStorageBytes)}
@@ -583,6 +588,14 @@ export default function LibraryPage() {
                           alt={file.name}
                           className="size-full object-cover"
                           loading="lazy"
+                        />
+                      ) : file.kind === "video" ? (
+                        <video
+                          src={libraryFileUrl(file.id)}
+                          muted
+                          playsInline
+                          preload="metadata"
+                          className="size-full object-cover"
                         />
                       ) : (
                         <Icon className="size-7 text-muted-foreground" />
@@ -781,6 +794,14 @@ export default function LibraryPage() {
                 <img
                   src={libraryFileUrl(previewFile.id)}
                   alt={previewFile.name}
+                  className="max-h-[60vh] w-auto max-w-full object-contain"
+                />
+              ) : previewFile.kind === "video" ? (
+                // biome-ignore lint/a11y/useMediaCaption: user-generated/uploaded clips have no caption track to attach
+                <video
+                  src={libraryFileUrl(previewFile.id)}
+                  controls
+                  autoPlay
                   className="max-h-[60vh] w-auto max-w-full object-contain"
                 />
               ) : previewFile.mimeType === "application/pdf" ? (

@@ -2,6 +2,7 @@
 
 import {
 	ChevronDown,
+	Film,
 	FilePlus,
 	FileSearch,
 	FileText,
@@ -11,12 +12,14 @@ import {
 	Loader2,
 	Move,
 	Pencil,
+	Scissors,
 	Trash2,
 	Users,
 	Wrench,
 } from "lucide-react";
 import { useState } from "react";
 import type { AgentActivityStep } from "@/lib/chat-agent-activity";
+import { libraryFileUrl } from "@/lib/trpc";
 
 const STEP_META: Record<string, { verb: string; icon: typeof FileText }> = {
 	workspace_file_read: { verb: "Gelesen", icon: FileText },
@@ -31,6 +34,8 @@ const STEP_META: Record<string, { verb: string; icon: typeof FileText }> = {
 	write_note: { verb: "Notiz erstellt", icon: FilePlus },
 	delegate_to_agent: { verb: "Delegiert", icon: Users },
 	generate_image: { verb: "Bild generiert", icon: ImageIcon },
+	generate_video: { verb: "Video generiert", icon: Film },
+	edit_video: { verb: "Video bearbeitet", icon: Scissors },
 };
 
 /** Matches the `{ mimeType, base64 }` shape shared by generate_image,
@@ -49,6 +54,33 @@ function generatedImageFromOutput(
 		record.base64.length > 0
 	) {
 		return { mimeType: record.mimeType, base64: record.base64 };
+	}
+	return null;
+}
+
+/** Matches the `{ mimeType, libraryFileId }` shape shared by generate_video
+ * and edit_video's tool output — unlike generate_image, a video clip is
+ * megabytes, far too large to inline as base64 in every persisted chat
+ * message, so these tools save straight to the library and hand back an id
+ * to resolve through libraryFileUrl() instead. edit_video's extractFrame/
+ * toGif operations reuse this same shape with an image/* mimeType. */
+function generatedMediaFromOutput(
+	output: unknown,
+): { mimeType: string; libraryFileId: string; posterLibraryFileId: string | null } | null {
+	if (!output || typeof output !== "object") return null;
+	const record = output as Record<string, unknown>;
+	if (
+		typeof record.mimeType === "string" &&
+		(record.mimeType.startsWith("video/") || record.mimeType.startsWith("image/")) &&
+		typeof record.libraryFileId === "string" &&
+		record.libraryFileId.length > 0
+	) {
+		return {
+			mimeType: record.mimeType,
+			libraryFileId: record.libraryFileId,
+			posterLibraryFileId:
+				typeof record.posterLibraryFileId === "string" ? record.posterLibraryFileId : null,
+		};
 	}
 	return null;
 }
@@ -93,10 +125,12 @@ function ToolStepRow({ step }: { step: AgentActivityStep }) {
 	const stats = diffStats(step.output);
 	const running = step.output === undefined && !step.error;
 	const isImageGeneration = step.name === "generate_image";
+	const isVideoStep = step.name === "generate_video" || step.name === "edit_video";
 	const generatedImage = generatedImageFromOutput(step.output);
+	const generatedMedia = generatedMediaFromOutput(step.output);
 	const detail = step.error
 		? step.error
-		: step.output !== undefined && !generatedImage
+		: step.output !== undefined && !generatedImage && !generatedMedia
 			? JSON.stringify(step.output, null, 2)
 			: null;
 
@@ -145,6 +179,40 @@ function ToolStepRow({ step }: { step: AgentActivityStep }) {
 				<div className="border-t border-border/60 p-2.5">
 					<img
 						src={`data:${generatedImage.mimeType};base64,${generatedImage.base64}`}
+						alt={target}
+						className="max-h-80 w-full max-w-56 rounded-lg border border-border/60 object-contain"
+					/>
+				</div>
+			)}
+
+			{isVideoStep && running && (
+				<div className="border-t border-border/60 p-2.5">
+					<div className="flex aspect-video w-full max-w-72 animate-pulse items-center justify-center rounded-lg border border-border/60 bg-background/50">
+						<Film className="size-6 text-muted-foreground/40" />
+					</div>
+				</div>
+			)}
+
+			{generatedMedia?.mimeType.startsWith("video/") && (
+				<div className="border-t border-border/60 p-2.5">
+					{/* biome-ignore lint/a11y/useMediaCaption: generated clips have no caption track to attach */}
+					<video
+						src={libraryFileUrl(generatedMedia.libraryFileId)}
+						poster={
+							generatedMedia.posterLibraryFileId
+								? libraryFileUrl(generatedMedia.posterLibraryFileId)
+								: undefined
+						}
+						controls
+						className="max-h-80 w-full max-w-72 rounded-lg border border-border/60 object-contain"
+					/>
+				</div>
+			)}
+
+			{generatedMedia?.mimeType.startsWith("image/") && (
+				<div className="border-t border-border/60 p-2.5">
+					<img
+						src={libraryFileUrl(generatedMedia.libraryFileId)}
 						alt={target}
 						className="max-h-80 w-full max-w-56 rounded-lg border border-border/60 object-contain"
 					/>

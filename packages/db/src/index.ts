@@ -57,5 +57,7 @@ export type {
 	TaskRecord,
 	TaskStatus,
 	UserRecord,
+	VideoGenerationJobRecord,
+	VideoGenerationJobStatus,
 	WorkspaceRecord,
 } from "./repo/types";

@@ -152,7 +152,15 @@ export const automationTriggerType = pgEnum("automation_trigger_type", [
 export const libraryItemKind = pgEnum("library_item_kind", [
 	"image",
 	"document",
+	"video",
 	"other",
+]);
+
+export const videoGenerationJobStatus = pgEnum("video_generation_job_status", [
+	"queued",
+	"in_progress",
+	"completed",
+	"failed",
 ]);
 
 export const automationRunStatus = pgEnum("automation_run_status", [
@@ -350,7 +358,9 @@ export type ToolKind =
 	| "browser_run_playwright_code"
 	| "github_repo_fetch"
 	| "github_code_search"
-	| "generate_image";
+	| "generate_image"
+	| "generate_video"
+	| "edit_video";
 
 /** A user-defined tool, built from a declarative `kind` instead of
  * hand-written TypeScript. Complements the process-wide hardcoded skills in
@@ -836,6 +846,40 @@ export const libraryFile = pgTable("library_file", {
 	sizeBytes: integer("size_bytes").notNull(),
 	kind: libraryItemKind("kind").notNull().default("other"),
 	storageKey: text("storage_key").notNull(),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** One text-to-video generation request, tracked as a row because
+ * generation runs for minutes — the chat tool call polls this same job
+ * synchronously, but the Video Studio page (apps/web) reads it back out to
+ * show a history/queue instead of blocking on a single request. `chatId` is
+ * a plain nullable column (no FK) since a job can be started from the Video
+ * Studio page with no chat behind it at all. `libraryFileId`/
+ * `posterLibraryFileId` are set once the finished video (and, best-effort,
+ * a poster frame) have been written into the workspace library. */
+export const videoGenerationJob = pgTable("video_generation_job", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	chatId: text("chat_id"),
+	prompt: text("prompt").notNull(),
+	model: text("model").notNull(),
+	provider: text("provider").notNull(),
+	status: videoGenerationJobStatus("status").notNull().default("queued"),
+	progress: integer("progress").notNull().default(0),
+	size: text("size").notNull(),
+	seconds: integer("seconds").notNull(),
+	auto: boolean("auto").notNull().default(true),
+	externalJobId: text("external_job_id"),
+	libraryFileId: text("library_file_id").references(() => libraryFile.id, {
+		onDelete: "set null",
+	}),
+	posterLibraryFileId: text("poster_library_file_id").references(() => libraryFile.id, {
+		onDelete: "set null",
+	}),
+	errorMessage: text("error_message"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

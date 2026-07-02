@@ -71,7 +71,7 @@ export type AgentRunStatus =
 	| "failed"
 	| "cancelled";
 
-export type LibraryItemKind = "image" | "document" | "other";
+export type LibraryItemKind = "image" | "document" | "video" | "other";
 
 export interface ChatToolPolicy {
 	mode: ChatToolMode;
@@ -138,7 +138,9 @@ export type ToolKind =
 	| "browser_run_playwright_code"
 	| "github_repo_fetch"
 	| "github_code_search"
-	| "generate_image";
+	| "generate_image"
+	| "generate_video"
+	| "edit_video";
 
 export type AutomationTriggerType = "cron" | "file_watch";
 export type AutomationRunStatus = "success" | "error" | "pending_approval";
@@ -471,6 +473,34 @@ export interface LibraryFileRecord {
 	sizeBytes: number;
 	kind: LibraryItemKind;
 	storageKey: string;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+export type VideoGenerationJobStatus = "queued" | "in_progress" | "completed" | "failed";
+
+/** One text-to-video generation request — see apps/server/src/tools-builtin/video.ts
+ * and apps/server/src/video.ts. Tracked as a row (rather than only living in
+ * a single tool-call's return value) because generation runs for minutes:
+ * the chat tool call polls this same job synchronously to completion, while
+ * the Video Studio page reads it back out to show a history/queue instead of
+ * blocking on one in-flight request. */
+export interface VideoGenerationJobRecord {
+	id: string;
+	workspaceId: string;
+	chatId: string | null;
+	prompt: string;
+	model: string;
+	provider: string;
+	status: VideoGenerationJobStatus;
+	progress: number;
+	size: string;
+	seconds: number;
+	auto: boolean;
+	externalJobId: string | null;
+	libraryFileId: string | null;
+	posterLibraryFileId: string | null;
+	errorMessage: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -1038,6 +1068,30 @@ export interface DbRepository {
 	renameLibraryFile(id: string, name: string): Promise<LibraryFileRecord>;
 	moveLibraryFile(id: string, folderId: string | null): Promise<LibraryFileRecord>;
 	deleteLibraryFile(id: string): Promise<void>;
+
+	createVideoGenerationJob(input: {
+		workspaceId: string;
+		chatId: string | null;
+		prompt: string;
+		model: string;
+		provider: string;
+		size: string;
+		seconds: number;
+		auto: boolean;
+	}): Promise<VideoGenerationJobRecord>;
+	listVideoGenerationJobsByWorkspace(workspaceId: string): Promise<VideoGenerationJobRecord[]>;
+	getVideoGenerationJob(id: string): Promise<VideoGenerationJobRecord | null>;
+	updateVideoGenerationJob(
+		id: string,
+		patch: Partial<{
+			status: VideoGenerationJobStatus;
+			progress: number;
+			externalJobId: string | null;
+			libraryFileId: string | null;
+			posterLibraryFileId: string | null;
+			errorMessage: string | null;
+		}>,
+	): Promise<VideoGenerationJobRecord>;
 
 	createSeoProject(input: {
 		workspaceId: string;

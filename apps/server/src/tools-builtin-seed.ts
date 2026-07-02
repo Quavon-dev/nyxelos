@@ -253,6 +253,22 @@ export const BUILTIN_TOOL_SEEDS: BuiltinToolSeed[] = [
 		sensitive: false,
 		config: {},
 	},
+	{
+		kind: "generate_video",
+		name: "Generate video",
+		description:
+			"Generate a short video from a text prompt (OpenAI Sora 2 / Sora 2 Pro, auto-selected from the prompt by default) and save it to the library. Sensitive because it costs real money per call and writes a new library file.",
+		sensitive: true,
+		config: {},
+	},
+	{
+		kind: "edit_video",
+		name: "Edit video",
+		description:
+			"Trim, concatenate, mute, adjust volume/speed, extract a frame, or render a GIF from a video already in the library (requires ffmpeg on the server host).",
+		sensitive: true,
+		config: {},
+	},
 ];
 
 /** Idempotent — only inserts seeds whose `kind` isn't already present for

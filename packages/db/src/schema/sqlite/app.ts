@@ -127,13 +127,18 @@ export type ToolKind =
 	| "browser_run_playwright_code"
 	| "github_repo_fetch"
 	| "github_code_search"
-	| "generate_image";
+	| "generate_image"
+	| "generate_video"
+	| "edit_video";
 
 export type AutomationTriggerType = "cron" | "file_watch";
 export type AutomationRunStatus = "success" | "error" | "pending_approval";
 
 /** See ../pg/app.ts. */
-export type LibraryItemKind = "image" | "document" | "other";
+export type LibraryItemKind = "image" | "document" | "video" | "other";
+
+/** See ../pg/app.ts. */
+export type VideoGenerationJobStatus = "queued" | "in_progress" | "completed" | "failed";
 
 /** A sub-agent bundled in an installed plugin's `agents/*.md` directory
  * (Claude Code plugin format) — parsed and stored for display; not wired
@@ -755,6 +760,33 @@ export const libraryFile = sqliteTable("library_file", {
 	sizeBytes: integer("size_bytes").notNull(),
 	kind: text("kind").notNull().default("other").$type<LibraryItemKind>(),
 	storageKey: text("storage_key").notNull(),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+/** See ../pg/app.ts. */
+export const videoGenerationJob = sqliteTable("video_generation_job", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	chatId: text("chat_id"),
+	prompt: text("prompt").notNull(),
+	model: text("model").notNull(),
+	provider: text("provider").notNull(),
+	status: text("status").notNull().default("queued").$type<VideoGenerationJobStatus>(),
+	progress: integer("progress").notNull().default(0),
+	size: text("size").notNull(),
+	seconds: integer("seconds").notNull(),
+	auto: integer("auto", { mode: "boolean" }).notNull().default(true),
+	externalJobId: text("external_job_id"),
+	libraryFileId: text("library_file_id").references(() => libraryFile.id, {
+		onDelete: "set null",
+	}),
+	posterLibraryFileId: text("poster_library_file_id").references(() => libraryFile.id, {
+		onDelete: "set null",
+	}),
+	errorMessage: text("error_message"),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });

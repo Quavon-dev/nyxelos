@@ -225,6 +225,13 @@
       "when": 1783000019001,
       "tag": "0031_message_usage_stats",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1783000020001,
+      "tag": "0032_video_generation",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ import {
   CheckSquare,
   ClipboardCheck,
   Clock,
+  Film,
   Images,
   LayoutDashboard,
   Library,
@@ -126,6 +127,11 @@ export function AppSidebar() {
           href: `/workspace/${workspaceId}/library`,
           label: "Library",
           icon: Images,
+        },
+        {
+          href: `/workspace/${workspaceId}/video-studio`,
+          label: "Video Studio",
+          icon: Film,
         },
       ]
     : [{ href: "/", label: "Overview", icon: LayoutDashboard }];

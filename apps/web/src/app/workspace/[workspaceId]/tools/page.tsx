@@ -261,6 +261,16 @@ const TOOL_KINDS: { value: ToolKind; label: string; description: string }[] = [
     label: "Generate image",
     description: "Generate an image from a text prompt (OpenAI gpt-image-1 or dall-e-3).",
   },
+  {
+    value: "generate_video",
+    label: "Generate video",
+    description: "Generate a short video from a text prompt (OpenAI Sora 2 / Sora 2 Pro, auto-selected).",
+  },
+  {
+    value: "edit_video",
+    label: "Edit video",
+    description: "Trim, concatenate, mute, adjust volume/speed, extract a frame, or GIF a library video.",
+  },
 ];
 
 const DEFAULT_SENSITIVE_KINDS = new Set<ToolKind>([
@@ -284,6 +294,8 @@ const DEFAULT_SENSITIVE_KINDS = new Set<ToolKind>([
   "browser_type",
   "browser_handle_dialog",
   "browser_run_playwright_code",
+  "generate_video",
+  "edit_video",
 ]);
 const NEEDS_HOSTS = new Set<ToolKind>([
   "http_fetch",
