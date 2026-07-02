@@ -559,6 +559,36 @@ export const appRouter = router({
 		deleteInstallation: publicProcedure
 			.input(z.object({ id: z.string() }))
 			.mutation(({ input }) => getDb().deleteModelInstallation(input.id)),
+		// Per-(workspace, model) generation overrides — how a specific model
+		// should behave by default. `getParameters` returns null when the model
+		// has never been configured (UI shows provider defaults/placeholders).
+		getParameters: publicProcedure
+			.input(z.object({ workspaceId: z.string(), modelId: z.string() }))
+			.query(({ input }) =>
+				getDb().getModelParameter(input.workspaceId, input.modelId),
+			),
+		saveParameters: publicProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					modelId: z.string(),
+					customName: z.string().trim().min(1).nullable().optional(),
+					customInstructions: z.string().trim().min(1).nullable().optional(),
+					maxOutputTokens: z.number().int().positive().nullable().optional(),
+					temperature: z.number().min(0).max(2).nullable().optional(),
+					topP: z.number().min(0).max(1).nullable().optional(),
+					frequencyPenalty: z.number().min(-2).max(2).nullable().optional(),
+					presencePenalty: z.number().min(-2).max(2).nullable().optional(),
+					stopSequences: z.array(z.string()).optional(),
+					reasoningEffort: z.enum(["low", "medium", "high"]).nullable().optional(),
+				}),
+			)
+			.mutation(({ input }) => getDb().upsertModelParameter(input)),
+		resetParameters: publicProcedure
+			.input(z.object({ workspaceId: z.string(), modelId: z.string() }))
+			.mutation(({ input }) =>
+				getDb().deleteModelParameter(input.workspaceId, input.modelId),
+			),
 		// Per-model controls within an installation, applicable to every
 		// provider kind (LM Studio, Claude CLI, Codex CLI, ...) — lets a user
 		// hide/show or permanently drop one model without touching the

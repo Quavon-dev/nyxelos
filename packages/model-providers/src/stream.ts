@@ -103,6 +103,13 @@ export interface StreamChatInput {
    * context window, which can demand far more prepaid credits than a
    * normal reply needs and 402s accounts that can't cover it. */
   maxOutputTokens?: number;
+  /** Sampling controls forwarded as-is to the AI SDK — no-ops for
+   * claude_cli/codex_cli models, which don't take sampling params. */
+  temperature?: number;
+  topP?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  stopSequences?: string[];
 }
 
 const INLINE_SYSTEM_PROMPT_MODEL_PREFIXES = new Set([
@@ -214,6 +221,11 @@ export function streamChat({
   reasoningEffort,
   maxToolSteps,
   maxOutputTokens,
+  temperature,
+  topP,
+  frequencyPenalty,
+  presencePenalty,
+  stopSequences,
 }: StreamChatInput): ChatStreamResult {
   const resolvedInstalledProviders = installedProviders ?? [];
 
@@ -265,6 +277,11 @@ export function streamChat({
     tools,
     abortSignal,
     maxOutputTokens: maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+    ...(temperature !== undefined ? { temperature } : {}),
+    ...(topP !== undefined ? { topP } : {}),
+    ...(frequencyPenalty !== undefined ? { frequencyPenalty } : {}),
+    ...(presencePenalty !== undefined ? { presencePenalty } : {}),
+    ...(stopSequences?.length ? { stopSequences } : {}),
     ...(providerOptions ? { providerOptions } : {}),
     // Without this, streamText stops right after a tool call instead of
     // continuing on to produce a final answer from the tool's result.
