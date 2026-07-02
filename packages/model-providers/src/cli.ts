@@ -263,10 +263,22 @@ async function* runCli(
 	// client's `full += event.text` concatenation runs two sentences
 	// together with no space (e.g. "...server code.Read chat-stream...").
 	let sawToolSinceText = false;
+	// Every real NDJSON event line carries an id unique to that event (Claude
+	// Code stamps a "uuid" on each; Codex's "item.completed" events carry a
+	// stable item id) — a byte-identical line appearing again in the stream
+	// is a CLI-side replay (observed after transient mid-turn retries), not a
+	// new event. Re-mapping it would re-emit the same tool-call/tool-result
+	// pair with the same id, duplicating that whole exchange in the SSE
+	// stream the client renders.
+	const seenLines = new Set<string>();
 
 	try {
 		for await (const line of lines) {
 			const event = tryParseJsonLine(line);
+			if (event) {
+				if (seenLines.has(line)) continue;
+				seenLines.add(line);
+			}
 			const parts = event ? mapEvent(event) : [{ type: "text-delta" as const, text: line }];
 			for (let part of parts) {
 				sawAnyPart = true;
