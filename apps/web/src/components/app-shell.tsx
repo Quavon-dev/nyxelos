@@ -1,10 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { Toaster } from "sonner";
 import { AppHeader } from "@/components/app-header";
 import { AppSidebar } from "@/components/app-sidebar";
 import { PwaInstallBanner } from "@/components/pwa-install-banner";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { useAppNotifications } from "@/lib/use-app-notifications";
 import { useInstallation } from "@/lib/use-installation";
 
 /**
@@ -16,6 +18,7 @@ import { useInstallation } from "@/lib/use-installation";
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const installationQuery = useInstallation();
+  useAppNotifications();
 
   if (!installationQuery.data?.isInstalled) {
     return <>{children}</>;
@@ -29,6 +32,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <AppHeader />
         <div className="flex flex-1 flex-col">{children}</div>
       </SidebarInset>
+      <Toaster richColors position="bottom-right" />
     </SidebarProvider>
   );
 }

@@ -18,13 +18,23 @@ self.addEventListener("push", (event) => {
     payload = { title: "Nyxel", body: event.data.text() };
   }
   event.waitUntil(
-    self.registration.showNotification(payload.title ?? "Nyxel", {
-      body: payload.body,
-      tag: payload.tag,
-      data: { url: payload.url ?? "/" },
-      icon: "/icons/icon-192.png",
-      badge: "/icons/icon-192.png",
-    }),
+    Promise.all([
+      self.registration.showNotification(payload.title ?? "Nyxel", {
+        body: payload.body,
+        tag: payload.tag,
+        data: { url: payload.url ?? "/" },
+        icon: "/icons/icon-192.png",
+        badge: "/icons/icon-192.png",
+      }),
+      // Relay the same payload to any open tab so it can show an in-app
+      // toast + sidebar badge instead of relying solely on the OS-level
+      // notification above (which some browsers suppress while focused).
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+        for (const client of clients) {
+          client.postMessage({ type: "nyxel-push", payload });
+        }
+      }),
+    ]),
   );
 });
 

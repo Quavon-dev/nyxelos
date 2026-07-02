@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Sidebar,
@@ -41,6 +41,7 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { WorkspaceSettingsPanel } from "@/components/workspace-settings-panel";
+import { markNotificationSeen, useUnseenNotificationBadge } from "@/lib/notification-store";
 import { trpcClient } from "@/lib/trpc";
 import { useInstallation } from "@/lib/use-installation";
 
@@ -68,6 +69,19 @@ export function AppSidebar() {
     refetchInterval: 15_000,
   });
   const pendingCount = pendingApprovalsQuery.data?.length ?? 0;
+
+  // Popping dot on "Chat"/"Video Studio" when a generation finishes
+  // elsewhere in the app — see use-app-notifications.ts, which relays the
+  // same push events the service worker receives. Cleared once the user
+  // actually visits that section.
+  const chatUnseen = useUnseenNotificationBadge("/chat");
+  const videoStudioUnseen = useUnseenNotificationBadge("/video-studio");
+  useEffect(() => {
+    if (pathname.startsWith("/chat")) markNotificationSeen("/chat");
+    if (pathname.startsWith("/workspace") && pathname.includes("/video-studio")) {
+      markNotificationSeen("/video-studio");
+    }
+  }, [pathname]);
 
   // Installed + enabled extensions render as their own sidebar group below
   // "Workspace" — see workspace-settings-panel.tsx's "Extensions" section for
@@ -97,7 +111,7 @@ export function AppSidebar() {
   const navItems = workspaceId
     ? [
         { href: "/", label: "Overview", icon: LayoutDashboard },
-        { href: "/chat", label: "Chat", icon: MessageSquare },
+        { href: "/chat", label: "Chat", icon: MessageSquare, dot: chatUnseen > 0 },
         {
           href: `/workspace/${workspaceId}/settings`,
           label: "Settings",
@@ -132,6 +146,7 @@ export function AppSidebar() {
           href: `/workspace/${workspaceId}/video-studio`,
           label: "Video Studio",
           icon: Film,
+          dot: videoStudioUnseen > 0,
         },
       ]
     : [{ href: "/", label: "Overview", icon: LayoutDashboard }];
@@ -165,7 +180,15 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild isActive={pathname === item.href} tooltip={item.label}>
                     <Link href={item.href}>
-                      <item.icon />
+                      <span className="relative flex">
+                        <item.icon />
+                        {"dot" in item && item.dot && (
+                          <span
+                            aria-hidden="true"
+                            className="-top-0.5 -right-0.5 absolute size-1.5 animate-pulse rounded-full bg-primary"
+                          />
+                        )}
+                      </span>
                       <span>{item.label}</span>
                     </Link>
                   </SidebarMenuButton>
