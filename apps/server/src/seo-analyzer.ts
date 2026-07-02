@@ -3,6 +3,8 @@ import path from "node:path";
 import {
 	getDb,
 	type AgentRecord,
+	type PluginAgentDefinition,
+	type PluginRecord,
 	type SeoAnalysisRunRecord,
 	type SeoBlogPostRecord,
 	type SeoFindingCategory,
@@ -10,8 +12,11 @@ import {
 	type SeoFindingSeverity,
 	type SeoProjectRecord,
 } from "@nyxel/db";
+import { listAvailableModels } from "@nyxel/model-providers";
 import { executeManagedTask } from "./agent-runtime";
 import { logAudit } from "./audit";
+import { getInstalledProvidersForWorkspace } from "./models";
+import { findPluginByRepoUrl, loadPluginSkillDefinitions } from "./plugins";
 import { notifyWorkspaceOwner } from "./push";
 
 /** Confirms `repoPath` is an absolute, existing, readable directory before
@@ -709,32 +714,169 @@ export async function runSeoAnalysis(
 	}
 }
 
-function seoFixerSystemPrompt(project: SeoProjectRecord): string {
-	return [
+/** The claude-seo plugin auto-installed alongside this extension (see
+ * EXTENSION_CATALOG's `pluginRepoUrl` in extensions.ts) — kept as its own
+ * constant rather than importing extensions.ts, so this module doesn't need
+ * to know the extension-catalog shape, just which repo to look for. */
+const SEO_PLUGIN_REPO_URL = "https://github.com/AgricIDaniel/claude-seo";
+
+/** Keyword heuristics matching a plugin skill/sub-agent's name+description to
+ * a finding category — the plugin's actual skill set isn't known ahead of
+ * time (any GitHub repo can be installed here, not just claude-seo), so this
+ * is deliberately generic substring matching rather than a hardcoded id list. */
+const CATEGORY_KEYWORDS: Record<SeoFindingCategory, string[]> = {
+	seo: ["technical", "page", "sitemap", "hreflang", "image", "site", "crawl", "core web vital", "audit"],
+	geo: ["geo", "schema", "structured", "organization", "local", "maps", "backlink", "google"],
+	aeo: ["aeo", "answer", "faq", "content", "sxo", "citation", "cluster", "programmatic", "drift"],
+};
+
+export function matchesCategory(text: string, categories: SeoFindingCategory[]): boolean {
+	const lower = text.toLowerCase();
+	return categories.some((category) =>
+		CATEGORY_KEYWORDS[category].some((keyword) => lower.includes(keyword)),
+	);
+}
+
+/** Matches the installed plugin's skills against the categories being worked
+ * on this dispatch. Falls back to every skill the plugin ships if nothing
+ * matches (an unfamiliar plugin whose naming doesn't hit these keywords)
+ * rather than silently using none of it. */
+export async function pickRelevantPluginSkills(
+	plugin: PluginRecord,
+	categories: SeoFindingCategory[],
+): Promise<{ skillIds: string[]; skillNames: string[] }> {
+	const definitions = await loadPluginSkillDefinitions(plugin);
+	const matched = definitions.filter((skill) =>
+		matchesCategory(`${skill.name} ${skill.description}`, categories),
+	);
+	const chosen = matched.length > 0 ? matched : definitions;
+	return { skillIds: chosen.map((s) => s.id), skillNames: chosen.map((s) => s.name) };
+}
+
+/** Same idea as pickRelevantPluginSkills but for the plugin's parsed
+ * sub-agent personas (agents/*.md) — these aren't wired into the runtime as
+ * real agents (see ADR-0014), but their instructions are still useful
+ * context to fold into the fixer's system prompt. Unlike skills, an
+ * unmatched persona is just skipped rather than dumping all of them in. */
+export function pickRelevantPluginPersonas(
+	plugin: PluginRecord,
+	categories: SeoFindingCategory[],
+): PluginAgentDefinition[] {
+	return plugin.agentDefs.filter((agent) =>
+		matchesCategory(`${agent.name} ${agent.description}`, categories),
+	);
+}
+
+const CHEAP_MODEL_MARKERS = ["mini", "haiku", "flash", "nano", "lite"];
+const STRONG_MODEL_MARKERS = ["opus", "gpt-5", "o3", "gemini-2.5-pro", "gemini-pro", "sonnet"];
+
+/** Picks the strongest-looking model actually available to the workspace for
+ * the SEO fixer agent, instead of blindly reusing whatever casual default is
+ * set for everyday chat. This is a heuristic, not a real capability lookup
+ * (Nyxel doesn't track per-model benchmark tiers) — it ranks by known
+ * high-end model family name fragments, skips obviously-cheap variants
+ * (mini/haiku/flash/...), and falls back to the workspace default (then to
+ * any installed model) if nothing ranks. */
+export async function pickBestModelIdForSeo(
+	workspaceId: string,
+	fallback: string | null,
+): Promise<string> {
+	const providers = await getInstalledProvidersForWorkspace(workspaceId);
+	const models = await listAvailableModels(providers);
+	const candidates = models.filter(
+		(m) => !CHEAP_MODEL_MARKERS.some((marker) => m.id.toLowerCase().includes(marker)),
+	);
+	for (const marker of STRONG_MODEL_MARKERS) {
+		const match = candidates.find((m) => m.id.toLowerCase().includes(marker));
+		if (match) return match.id;
+	}
+	const [firstCandidate] = candidates;
+	if (firstCandidate) return firstCandidate.id;
+	if (fallback) return fallback;
+	const [firstModel] = models;
+	if (firstModel) return firstModel.id;
+	throw new Error(
+		"No models are installed for this workspace — add one in Settings before running SEO analysis.",
+	);
+}
+
+function seoFixerSystemPrompt(
+	project: SeoProjectRecord,
+	personas: PluginAgentDefinition[],
+): string {
+	const prose = [
 		`You are the SEO/GEO/AEO fixer agent for "${project.domain}".`,
 		`Its source lives at "${project.repoPath}" — every file tool you have is scoped to that directory, so use relative paths from there.`,
 		"You will be given a list of SEO/GEO/AEO findings (each with a category, severity, description, and recommendation). Fix as many as you reasonably can by editing the repo source directly — meta tags, structured data, headings, alt text, robots.txt, sitemap generation, etc.",
 		"Prefer minimal, targeted edits over rewrites. If a finding needs a decision only a human can make (e.g. business-specific copy), leave a clear TODO comment instead of guessing content.",
 		"When you're done, summarize exactly what you changed and which findings you addressed.",
 	].join(" ");
+	if (personas.length === 0) return prose;
+	const personaBlock = [
+		"",
+		"",
+		"You also have skills from an installed SEO plugin available as tools — invoke them before editing, their instructions go deeper than this prompt. Specialist personas relevant to this batch:",
+		...personas.map((p) => `- ${p.name}: ${p.description}`),
+	].join("\n");
+	return prose + personaBlock;
 }
 
-/** Lazily provisions the per-project fixer agent on first fix dispatch,
- * scoped to the project's repoPath via dedicated DB tools (not the
- * workspace-wide toolset) so it can never touch files outside the linked
- * repo. Reused on every subsequent dispatch for the same project. */
-async function ensureSeoFixerAgent(project: SeoProjectRecord): Promise<AgentRecord> {
+export interface FixerAgentSelection {
+	agent: AgentRecord;
+	modelId: string;
+	pluginSkillNames: string[];
+}
+
+/** Prepares the fixer agent for a specific batch of findings/categories.
+ * Lazily provisions the dedicated per-project agent on first use, scoped to
+ * the project's repoPath via dedicated DB tools (never the workspace-wide
+ * toolset) so it can never touch files outside the linked repo. Unless the
+ * user has pinned a different agent via setFixerAgent, the auto-provisioned
+ * agent's skillIds/systemPrompt/modelId are refreshed on every call so it
+ * draws on whichever installed-plugin specialist skills/personas actually
+ * match these categories and runs on the strongest model available, instead
+ * of being frozen at whatever was configured the first time it ran. */
+async function configureSeoFixerAgent(
+	project: SeoProjectRecord,
+	categories: SeoFindingCategory[],
+): Promise<FixerAgentSelection> {
 	const db = getDb();
+
 	if (project.fixerAgentId) {
-		const existing = await db.getAgent(project.fixerAgentId);
-		if (existing) return existing;
+		const pinned = await db.getAgent(project.fixerAgentId);
+		if (pinned && pinned.name !== `SEO Fixer — ${project.domain}`) {
+			// User-pinned, non-auto-provisioned agent (see FixerAgentControl on
+			// the web client) — respect it as configured, don't overwrite it.
+			return { agent: pinned, modelId: pinned.modelId, pluginSkillNames: [] };
+		}
 	}
 
 	const workspace = await db.getWorkspace(project.workspaceId);
-	if (!workspace?.defaultModelId) {
+	if (!workspace?.defaultModelId && !project.fixerAgentId) {
 		throw new Error(
 			"Set a default model for this workspace before dispatching SEO fixes (Settings → General).",
 		);
+	}
+
+	const plugin = await findPluginByRepoUrl(project.workspaceId, SEO_PLUGIN_REPO_URL);
+	const { skillIds: pluginSkillIds, skillNames: pluginSkillNames } = plugin
+		? await pickRelevantPluginSkills(plugin, categories)
+		: { skillIds: [], skillNames: [] };
+	const personas = plugin ? pickRelevantPluginPersonas(plugin, categories) : [];
+	const modelId = await pickBestModelIdForSeo(
+		project.workspaceId,
+		workspace?.defaultModelId ?? null,
+	);
+	const systemPrompt = seoFixerSystemPrompt(project, personas);
+
+	const existing = project.fixerAgentId ? await db.getAgent(project.fixerAgentId) : null;
+	if (existing) {
+		const updated = await db.updateAgent(existing.id, {
+			systemPrompt,
+			modelId,
+			skillIds: pluginSkillIds,
+		});
+		return { agent: updated, modelId, pluginSkillNames };
 	}
 
 	const dirConfig = { allowedDirs: [project.repoPath] };
@@ -761,14 +903,15 @@ async function ensureSeoFixerAgent(project: SeoProjectRecord): Promise<AgentReco
 	const agent = await db.createAgent({
 		workspaceId: project.workspaceId,
 		name: `SEO Fixer — ${project.domain}`,
-		systemPrompt: seoFixerSystemPrompt(project),
-		modelId: workspace.defaultModelId,
+		systemPrompt,
+		modelId,
 		autonomyLevel: "assisted",
 		toolIds: tools.map((t) => t.id),
+		skillIds: pluginSkillIds,
 	});
 
 	await db.updateSeoProject(project.id, { fixerAgentId: agent.id });
-	return agent;
+	return { agent, modelId, pluginSkillNames };
 }
 
 function formatFindingForPrompt(finding: SeoFindingRecord, index: number): string {
@@ -787,7 +930,13 @@ function formatFindingForPrompt(finding: SeoFindingRecord, index: number): strin
 export async function dispatchSeoFix(
 	seoProjectId: string,
 	findingIds: string[],
-): Promise<{ taskId: string; runId: string; output: string }> {
+): Promise<{
+	taskId: string;
+	runId: string;
+	output: string;
+	modelId: string;
+	pluginSkillsUsed: string[];
+}> {
 	const db = getDb();
 	const project = await db.getSeoProject(seoProjectId);
 	if (!project) throw new Error(`Unknown SEO project: ${seoProjectId}`);
@@ -798,7 +947,8 @@ export async function dispatchSeoFix(
 	).filter((f): f is SeoFindingRecord => f !== null && f.seoProjectId === seoProjectId);
 	if (findings.length === 0) throw new Error("None of the selected findings belong to this project.");
 
-	const agent = await ensureSeoFixerAgent(project);
+	const categories = [...new Set(findings.map((f) => f.category))];
+	const { agent, modelId, pluginSkillNames } = await configureSeoFixerAgent(project, categories);
 
 	const instruction = [
 		`Fix the following ${findings.length} SEO/GEO/AEO finding(s) for ${project.domain}:`,
@@ -829,8 +979,8 @@ export async function dispatchSeoFix(
 		agentId: agent.id,
 		actor: "extension",
 		toolLabel: "seo_analyzer.dispatch_fix",
-		input: { seoProjectId, findingIds: findings.map((f) => f.id) },
-		output: result.output,
+		input: { seoProjectId, findingIds: findings.map((f) => f.id), categories },
+		output: { output: result.output, modelId, pluginSkillNames },
 		status: "success",
 	});
 	await notifyWorkspaceOwner(project.workspaceId, {
@@ -840,7 +990,13 @@ export async function dispatchSeoFix(
 		tag: `seo-fix-${seoProjectId}`,
 	});
 
-	return { taskId: task.id, runId: result.run.id, output: result.output };
+	return {
+		taskId: task.id,
+		runId: result.run.id,
+		output: result.output,
+		modelId,
+		pluginSkillsUsed: pluginSkillNames,
+	};
 }
 
 /** Generates one blog post targeting `keyword`, dispatched to the same
@@ -874,7 +1030,13 @@ export async function generateSeoBlogPost(
 	});
 
 	try {
-		const agent = await ensureSeoFixerAgent(project);
+		// Content generation draws on the plugin's content/AEO-flavored skills
+		// (not GEO — structured-data specialists have little to add to drafting
+		// prose) — see configureSeoFixerAgent.
+		const { agent, modelId, pluginSkillNames } = await configureSeoFixerAgent(project, [
+			"seo",
+			"aeo",
+		]);
 		await db.updateSeoBlogPost(post.id, { status: "generating" });
 
 		const instruction = [
@@ -918,7 +1080,7 @@ export async function generateSeoBlogPost(
 			actor: "extension",
 			toolLabel: "seo_analyzer.generate_blog_post",
 			input: { seoProjectId, keyword },
-			output: { title, filePath },
+			output: { title, filePath, modelId, pluginSkillNames },
 			status: "success",
 		});
 		await notifyWorkspaceOwner(project.workspaceId, {

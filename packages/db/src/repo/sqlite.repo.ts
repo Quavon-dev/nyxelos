@@ -2166,6 +2166,15 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.all();
 		},
 
+		async listSeoFindingsByProject(seoProjectId) {
+			return db
+				.select()
+				.from(schema.seoFinding)
+				.where(eq(schema.seoFinding.seoProjectId, seoProjectId))
+				.orderBy(desc(schema.seoFinding.createdAt))
+				.all();
+		},
+
 		async getSeoFinding(id) {
 			const row = db
 				.select()

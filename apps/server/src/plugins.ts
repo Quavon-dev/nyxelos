@@ -329,6 +329,64 @@ export async function uninstallPlugin(id: string): Promise<void> {
 	await getDb().deletePlugin(id);
 }
 
+function normalizeRepoUrl(url: string): string {
+	return url.trim().toLowerCase().replace(/\.git$/, "").replace(/\/+$/, "");
+}
+
+/** Finds an already-installed plugin in this workspace whose source repo
+ * matches `repoUrl` (case/trailing-slash/`.git`-insensitive) — used to avoid
+ * reinstalling (and re-downloading) a companion plugin an extension already
+ * pulled in. */
+export async function findPluginByRepoUrl(
+	workspaceId: string,
+	repoUrl: string,
+): Promise<PluginRecord | null> {
+	const target = normalizeRepoUrl(repoUrl);
+	const plugins = await listPlugins(workspaceId);
+	return plugins.find((p) => normalizeRepoUrl(p.repoUrl) === target) ?? null;
+}
+
+export interface EnsureExtensionPluginResult {
+	status: "installed" | "already_installed" | "failed";
+	plugin?: PluginRecord;
+	skillCount?: number;
+	agentCount?: number;
+	error?: string;
+}
+
+/** Installs an extension's companion plugin (see
+ * `ExtensionCatalogEntry.pluginRepoUrl`) the first time the extension is
+ * activated in a workspace, so the extension's own agents have real
+ * specialist skills/personas to draw on instead of shipping as a shell with
+ * nothing behind it. Best-effort: failures are reported back but never
+ * thrown, so a network hiccup never blocks the extension itself from
+ * activating — the user can always retry from the Plugins page. */
+export async function ensureExtensionPlugin(
+	workspaceId: string,
+	repoUrl: string,
+): Promise<EnsureExtensionPluginResult> {
+	const existing = await findPluginByRepoUrl(workspaceId, repoUrl);
+	if (existing) {
+		return {
+			status: "already_installed",
+			plugin: existing,
+			skillCount: existing.skillSlugs.length,
+			agentCount: existing.agentDefs.length,
+		};
+	}
+	try {
+		const result = await installPluginFromGithub({ workspaceId, repoUrl });
+		return {
+			status: "installed",
+			plugin: result.plugin,
+			skillCount: result.skills.length,
+			agentCount: result.plugin.agentDefs.length,
+		};
+	} catch (err) {
+		return { status: "failed", error: err instanceof Error ? err.message : String(err) };
+	}
+}
+
 /** Loads the actual runnable SkillDefinition for every skill a plugin
  * contributes, straight off disk — used to merge plugin skills into the
  * workspace skill catalog (skills-resolve.ts) without duplicating the

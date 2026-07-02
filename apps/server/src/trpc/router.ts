@@ -71,6 +71,7 @@ import {
 	startTaskExecutionIfIdle,
 } from "../agent-runtime";
 import {
+	ensureExtensionPlugin,
 	getPlugin,
 	installPluginFromGithub,
 	listPlugins,
@@ -1475,7 +1476,26 @@ export const appRouter = router({
 					input: { key: input.key },
 					status: "success",
 				});
-				return record;
+
+				// Best-effort companion plugin install (see
+				// ExtensionCatalogEntry.pluginRepoUrl) — never blocks activation.
+				let pluginInstall: Awaited<ReturnType<typeof ensureExtensionPlugin>> | null = null;
+				if (catalogEntry.pluginRepoUrl) {
+					pluginInstall = await ensureExtensionPlugin(
+						input.workspaceId,
+						catalogEntry.pluginRepoUrl,
+					);
+					await logAudit({
+						workspaceId: input.workspaceId,
+						actor: "extension",
+						toolLabel: "extensions.install_plugin",
+						input: { key: input.key, repoUrl: catalogEntry.pluginRepoUrl },
+						output: { status: pluginInstall.status, error: pluginInstall.error },
+						status: pluginInstall.status === "failed" ? "error" : "success",
+					});
+				}
+
+				return { extension: record, pluginInstall };
 			}),
 		setEnabled: publicProcedure
 			.input(z.object({ id: z.string(), enabled: z.boolean() }))
@@ -1555,9 +1575,9 @@ export const appRouter = router({
 			.mutation(({ input }) => getDb().deleteSeoProject(input.id)),
 		// Lets the user pick which agent runs fix-dispatch/blog-generation for a
 		// project instead of always auto-provisioning a dedicated repo-scoped
-		// one (see ensureSeoFixerAgent in seo-analyzer.ts, which reuses
-		// project.fixerAgentId as-is when set — this is the only place that
-		// sets it to a user-chosen agent rather than an auto-provisioned one).
+		// one (see configureSeoFixerAgent in seo-analyzer.ts, which respects
+		// project.fixerAgentId as-is when it's a non-auto-provisioned agent —
+		// this is the only place that sets it to a user-chosen agent).
 		// Passing null clears the pin, reverting to auto-provisioning.
 		setFixerAgent: publicProcedure
 			.input(z.object({ id: z.string(), agentId: z.string().nullable() }))
@@ -1601,6 +1621,12 @@ export const appRouter = router({
 		listOpenFindings: publicProcedure
 			.input(z.object({ seoProjectId: z.string() }))
 			.query(({ input }) => getDb().listOpenSeoFindingsByProject(input.seoProjectId)),
+		// Every finding ever detected (resolved + open) — powers the stats/KPI
+		// breakdowns on the overview tab, as opposed to listOpenFindings which
+		// only covers what still needs attention.
+		listAllFindings: publicProcedure
+			.input(z.object({ seoProjectId: z.string() }))
+			.query(({ input }) => getDb().listSeoFindingsByProject(input.seoProjectId)),
 		listBlogPosts: publicProcedure
 			.input(z.object({ seoProjectId: z.string() }))
 			.query(({ input }) => getDb().listSeoBlogPostsByProject(input.seoProjectId)),

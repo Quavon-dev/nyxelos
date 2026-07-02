@@ -12,6 +12,15 @@ export interface ExtensionCatalogEntry {
 	/** Route segment under /workspace/{id}/extensions/{key} — normally equal
 	 * to `key`, kept separate in case a future extension needs a nicer URL. */
 	route: string;
+	/** GitHub repo URL of a companion plugin (see plugins.ts) installed
+	 * automatically alongside this extension — its skills/sub-agents are
+	 * what the extension's own agents actually use at runtime, so a bare
+	 * `extension` row without it would be a shell with nothing behind it.
+	 * Best-effort: a failed plugin install never blocks extension activation
+	 * (see ensureExtensionPlugin), the extension just falls back to its
+	 * built-in heuristics until the plugin is installed (retry from the
+	 * Plugins page, or by disabling/re-enabling the extension). */
+	pluginRepoUrl?: string;
 }
 
 // The marketplace of extensions installable from workspace settings. Mirrors
@@ -27,6 +36,7 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
 		category: "Growth",
 		icon: "TrendingUp",
 		route: "seo-analyzer",
+		pluginRepoUrl: "https://github.com/AgricIDaniel/claude-seo",
 	},
 ];
 

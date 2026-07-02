@@ -1066,6 +1066,10 @@ export interface DbRepository {
 	listOpenSeoFindingsByProject(
 		seoProjectId: string,
 	): Promise<SeoFindingRecord[]>;
+	/** Every finding ever detected for the project (resolved and open), newest
+	 * first — used for historical stats (resolution rate, category/severity
+	 * totals over time) rather than "what needs attention now". */
+	listSeoFindingsByProject(seoProjectId: string): Promise<SeoFindingRecord[]>;
 	getSeoFinding(id: string): Promise<SeoFindingRecord | null>;
 	setSeoFindingResolved(id: string, resolved: boolean): Promise<SeoFindingRecord>;
 

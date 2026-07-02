@@ -10,17 +10,75 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  type SeoFindingSeverity,
-  type SeoProjectSummary,
-  trpcClient,
-} from "@/lib/trpc";
+import { type SeoFindingSeverity, type SeoProjectSummary, trpcClient } from "@/lib/trpc";
 
 const SEVERITY_BADGE: Record<SeoFindingSeverity, string> = {
   critical: "bg-destructive/15 text-destructive",
   warning: "bg-amber-500/15 text-amber-600",
   info: "bg-muted text-muted-foreground",
 };
+
+const CATEGORY_BAR_COLOR: Record<"seo" | "geo" | "aeo", string> = {
+  seo: "bg-blue-500",
+  geo: "bg-violet-500",
+  aeo: "bg-emerald-500",
+};
+
+const SEVERITY_BAR_COLOR: Record<SeoFindingSeverity, string> = {
+  critical: "bg-destructive",
+  warning: "bg-amber-500",
+  info: "bg-muted-foreground",
+};
+
+/** A labeled proportion bar for a stat breakdown — matches the app's plain,
+ * chart-library-free aesthetic (StatCard-style tiles everywhere else). */
+function StatBar({
+  label,
+  value,
+  max,
+  colorClass,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  colorClass: string;
+}) {
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-xs">
+        <span className="capitalize text-muted-foreground">{label}</span>
+        <span className="font-medium">{value}</span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div className={`h-full ${colorClass}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/** A compact score-over-time strip — one bar per run, tallest = 100. Not a
+ * real chart component (no library dependency), just enough to see the
+ * trend at a glance. */
+function ScoreTrend({ runs }: { runs: { score: number | null; startedAt: Date }[] }) {
+  if (runs.length < 2) return null;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs text-muted-foreground">Score trend ({runs.length} runs)</p>
+      <div className="flex h-12 items-end gap-1">
+        {runs.map((run, i) => (
+          <div
+            // biome-ignore lint/suspicious/noArrayIndexKey: runs are a fixed, non-reorderable history snapshot
+            key={i}
+            className="flex-1 rounded-sm bg-primary/70"
+            style={{ height: `${Math.max(4, run.score ?? 0)}%` }}
+            title={`${new Date(run.startedAt).toLocaleDateString()}: ${run.score ?? "—"}`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function LinkProjectForm({
   workspaceId,
@@ -77,8 +135,8 @@ function LinkProjectForm({
         </div>
         {repoPath && !repoPathIsAbsolute ? (
           <p className="text-xs text-destructive">
-            The folder picker only knows the folder's name, not its full location — complete it
-            into an absolute path (starting with /) in the field above.
+            The folder picker only knows the folder's name, not its full location — complete it into
+            an absolute path (starting with /) in the field above.
           </p>
         ) : (
           <p className="text-xs text-muted-foreground">
@@ -120,7 +178,7 @@ function FixerAgentControl({ project }: { project: SeoProjectSummary }) {
   });
 
   const pinnedAgent = agentsQuery.data?.find((a) => a.id === project.fixerAgentId);
-  // Auto-provisioned agents are always named this way (see ensureSeoFixerAgent
+  // Auto-provisioned agents are always named this way (see configureSeoFixerAgent
   // in seo-analyzer.ts) and come with file tools scoped to repoPath only —
   // anything else the user picks is their own agent with whatever tools it
   // already has, so it isn't guaranteed to stay inside the repo.
@@ -185,8 +243,8 @@ function ScheduleControl({ project }: { project: SeoProjectSummary }) {
       {project.reanalyzeCronExpression ? (
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <span>
-            Scheduled (<code className="text-foreground">{project.reanalyzeCronExpression}</code>
-            ){project.nextReanalyzeAt && (
+            Scheduled (<code className="text-foreground">{project.reanalyzeCronExpression}</code>)
+            {project.nextReanalyzeAt && (
               <> — next run {new Date(project.nextReanalyzeAt).toLocaleString()}</>
             )}
           </span>
@@ -243,12 +301,21 @@ function ProjectDashboard({ project }: { project: SeoProjectSummary }) {
     queryKey: ["seoAnalyzer", "openFindings", project.id],
     queryFn: () => trpcClient.seoAnalyzer.listOpenFindings.query({ seoProjectId: project.id }),
   });
+  const allFindingsQuery = useQuery({
+    queryKey: ["seoAnalyzer", "allFindings", project.id],
+    queryFn: () => trpcClient.seoAnalyzer.listAllFindings.query({ seoProjectId: project.id }),
+  });
   const blogPostsQuery = useQuery({
     queryKey: ["seoAnalyzer", "blogPosts", project.id],
     queryFn: () => trpcClient.seoAnalyzer.listBlogPosts.query({ seoProjectId: project.id }),
   });
+  const pluginsQuery = useQuery({
+    queryKey: ["plugins", "list", project.workspaceId],
+    queryFn: () => trpcClient.plugins.list.query({ workspaceId: project.workspaceId }),
+  });
 
   const latestRun = runsQuery.data?.[0] ?? null;
+  const seoPlugin = pluginsQuery.data?.find((p) => p.repoUrl.toLowerCase().includes("claude-seo"));
 
   const runAnalysis = useMutation({
     mutationFn: () => trpcClient.seoAnalyzer.runAnalysis.mutate({ seoProjectId: project.id }),
@@ -267,6 +334,7 @@ function ProjectDashboard({ project }: { project: SeoProjectSummary }) {
     onSuccess: () => {
       setSelectedFindingIds(new Set());
       queryClient.invalidateQueries({ queryKey: ["seoAnalyzer", "openFindings", project.id] });
+      queryClient.invalidateQueries({ queryKey: ["seoAnalyzer", "allFindings", project.id] });
     },
   });
 
@@ -287,6 +355,33 @@ function ProjectDashboard({ project }: { project: SeoProjectSummary }) {
       return next;
     });
   }
+
+  const openFindings = findingsQuery.data ?? [];
+  const allFindings = allFindingsQuery.data ?? [];
+  const resolvedCount = allFindings.filter((f) => f.resolved).length;
+  const resolutionRate =
+    allFindings.length > 0 ? Math.round((resolvedCount / allFindings.length) * 100) : null;
+  const categoryCounts = {
+    seo: openFindings.filter((f) => f.category === "seo").length,
+    geo: openFindings.filter((f) => f.category === "geo").length,
+    aeo: openFindings.filter((f) => f.category === "aeo").length,
+  };
+  const severityCounts = {
+    critical: openFindings.filter((f) => f.severity === "critical").length,
+    warning: openFindings.filter((f) => f.severity === "warning").length,
+    info: openFindings.filter((f) => f.severity === "info").length,
+  };
+  const runsChronological = [...(runsQuery.data ?? [])].reverse();
+  const previousRun = runsQuery.data?.[1] ?? null;
+  const scoreDelta =
+    latestRun?.score != null && previousRun?.score != null
+      ? latestRun.score - previousRun.score
+      : null;
+  const blogStatusCounts = {
+    written: (blogPostsQuery.data ?? []).filter((p) => p.status === "written").length,
+    generating: (blogPostsQuery.data ?? []).filter((p) => p.status === "generating").length,
+    failed: (blogPostsQuery.data ?? []).filter((p) => p.status === "failed").length,
+  };
 
   return (
     <div className="space-y-6">
@@ -322,7 +417,17 @@ function ProjectDashboard({ project }: { project: SeoProjectSummary }) {
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-lg border p-4">
                 <p className="text-xs text-muted-foreground">Score</p>
-                <p className="text-2xl font-semibold">{latestRun.score ?? "—"}</p>
+                <p className="text-2xl font-semibold">
+                  {latestRun.score ?? "—"}
+                  {scoreDelta != null && scoreDelta !== 0 && (
+                    <span
+                      className={`ml-2 text-sm font-normal ${scoreDelta > 0 ? "text-emerald-600" : "text-destructive"}`}
+                    >
+                      {scoreDelta > 0 ? "+" : ""}
+                      {scoreDelta}
+                    </span>
+                  )}
+                </p>
               </div>
               <div className="rounded-lg border p-4">
                 <p className="text-xs text-muted-foreground">Pages scanned</p>
@@ -340,6 +445,100 @@ function ProjectDashboard({ project }: { project: SeoProjectSummary }) {
           {latestRun?.errorMessage && (
             <p className="text-sm text-destructive">{latestRun.errorMessage}</p>
           )}
+
+          {allFindings.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-4">
+              <div className="rounded-lg border p-4">
+                <p className="text-xs text-muted-foreground">Runs</p>
+                <p className="text-2xl font-semibold">{runsQuery.data?.length ?? 0}</p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <p className="text-xs text-muted-foreground">Findings ever detected</p>
+                <p className="text-2xl font-semibold">{allFindings.length}</p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <p className="text-xs text-muted-foreground">Resolved</p>
+                <p className="text-2xl font-semibold">{resolvedCount}</p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <p className="text-xs text-muted-foreground">Resolution rate</p>
+                <p className="text-2xl font-semibold">
+                  {resolutionRate != null ? `${resolutionRate}%` : "—"}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {runsChronological.length >= 2 && <ScoreTrend runs={runsChronological} />}
+
+          {openFindings.length > 0 && (
+            <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase text-muted-foreground">
+                  Open findings by category
+                </p>
+                <StatBar
+                  label="seo"
+                  value={categoryCounts.seo}
+                  max={openFindings.length}
+                  colorClass={CATEGORY_BAR_COLOR.seo}
+                />
+                <StatBar
+                  label="geo"
+                  value={categoryCounts.geo}
+                  max={openFindings.length}
+                  colorClass={CATEGORY_BAR_COLOR.geo}
+                />
+                <StatBar
+                  label="aeo"
+                  value={categoryCounts.aeo}
+                  max={openFindings.length}
+                  colorClass={CATEGORY_BAR_COLOR.aeo}
+                />
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase text-muted-foreground">
+                  Open findings by severity
+                </p>
+                <StatBar
+                  label="critical"
+                  value={severityCounts.critical}
+                  max={openFindings.length}
+                  colorClass={SEVERITY_BAR_COLOR.critical}
+                />
+                <StatBar
+                  label="warning"
+                  value={severityCounts.warning}
+                  max={openFindings.length}
+                  colorClass={SEVERITY_BAR_COLOR.warning}
+                />
+                <StatBar
+                  label="info"
+                  value={severityCounts.info}
+                  max={openFindings.length}
+                  colorClass={SEVERITY_BAR_COLOR.info}
+                />
+              </div>
+            </div>
+          )}
+
+          {(blogPostsQuery.data?.length ?? 0) > 0 && (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-lg border p-4">
+                <p className="text-xs text-muted-foreground">Blog posts written</p>
+                <p className="text-2xl font-semibold">{blogStatusCounts.written}</p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <p className="text-xs text-muted-foreground">Drafting</p>
+                <p className="text-2xl font-semibold">{blogStatusCounts.generating}</p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <p className="text-xs text-muted-foreground">Failed</p>
+                <p className="text-2xl font-semibold">{blogStatusCounts.failed}</p>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1 text-sm text-muted-foreground">
             <p>
               Domain: <span className="text-foreground">{project.domain}</span>
@@ -354,6 +553,25 @@ function ProjectDashboard({ project }: { project: SeoProjectSummary }) {
             )}
           </div>
 
+          <div className="rounded-lg border p-4">
+            <h3 className="text-sm font-medium">SEO plugin</h3>
+            {seoPlugin ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                <span className="text-foreground">{seoPlugin.name}</span> is installed — the fixer
+                agent draws on {seoPlugin.skillSlugs.length} skill(s) and{" "}
+                {seoPlugin.agentDefs.length} specialist persona(s) from it, matched to each fix
+                batch's categories, and always runs on the strongest model available in this
+                workspace.
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-muted-foreground">
+                No companion plugin installed yet — the fixer agent is running on its built-in
+                instructions only. Reinstalling the SEO/GEO/AEO Analyzer extension in Settings →
+                Extensions pulls it in automatically, or install it directly from the Plugins page.
+              </p>
+            )}
+          </div>
+
           <FixerAgentControl project={project} />
           <ScheduleControl project={project} />
         </TabsContent>
@@ -361,8 +579,8 @@ function ProjectDashboard({ project }: { project: SeoProjectSummary }) {
         <TabsContent value="findings" className="space-y-4 pt-4">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              {findingsQuery.data?.length ?? 0} open finding(s). Select some and dispatch the
-              fixer agent to edit the repo directly.
+              {findingsQuery.data?.length ?? 0} open finding(s). Select some and dispatch the fixer
+              agent to edit the repo directly.
             </p>
             <Button
               size="sm"
@@ -378,10 +596,24 @@ function ProjectDashboard({ project }: { project: SeoProjectSummary }) {
             <p className="text-sm text-destructive">{(dispatchFix.error as Error).message}</p>
           )}
           {dispatchFix.data && (
-            <p className="text-sm text-emerald-600">
-              Fixer agent finished — {dispatchFix.data.output.slice(0, 200)}
-              {dispatchFix.data.output.length > 200 ? "…" : ""}
-            </p>
+            <div className="space-y-1">
+              <p className="text-sm text-emerald-600">
+                Fixer agent finished — {dispatchFix.data.output.slice(0, 200)}
+                {dispatchFix.data.output.length > 200 ? "…" : ""}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Ran on <span className="text-foreground">{dispatchFix.data.modelId}</span>
+                {dispatchFix.data.pluginSkillsUsed.length > 0 && (
+                  <>
+                    {" "}
+                    with specialist skill(s):{" "}
+                    <span className="text-foreground">
+                      {dispatchFix.data.pluginSkillsUsed.join(", ")}
+                    </span>
+                  </>
+                )}
+              </p>
+            </div>
           )}
           <div className="space-y-2">
             {(findingsQuery.data ?? []).length === 0 ? (
@@ -398,9 +630,7 @@ function ProjectDashboard({ project }: { project: SeoProjectSummary }) {
                   />
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge className={SEVERITY_BADGE[finding.severity]}>
-                        {finding.severity}
-                      </Badge>
+                      <Badge className={SEVERITY_BADGE[finding.severity]}>{finding.severity}</Badge>
                       <Badge variant="secondary" className="uppercase">
                         {finding.category}
                       </Badge>
@@ -455,7 +685,10 @@ function ProjectDashboard({ project }: { project: SeoProjectSummary }) {
               <p className="text-sm text-muted-foreground">No blog posts generated yet.</p>
             ) : (
               (blogPostsQuery.data ?? []).map((post) => (
-                <div key={post.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                <div
+                  key={post.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border p-3"
+                >
                   <div className="min-w-0 space-y-0.5">
                     <p className="truncate text-sm font-medium">{post.title ?? post.keyword}</p>
                     <p className="text-xs text-muted-foreground">
