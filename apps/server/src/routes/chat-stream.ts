@@ -1,5 +1,10 @@
 import { getDb } from "@nyxel/db";
-import { type ChatStreamUsage, estimateCostMicros, streamChat } from "@nyxel/model-providers";
+import {
+  type ChatStreamUsage,
+  estimateCostMicros,
+  getModelCapabilities,
+  streamChat,
+} from "@nyxel/model-providers";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { prepareMessageContentForModel } from "../attachment-processing";
@@ -150,15 +155,22 @@ export function registerChatStreamRoute(app: Hono) {
       chat.toolMode === "auto" ? null : CHAT_FOLLOW_UP_GUIDANCE,
       knowledgeBaseContext,
     );
-    const tools = agent
-      ? await buildToolsForAgent(agent, {
-          chatId,
-          workingDirectory: chat.workingDirectory,
-          chatToolPolicy: chat.toolPolicy,
-        })
-      : undefined;
     const modelId = agent?.modelId ?? chat.modelId;
     const installedProviders = await getInstalledProvidersForWorkspace(chat.workspaceId);
+    // Some models (e.g. OpenRouter image-generation models like
+    // google/gemini-3.1-flash-image) have no endpoint that supports tool
+    // use at all — sending a tools array to them fails the request outright
+    // with a 404 before any text streams back. Skip building/passing tools
+    // for those instead of letting every turn fail.
+    const modelCapabilities = await getModelCapabilities(modelId, installedProviders);
+    const tools =
+      agent && modelCapabilities.toolCalling
+        ? await buildToolsForAgent(agent, {
+            chatId,
+            workingDirectory: chat.workingDirectory,
+            chatToolPolicy: chat.toolPolicy,
+          })
+        : undefined;
 
     const priorHistory = await db.listMessages(chatId);
 

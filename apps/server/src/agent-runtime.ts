@@ -1,6 +1,6 @@
 import type { AgentRecord, AgentRunRecord, TaskRecord } from "@nyxel/db";
 import { getDb } from "@nyxel/db";
-import { streamChat } from "@nyxel/model-providers";
+import { getModelCapabilities, streamChat } from "@nyxel/model-providers";
 import { getKnowledgeBaseContextForPrompt } from "./knowledge-base";
 import { getInstalledProvidersForWorkspace } from "./models";
 import { notifyWorkspaceOwner } from "./push";
@@ -257,13 +257,19 @@ async function runDirectExecution(
 ): Promise<{ text: string; toolStepCount: number }> {
   const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
   const systemPrompt = await buildSystemPrompt(agent, true);
-  const tools = await buildToolsForAgent(agent, {
-    taskId: task.id,
-    agentRunId: run.id,
-  });
+  const modelId = effectiveModelId(agent, task);
+  // Models with no tool-use-capable endpoint (e.g. OpenRouter image
+  // generation models) 404 outright if a tools array is sent at all.
+  const modelCapabilities = await getModelCapabilities(modelId, installedProviders);
+  const tools = modelCapabilities.toolCalling
+    ? await buildToolsForAgent(agent, {
+        taskId: task.id,
+        agentRunId: run.id,
+      })
+    : undefined;
   return streamWithLiveUpdates(
     {
-      modelId: effectiveModelId(agent, task),
+      modelId,
       systemPrompt,
       installedProviders,
       tools,

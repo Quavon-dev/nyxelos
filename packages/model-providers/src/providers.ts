@@ -170,7 +170,13 @@ async function capabilitiesForInstalledProvider(
     return new Map(provider.modelIds.map((id) => [id, FULL_CLOUD_CAPABILITIES]));
   }
   if (provider.providerKind === "claude_cli" || provider.providerKind === "codex_cli") {
-    return new Map(provider.modelIds.map((id) => [id, DEFAULT_CAPABILITIES]));
+    // Badge display, not a transport check: these CLIs always run a real
+    // Claude/GPT model under the hood, so the *model* genuinely has
+    // vision/tools/reasoning even though the stdin-passthrough transport
+    // can't forward raw image bytes to it. getModelCapabilities() below
+    // (used to gate attachment forwarding) intentionally stays false/false
+    // for these two — don't reuse this map for that decision.
+    return new Map(provider.modelIds.map((id) => [id, FULL_CLOUD_CAPABILITIES]));
   }
   if (provider.providerKind === "openrouter") {
     const models = await fetchOpenRouterModels(provider.apiKey);

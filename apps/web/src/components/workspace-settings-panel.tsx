@@ -587,8 +587,12 @@ export function WorkspaceSettingsPanel({
     queryKey: ["models", "list", workspaceId],
     queryFn: () => trpcClient.models.list.query({ workspaceId }),
   });
-  const modelCapabilitiesById = useMemo(
-    () => new Map(availableModelsQuery.data?.map((m) => [m.id, m.capabilities]) ?? []),
+  // Keyed by label, not id: an installed provider that collides with an
+  // auto-detected local runtime (e.g. LM Studio on its default port) gets
+  // deduped out of models.list by id, but survives under the same label —
+  // see the "first occurrence wins" comment in listAvailableModels().
+  const modelCapabilitiesByLabel = useMemo(
+    () => new Map(availableModelsQuery.data?.map((m) => [m.label, m.capabilities]) ?? []),
     [availableModelsQuery.data],
   );
   const extensionCatalogQuery = useQuery({
@@ -1129,8 +1133,8 @@ export function WorkspaceSettingsPanel({
                       <div className="flex flex-col gap-1 pt-1">
                         {provider.modelIds.map((modelId) => {
                           const isEnabled = !provider.disabledModelIds.includes(modelId);
-                          const capabilities = modelCapabilitiesById.get(
-                            `custom:${provider.id}/${modelId}`,
+                          const capabilities = modelCapabilitiesByLabel.get(
+                            `${modelId} (${provider.label})`,
                           );
                           return (
                             <div

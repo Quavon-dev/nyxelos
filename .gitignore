@@ -157,3 +157,6 @@ apps/web/src/components/example
 knowledge-base/02-Dev-Log/
 
 .nyxel-plugins
+nyxel.sqlite-shm
+.gitignore
+nyxel.sqlite-wal
