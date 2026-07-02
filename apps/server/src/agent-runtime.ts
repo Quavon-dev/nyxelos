@@ -99,17 +99,19 @@ function toExecutionPlan(task: TaskRecord, raw: string): ExecutionPlan {
 const TASK_QUESTION_POLICY_PROMPT =
   "You are running as a durable, mostly-unattended task. Only call ask_user_question when you are genuinely blocked by a critical, urgent gap — something destructive/irreversible, a missing credential, or directly conflicting instructions. For any ordinary ambiguity, decide yourself: pick the most reasonable interpretation, state the assumption plainly in your final answer, and keep working instead of stopping to ask. Never end your turn by announcing a plan and saying you're waiting for approval — there is no human watching this turn. If a step requires approval, the sensitive tool call itself defers automatically and tells you so; you don't need to, and must not, pause in prose to ask permission first. Once you've formed a plan, execute it immediately in the same turn using your tools and keep going until the task's success criteria are met or you hit a real blocker.";
 
-async function buildSystemPrompt(agent: AgentRecord, forTask = false) {
+async function buildSystemPrompt(agent: AgentRecord, forTask = false, modelId?: string) {
   const db = getDb();
-  const [workspace, knowledgeBaseContext] = await Promise.all([
+  const [workspace, knowledgeBaseContext, modelParams] = await Promise.all([
     db.getWorkspace(agent.workspaceId),
     getKnowledgeBaseContextForPrompt(agent.workspaceId),
+    modelId ? db.getModelParameter(agent.workspaceId, modelId) : Promise.resolve(null),
   ]);
   return composeSystemPrompt(
     workspace,
     agent.systemPrompt,
     knowledgeBaseContext,
     forTask ? TASK_QUESTION_POLICY_PROMPT : undefined,
+    modelParams?.customInstructions,
   );
 }
 
@@ -128,7 +130,7 @@ async function planTask(
   workingDirectory?: string | null,
 ): Promise<ExecutionPlan> {
   const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
-  const systemPrompt = await buildSystemPrompt(agent, true);
+  const systemPrompt = await buildSystemPrompt(agent, true, effectiveModelId(agent, task));
   const planningPrompt = [
     "Create a compact JSON execution plan for this task.",
     "Return JSON only with keys: goal, successCriteria, steps, neededCapabilities, delegationCandidates, completionCheck.",
@@ -265,8 +267,9 @@ async function runDirectExecution(
   workingDirectory?: string | null,
 ): Promise<{ text: string; toolStepCount: number }> {
   const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
-  const systemPrompt = await buildSystemPrompt(agent, true);
   const modelId = effectiveModelId(agent, task);
+  const systemPrompt = await buildSystemPrompt(agent, true, modelId);
+  const modelParams = await getDb().getModelParameter(agent.workspaceId, modelId);
   // Models with no tool-use-capable endpoint (e.g. OpenRouter image
   // generation models) 404 outright if a tools array is sent at all.
   const modelCapabilities = await getModelCapabilities(modelId, installedProviders);
@@ -287,7 +290,13 @@ async function runDirectExecution(
       cwd: workingDirectory ?? undefined,
       // Unattended runs have no human to catch a shallow answer — let the
       // model think before acting where the provider supports it.
-      reasoningEffort: "medium",
+      reasoningEffort: modelParams?.reasoningEffort ?? "medium",
+      maxOutputTokens: modelParams?.maxOutputTokens ?? undefined,
+      temperature: modelParams?.temperature ?? undefined,
+      topP: modelParams?.topP ?? undefined,
+      frequencyPenalty: modelParams?.frequencyPenalty ?? undefined,
+      presencePenalty: modelParams?.presencePenalty ?? undefined,
+      stopSequences: modelParams?.stopSequences,
       // claude_cli/codex_cli-backed agents map this straight to the spawned
       // CLI's own --permission-mode flag (see model-providers/cli.ts):
       // anything but "auto" spawns Claude Code in "plan" mode, which can

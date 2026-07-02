@@ -156,6 +156,8 @@ export function registerChatStreamRoute(app: Hono) {
     ]);
     const agent = storedAgent ? await resolveAgentRuntimeConfig(storedAgent) : null;
     const knowledgeBaseContext = await getKnowledgeBaseContextForPrompt(chat.workspaceId);
+    const modelId = agent?.modelId ?? chat.modelId;
+    const modelParams = await db.getModelParameter(chat.workspaceId, modelId);
 
     const systemPrompt = composeSystemPrompt(
       workspace,
@@ -164,8 +166,8 @@ export function registerChatStreamRoute(app: Hono) {
       CHAT_MODE_GUIDANCE[chat.toolMode],
       chat.toolMode === "auto" ? null : CHAT_FOLLOW_UP_GUIDANCE,
       knowledgeBaseContext,
+      modelParams?.customInstructions,
     );
-    const modelId = agent?.modelId ?? chat.modelId;
     const installedProviders = await getInstalledProvidersForWorkspace(chat.workspaceId);
     // Some models (e.g. OpenRouter image-generation models like
     // google/gemini-3.1-flash-image) have no endpoint that supports tool
@@ -230,7 +232,13 @@ export function registerChatStreamRoute(app: Hono) {
         tools,
         cwd: chat.workingDirectory ?? undefined,
         toolMode: chat.toolMode,
-        reasoningEffort: reasoning ? "medium" : undefined,
+        reasoningEffort: reasoning ? (modelParams?.reasoningEffort ?? "medium") : undefined,
+        maxOutputTokens: modelParams?.maxOutputTokens ?? undefined,
+        temperature: modelParams?.temperature ?? undefined,
+        topP: modelParams?.topP ?? undefined,
+        frequencyPenalty: modelParams?.frequencyPenalty ?? undefined,
+        presencePenalty: modelParams?.presencePenalty ?? undefined,
+        stopSequences: modelParams?.stopSequences,
         messages: modelMessages,
         onFinish: ({ text, usage }) => {
           finalizedText = text;
