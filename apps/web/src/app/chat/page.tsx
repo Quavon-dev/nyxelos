@@ -3,18 +3,20 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowUp, Code2, FileText, Palette, Search } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { type DragEvent, Suspense, useEffect, useState } from "react";
 import {
   AttachmentPreviewCard,
   type AttachedFile,
   ChatComposerToolbar,
   type ChatToolSelection,
 } from "@/components/chat/chat-composer-toolbar";
+import { filesFromClipboard, useAttachmentStaging } from "@/components/chat/attachment-utils";
 import { ChatTopBar } from "@/components/chat/chat-top-bar";
 import { WorkingDirectoryPicker } from "@/components/chat/working-directory-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { serializeChatMessageContent } from "@/lib/chat-message";
 import { type ChatToolMode, trpcClient } from "@/lib/trpc";
+import { cn } from "@/lib/utils";
 import { useInstallation } from "@/lib/use-installation";
 
 const QUICK_ACTIONS = [
@@ -100,8 +102,10 @@ function ChatLandingPageContent() {
   const [modelId, setModelId] = useState("");
   const [toolSelection, setToolSelection] = useState<ChatToolSelection | null>(null);
   const [toolMode, setToolMode] = useState<ChatToolMode | null>(null);
-  const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [workingDirectory, setWorkingDirectory] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
+  const { addFiles } = useAttachmentStaging(attachedFiles, setAttachedFiles, workspaceId);
 
   useEffect(() => {
     const models = modelsQuery.data;
@@ -122,11 +126,11 @@ function ChatLandingPageContent() {
   }, [workingDirectory, defaultWorkingDirectory]);
 
   const createChat = useMutation({
-    mutationFn: async (vars: { text: string; file: AttachedFile | null }) => {
+    mutationFn: async (vars: { text: string; files: AttachedFile[] }) => {
       if (!workspaceId) throw new Error("Installation is incomplete.");
       if (!modelId) throw new Error("No model selected.");
       if (!workingDirectory.trim()) throw new Error("Choose a working directory.");
-      if (!vars.text.trim() && !vars.file) {
+      if (!vars.text.trim() && vars.files.length === 0) {
         throw new Error("Add a message or attach a file.");
       }
 
@@ -151,14 +155,15 @@ function ChatLandingPageContent() {
         agentId = agent.id;
       }
 
-      const outgoing = vars.file
-        ? serializeChatMessageContent(vars.text.trim(), [vars.file])
-        : vars.text.trim();
+      const outgoing =
+        vars.files.length > 0
+          ? serializeChatMessageContent(vars.text.trim(), vars.files)
+          : vars.text.trim();
 
       const chat = await trpcClient.chats.create.mutate({
         workspaceId,
         workingDirectory,
-        title: vars.text.trim().slice(0, 60) || vars.file?.name || "New chat",
+        title: vars.text.trim().slice(0, 60) || vars.files[0]?.name || "New chat",
         modelId,
         agentId,
         projectId,
@@ -174,8 +179,14 @@ function ChatLandingPageContent() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if ((!message.trim() && !attachedFile) || !modelId || createChat.isPending) return;
-    createChat.mutate({ text: message, file: attachedFile });
+    if ((!message.trim() && attachedFiles.length === 0) || !modelId || createChat.isPending) return;
+    createChat.mutate({ text: message, files: attachedFiles });
+  }
+
+  function handleDrop(e: DragEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files.length > 0) void addFiles(e.dataTransfer.files);
   }
 
   const name = ownerQuery.data?.name?.split(" ")[0];
@@ -202,13 +213,39 @@ function ChatLandingPageContent() {
           </p>
         </div>
 
-        <form className="w-full space-y-3" onSubmit={handleSubmit}>
-          <div className="space-y-2 rounded-2xl border bg-card p-3 shadow-sm">
-            {attachedFile && (
-              <AttachmentPreviewCard
-                file={attachedFile}
-                onRemove={() => setAttachedFile(null)}
-              />
+        <form
+          className="w-full space-y-3"
+          onSubmit={handleSubmit}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDrop}
+        >
+          <div
+            className={cn(
+              "space-y-2 rounded-2xl border bg-card p-3 shadow-sm transition-colors",
+              isDragging && "border-primary bg-primary/5",
+            )}
+          >
+            {attachedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {attachedFiles.map((file) => (
+                  <AttachmentPreviewCard
+                    key={file.id}
+                    file={file}
+                    onRemove={() =>
+                      setAttachedFiles(attachedFiles.filter((f) => f.id !== file.id))
+                    }
+                    onBroken={() =>
+                      setAttachedFiles(
+                        attachedFiles.map((f) => (f.id === file.id ? { ...f, broken: true } : f)),
+                      )
+                    }
+                  />
+                ))}
+              </div>
             )}
             <Textarea
               value={message}
@@ -218,6 +255,12 @@ function ChatLandingPageContent() {
                   e.preventDefault();
                   handleSubmit(e);
                 }
+              }}
+              onPaste={(e) => {
+                const files = filesFromClipboard(e.clipboardData);
+                if (files.length === 0) return;
+                e.preventDefault();
+                void addFiles(files);
               }}
               placeholder="Ask me anything…"
               rows={2}
@@ -239,20 +282,22 @@ function ChatLandingPageContent() {
                   onToolSelectionChange={setToolSelection}
                   toolMode={effectiveToolMode}
                   onToolModeChange={setToolMode}
-                  attachedFile={attachedFile}
-                  onAttachedFileChange={setAttachedFile}
+                  attachedFiles={attachedFiles}
+                  onAttachedFilesChange={setAttachedFiles}
                   onVoiceResult={(text) => {
                     const combined = message ? `${message} ${text}` : text;
                     setMessage(combined);
                     if (!modelId || createChat.isPending) return;
-                    createChat.mutate({ text: combined, file: attachedFile });
+                    createChat.mutate({ text: combined, files: attachedFiles });
                   }}
                   showContextWindow={false}
                 />
               </div>
               <button
                 type="submit"
-                disabled={(!message.trim() && !attachedFile) || !modelId || createChat.isPending}
+                disabled={
+                  (!message.trim() && attachedFiles.length === 0) || !modelId || createChat.isPending
+                }
                 className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
               >
                 <ArrowUp className="size-4" />

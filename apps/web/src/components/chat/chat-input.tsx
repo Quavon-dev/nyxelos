@@ -1,17 +1,19 @@
 "use client";
 
 import { ArrowUp, Loader2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type DragEvent, useEffect, useRef, useState } from "react";
 import {
 	AttachmentPreviewCard,
 	type AttachedFile,
 	ChatComposerToolbar,
 	type ChatToolSelection,
 } from "@/components/chat/chat-composer-toolbar";
+import { filesFromClipboard, useAttachmentStaging } from "@/components/chat/attachment-utils";
 import { Textarea } from "@/components/ui/textarea";
 import { serializeChatMessageContent } from "@/lib/chat-message";
 import type { MultiSelectPrompt } from "@/lib/chat-prompts";
 import type { ChatToolMode } from "@/lib/trpc";
+import { cn } from "@/lib/utils";
 import { MultiSelectPromptCard } from "./multi-select-prompt";
 
 interface MessageLike {
@@ -28,8 +30,8 @@ export function ChatInput({
 	onToolSelectionChange,
 	toolMode,
 	onToolModeChange,
-	attachedFile,
-	onAttachedFileChange,
+	attachedFiles,
+	onAttachedFilesChange,
 	messages,
 	assistantQuestion,
 	assistantPrompt,
@@ -42,14 +44,16 @@ export function ChatInput({
 	onToolSelectionChange: (next: ChatToolSelection | null) => void;
 	toolMode: ChatToolMode;
 	onToolModeChange: (next: ChatToolMode) => void;
-	attachedFile: AttachedFile | null;
-	onAttachedFileChange: (file: AttachedFile | null) => void;
+	attachedFiles: AttachedFile[];
+	onAttachedFilesChange: (files: AttachedFile[]) => void;
 	messages: MessageLike[];
 	assistantQuestion: string | null;
 	assistantPrompt: MultiSelectPrompt | null;
 }) {
 	const [value, setValue] = useState("");
+	const [isDragging, setIsDragging] = useState(false);
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+	const { addFiles } = useAttachmentStaging(attachedFiles, onAttachedFilesChange, workspaceId);
 	const promptKey = assistantPrompt
 		? `${assistantPrompt.question}:${assistantPrompt.options.map((option) => option.id).join(",")}`
 		: "none";
@@ -63,20 +67,27 @@ export function ChatInput({
 	function submitMessage(rawText: string) {
 		if (disabled) return;
 		const answerText = rawText.trim();
-		if (!answerText && !attachedFile) return;
+		if (!answerText && attachedFiles.length === 0) return;
 
-		const outgoing = attachedFile
-			? serializeChatMessageContent(answerText, [attachedFile])
-			: answerText;
+		const outgoing =
+			attachedFiles.length > 0
+				? serializeChatMessageContent(answerText, attachedFiles)
+				: answerText;
 
 		onSend(outgoing);
 		setValue("");
-		onAttachedFileChange(null);
+		onAttachedFilesChange([]);
 	}
 
 	function handleSubmit(e: React.FormEvent) {
 		e.preventDefault();
 		submitMessage(value);
+	}
+
+	function handleDrop(e: DragEvent<HTMLFormElement>) {
+		e.preventDefault();
+		setIsDragging(false);
+		if (e.dataTransfer.files.length > 0) void addFiles(e.dataTransfer.files);
 	}
 
 	const placeholder = assistantPrompt
@@ -86,8 +97,22 @@ export function ChatInput({
 			: "Message Nyxel…";
 
 	return (
-		<form onSubmit={handleSubmit} className="pt-4">
-			<div className="space-y-1 rounded-2xl border bg-card p-2 shadow-sm">
+		<form
+			onSubmit={handleSubmit}
+			className="pt-4"
+			onDragOver={(e) => {
+				e.preventDefault();
+				setIsDragging(true);
+			}}
+			onDragLeave={() => setIsDragging(false)}
+			onDrop={handleDrop}
+		>
+			<div
+				className={cn(
+					"space-y-1 rounded-2xl border bg-card p-2 shadow-sm transition-colors",
+					isDragging && "border-primary bg-primary/5",
+				)}
+			>
 				{assistantPrompt && (
 					<MultiSelectPromptCard
 						prompt={assistantPrompt}
@@ -108,12 +133,22 @@ export function ChatInput({
 						<span className="text-foreground">{assistantQuestion}</span>
 					</div>
 				)}
-				{attachedFile && (
-					<div className="px-1 pt-1">
-						<AttachmentPreviewCard
-							file={attachedFile}
-							onRemove={() => onAttachedFileChange(null)}
-						/>
+				{attachedFiles.length > 0 && (
+					<div className="flex flex-wrap gap-2 px-1 pt-1">
+						{attachedFiles.map((file) => (
+							<AttachmentPreviewCard
+								key={file.id}
+								file={file}
+								onRemove={() =>
+									onAttachedFilesChange(attachedFiles.filter((f) => f.id !== file.id))
+								}
+								onBroken={() =>
+									onAttachedFilesChange(
+										attachedFiles.map((f) => (f.id === file.id ? { ...f, broken: true } : f)),
+									)
+								}
+							/>
+						))}
 					</div>
 				)}
 				<Textarea
@@ -125,6 +160,12 @@ export function ChatInput({
 							e.preventDefault();
 							handleSubmit(e);
 						}
+					}}
+					onPaste={(e) => {
+						const files = filesFromClipboard(e.clipboardData);
+						if (files.length === 0) return;
+						e.preventDefault();
+						void addFiles(files);
 					}}
 					placeholder={placeholder}
 					disabled={disabled}
@@ -141,8 +182,8 @@ export function ChatInput({
 							onToolSelectionChange={onToolSelectionChange}
 							toolMode={toolMode}
 							onToolModeChange={onToolModeChange}
-							attachedFile={attachedFile}
-							onAttachedFileChange={onAttachedFileChange}
+							attachedFiles={attachedFiles}
+							onAttachedFilesChange={onAttachedFilesChange}
 							onVoiceResult={(text) =>
 								submitMessage(value ? `${value} ${text}` : text)
 							}
@@ -153,7 +194,7 @@ export function ChatInput({
 						type="submit"
 						disabled={
 							disabled ||
-							(!value.trim() && !attachedFile)
+							(!value.trim() && attachedFiles.length === 0)
 						}
 						aria-label={disabled ? "Nyxel arbeitet…" : "Senden"}
 						className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
