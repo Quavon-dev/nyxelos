@@ -12,6 +12,9 @@ Run NyxelOS entirely on your hardware or deploy it across a server cluster. Full
 *   **🧱 Modularity:** Swappable components—models, skills, MCP servers, and databases. Everything plugs into the robust core.
 *   **🎨 Consistent UI:** A clean, predictable experience powered by `shadcn/ui`.
 *   **🎬 AI Video Generation:** Prompt a video right from chat or the Video Studio page — Nyxel auto-picks the model, aspect ratio, and clip length from your wording (or you choose yourself), then plays it back, lets you trim/mute/speed/GIF it, and files it straight into the Library.
+*   **🎙️ Local Voice Input:** Dictate messages with a Whisper model running entirely in your browser (WebGPU, WASM fallback — via transformers.js). Audio never leaves your machine, works in every modern browser, in any Whisper language.
+*   **💭 Extended Thinking:** Flip the "Nachdenken" toggle in the composer and supported models (Anthropic extended thinking, OpenAI reasoning) think before they answer — the reasoning streams live into a collapsible panel, and unattended task runs think by default.
+*   **📋 Live Task Board:** The Tasks page surfaces what's running right now (live output tail, elapsed time, stop button) and what needs your attention (agent questions, pending approvals) — and background runs log every tool call to the task timeline.
 
 ### 🛠️ Tech Stack at a Glance
 *   **Backend:** Bun runtime, Hono, tRPC. The intelligence layer.
@@ -103,6 +106,14 @@ Access at `https://NYXEL_DOMAIN`. Caddy handles TLS certificates, health checks 
 | Video playback in the Library | Generate/Edit video tools |
 | --- | --- |
 | ![Video playback in the Library](docs/screenshots/library-video-playback.png) | ![Generate video and Edit video tools in the Tools catalog](docs/screenshots/tools-video-catalog.png) |
+
+| Rich markdown + live agent thinking | Local Whisper dictation (recording) |
+| --- | --- |
+| ![Chat with syntax highlighting, agent thinking panel, and tool steps](docs/screenshots/chat-markdown-thinking.png) | ![KaTeX math, GFM task lists, and the in-browser Whisper mic recording](docs/screenshots/voice-recording.png) |
+
+| Live task board | |
+| --- | --- |
+| ![Tasks page with live activity, needs-attention strip, and running stats](docs/screenshots/tasks-live-board.png) | |
 
 #### 📊 Detailed statistics
 
