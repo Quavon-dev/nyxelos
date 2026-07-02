@@ -554,25 +554,44 @@ export function ChatComposerToolbar({
 
 				{mode === "compact" && (
 					<>
-						<button
-							type="button"
-							onClick={() => fileInputRef.current?.click()}
-							className={cn(
-								"relative flex size-8 shrink-0 items-center justify-center rounded-full transition-colors",
-								attachedFiles.length > 0
-									? "bg-primary/15 text-primary hover:bg-primary/20"
-									: "text-muted-foreground hover:bg-muted hover:text-foreground",
-							)}
-							aria-label="Attach images, PDFs, or text files"
-							title="Attach an image, PDF, or text file"
-						>
-							<Paperclip className="size-4" />
-							{attachedFiles.length > 0 && (
-								<span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
-									{attachedFiles.length}
-								</span>
-							)}
-						</button>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<button
+									type="button"
+									className={cn(
+										"relative flex size-8 shrink-0 items-center justify-center rounded-full transition-colors",
+										attachedFiles.length > 0
+											? "bg-primary/15 text-primary hover:bg-primary/20"
+											: "text-muted-foreground hover:bg-muted hover:text-foreground",
+									)}
+									aria-label="Attach images, PDFs, or text files"
+									title="Attach an image, PDF, or text file"
+								>
+									<Paperclip className="size-4" />
+									{attachedFiles.length > 0 && (
+										<span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
+											{attachedFiles.length}
+										</span>
+									)}
+								</button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="start" className="w-48">
+								<DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
+									<Upload className="size-4" />
+									Upload files
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onSelect={(event) => {
+										event.preventDefault();
+										setLibraryPickerOpen(true);
+									}}
+									disabled={!workspaceId}
+								>
+									<Library className="size-4" />
+									Attach from Library
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
 
 						<DropdownMenu>
 							<DropdownMenuTrigger asChild>
