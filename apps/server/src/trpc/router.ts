@@ -8,8 +8,10 @@ import {
 	McpInvalidConfigurationError,
 } from "@nyxel/mcp-client";
 import {
+	fetchOpenRouterModels,
 	getModelCapabilities,
 	listAvailableModels,
+	OPENROUTER_BASE_URL,
 	probeOpenAiCompatibleEndpoint,
 } from "@nyxel/model-providers";
 import { z } from "zod";
@@ -89,6 +91,7 @@ const installationModeSchema = z.enum(["pc", "server"]);
 const modelProviderKindSchema = z.enum([
 	"anthropic",
 	"openai",
+	"openrouter",
 	"openai_compatible",
 	"claude_cli",
 	"codex_cli",
@@ -443,6 +446,45 @@ export const appRouter = router({
 					providerKind: input.providerKind,
 					baseUrl: detected.baseUrl,
 					apiKey: input.apiKey ?? null,
+					modelIds,
+					enabled: true,
+				});
+			}),
+		// OpenRouter's catalog is public, so this works with or without a key —
+		// the settings panel calls it as the user types their key to preview
+		// what "import all" will bring in.
+		listOpenRouterModels: publicProcedure
+			.input(z.object({ apiKey: z.string().min(1).optional() }))
+			.query(({ input }) => fetchOpenRouterModels(input.apiKey)),
+		installOpenRouter: publicProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					label: z.string().min(1).default("OpenRouter"),
+					apiKey: z.string().min(1),
+					modelIds: z.array(z.string().min(1)).min(1).optional(),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				const models = await fetchOpenRouterModels(input.apiKey);
+				if (models.length === 0) {
+					throw new Error(
+						"Couldn't fetch the OpenRouter model catalog — check your API key and try again.",
+					);
+				}
+
+				const catalogIds = new Set(models.map((model) => model.id));
+				const modelIds =
+					input.modelIds?.length && input.modelIds.every((modelId) => catalogIds.has(modelId))
+						? input.modelIds
+						: models.map((model) => model.id);
+
+				return getDb().createModelInstallation({
+					workspaceId: input.workspaceId,
+					label: input.label,
+					providerKind: "openrouter",
+					baseUrl: OPENROUTER_BASE_URL,
+					apiKey: input.apiKey,
 					modelIds,
 					enabled: true,
 				});

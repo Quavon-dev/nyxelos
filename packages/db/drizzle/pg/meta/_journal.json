@@ -202,7 +202,14 @@
       "idx": 28,
       "version": "7",
       "when": 1783000016001,
-      "tag": "0028_plugins",
+      "tag": "0028_add_openrouter_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1783000017001,
+      "tag": "0029_plugins",
       "breakpoints": true
     }
   ]
