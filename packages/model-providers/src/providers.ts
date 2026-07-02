@@ -239,6 +239,15 @@ export async function listAvailableModels(
   const custom: ModelSummary[] = enabledProviders.flatMap((provider) =>
     provider.modelIds
       .filter((modelId) => !provider.disabledModelIds.includes(modelId))
+      // An installed OpenAI provider's modelIds can carry non-chat ids
+      // (gpt-image-*, tts-*, whisper-*, ...) added before isOpenAiChatModelId
+      // excluded them, or synced from a raw /v1/models listing. Those aren't
+      // LanguageModels — resolveModel()'s `openai(id)` would 400 against
+      // them — so they're excluded from the chat model picker here. The
+      // image/speech/transcription tools resolve their own models directly
+      // from OPENAI_IMAGE_MODELS/OPENAI_SPEECH_MODELS/OPENAI_TRANSCRIPTION_MODELS
+      // (see image.ts/audio.ts), independent of this list.
+      .filter((modelId) => provider.providerKind !== "openai" || isOpenAiChatModelId(modelId))
       .map((modelId) => ({
         id: `custom:${provider.id}/${modelId}`,
         label: `${modelId} (${provider.label})`,

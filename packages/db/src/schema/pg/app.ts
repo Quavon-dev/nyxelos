@@ -1,11 +1,13 @@
 import {
 	boolean,
+	doublePrecision,
 	integer,
 	jsonb,
 	pgEnum,
 	pgTable,
 	text,
 	timestamp,
+	uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth";
 
@@ -229,6 +231,37 @@ export const modelInstallation = pgTable("model_installation", {
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+export const modelReasoningEffort = pgEnum("model_reasoning_effort", ["low", "medium", "high"]);
+
+/** Per-(workspace, model) generation overrides — how a specific installed
+ * model should behave by default (sampling params, reasoning effort, a
+ * model-only instructions addendum). One row per model; deleting it (the
+ * "reset" action) just falls back to provider defaults. See ../sqlite/app.ts. */
+export const modelParameter = pgTable(
+	"model_parameter",
+	{
+		id: text("id").primaryKey(),
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => workspace.id, { onDelete: "cascade" }),
+		modelId: text("model_id").notNull(),
+		customName: text("custom_name"),
+		customInstructions: text("custom_instructions"),
+		maxOutputTokens: integer("max_output_tokens"),
+		temperature: doublePrecision("temperature"),
+		topP: doublePrecision("top_p"),
+		frequencyPenalty: doublePrecision("frequency_penalty"),
+		presencePenalty: doublePrecision("presence_penalty"),
+		stopSequences: jsonb("stop_sequences").notNull().default([]).$type<string[]>(),
+		reasoningEffort: modelReasoningEffort("reasoning_effort"),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+		updatedAt: timestamp("updated_at").notNull().defaultNow(),
+	},
+	(table) => [
+		uniqueIndex("model_parameter_workspace_model_idx").on(table.workspaceId, table.modelId),
+	],
+);
 
 /** A saved agent configuration: system prompt, model, and which runtime
  * skills, workspace tools, and MCP servers it may call. See ARCHITECTURE.md

@@ -420,6 +420,22 @@ export interface ModelInstallationRecord {
 	updatedAt: Date;
 }
 
+export interface ModelParameterRecord {
+	workspaceId: string;
+	modelId: string;
+	customName: string | null;
+	customInstructions: string | null;
+	maxOutputTokens: number | null;
+	temperature: number | null;
+	topP: number | null;
+	frequencyPenalty: number | null;
+	presencePenalty: number | null;
+	stopSequences: string[];
+	reasoningEffort: "low" | "medium" | "high" | null;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
 export interface PushSubscriptionRecord {
 	id: string;
 	userId: string;
@@ -623,6 +639,25 @@ export interface DbRepository {
 		enabled?: boolean;
 	}): Promise<ModelInstallationRecord>;
 	deleteModelInstallation(id: string): Promise<void>;
+
+	getModelParameter(
+		workspaceId: string,
+		modelId: string,
+	): Promise<ModelParameterRecord | null>;
+	upsertModelParameter(input: {
+		workspaceId: string;
+		modelId: string;
+		customName?: string | null;
+		customInstructions?: string | null;
+		maxOutputTokens?: number | null;
+		temperature?: number | null;
+		topP?: number | null;
+		frequencyPenalty?: number | null;
+		presencePenalty?: number | null;
+		stopSequences?: string[];
+		reasoningEffort?: "low" | "medium" | "high" | null;
+	}): Promise<ModelParameterRecord>;
+	deleteModelParameter(workspaceId: string, modelId: string): Promise<void>;
 
 	createPushSubscription(input: {
 		userId: string;

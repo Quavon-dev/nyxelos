@@ -369,6 +369,76 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.run();
 		},
 
+		async getModelParameter(workspaceId, modelId) {
+			const row = db
+				.select()
+				.from(schema.modelParameter)
+				.where(
+					and(
+						eq(schema.modelParameter.workspaceId, workspaceId),
+						eq(schema.modelParameter.modelId, modelId),
+					),
+				)
+				.get();
+			return row ?? null;
+		},
+
+		async upsertModelParameter({
+			workspaceId,
+			modelId,
+			customName,
+			customInstructions,
+			maxOutputTokens,
+			temperature,
+			topP,
+			frequencyPenalty,
+			presencePenalty,
+			stopSequences,
+			reasoningEffort,
+		}) {
+			const now = new Date();
+			const values = {
+				customName: customName ?? null,
+				customInstructions: customInstructions ?? null,
+				maxOutputTokens: maxOutputTokens ?? null,
+				temperature: temperature ?? null,
+				topP: topP ?? null,
+				frequencyPenalty: frequencyPenalty ?? null,
+				presencePenalty: presencePenalty ?? null,
+				stopSequences: stopSequences ?? [],
+				reasoningEffort: reasoningEffort ?? null,
+			};
+			const row = db
+				.insert(schema.modelParameter)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					modelId,
+					...values,
+					createdAt: now,
+					updatedAt: now,
+				})
+				.onConflictDoUpdate({
+					target: [schema.modelParameter.workspaceId, schema.modelParameter.modelId],
+					set: { ...values, updatedAt: now },
+				})
+				.returning()
+				.get();
+			if (!row) throw new Error("Failed to save model parameters");
+			return row;
+		},
+
+		async deleteModelParameter(workspaceId, modelId) {
+			db.delete(schema.modelParameter)
+				.where(
+					and(
+						eq(schema.modelParameter.workspaceId, workspaceId),
+						eq(schema.modelParameter.modelId, modelId),
+					),
+				)
+				.run();
+		},
+
 		async createPushSubscription({ userId, endpoint, p256dh, auth, userAgent }) {
 			const row = db
 				.insert(schema.pushSubscription)

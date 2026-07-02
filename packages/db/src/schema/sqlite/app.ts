@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { user } from "./auth";
 
 export type MessageRole = "user" | "assistant" | "system" | "tool";
@@ -213,6 +213,40 @@ export const modelInstallation = sqliteTable("model_installation", {
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
+
+export type ModelReasoningEffort = "low" | "medium" | "high";
+
+/** Per-(workspace, model) generation overrides — how a specific installed
+ * model should behave by default (sampling params, reasoning effort, a
+ * model-only instructions addendum). One row per model; deleting it (the
+ * "reset" action) just falls back to provider defaults. */
+export const modelParameter = sqliteTable(
+	"model_parameter",
+	{
+		id: text("id").primaryKey(),
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => workspace.id, { onDelete: "cascade" }),
+		modelId: text("model_id").notNull(),
+		customName: text("custom_name"),
+		customInstructions: text("custom_instructions"),
+		maxOutputTokens: integer("max_output_tokens"),
+		temperature: real("temperature"),
+		topP: real("top_p"),
+		frequencyPenalty: real("frequency_penalty"),
+		presencePenalty: real("presence_penalty"),
+		stopSequences: text("stop_sequences", { mode: "json" })
+			.notNull()
+			.default([])
+			.$type<string[]>(),
+		reasoningEffort: text("reasoning_effort").$type<ModelReasoningEffort>(),
+		createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+		updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+	},
+	(table) => [
+		uniqueIndex("model_parameter_workspace_model_idx").on(table.workspaceId, table.modelId),
+	],
+);
 
 export const agent = sqliteTable("agent", {
 	id: text("id").primaryKey(),

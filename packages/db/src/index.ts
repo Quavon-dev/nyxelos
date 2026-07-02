@@ -36,6 +36,7 @@ export type {
 	MessageRecord,
 	MessageRole,
 	ModelInstallationRecord,
+	ModelParameterRecord,
 	ModelProviderKind,
 	PluginAgentDefinition,
 	PluginRecord,

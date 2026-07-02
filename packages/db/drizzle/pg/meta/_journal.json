@@ -232,6 +232,13 @@
       "when": 1783000020001,
       "tag": "0032_video_generation",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1783000021001,
+      "tag": "0033_model_parameter",
+      "breakpoints": true
     }
   ]
 }
