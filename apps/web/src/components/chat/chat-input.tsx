@@ -3,6 +3,7 @@
 import { ArrowUp, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
+	AttachmentPreviewCard,
 	type AttachedFile,
 	ChatComposerToolbar,
 	type ChatToolSelection,
@@ -105,6 +106,14 @@ export function ChatInput({
 					<div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
 						Nyxel asked:{" "}
 						<span className="text-foreground">{assistantQuestion}</span>
+					</div>
+				)}
+				{attachedFile && (
+					<div className="px-1 pt-1">
+						<AttachmentPreviewCard
+							file={attachedFile}
+							onRemove={() => onAttachedFileChange(null)}
+						/>
 					</div>
 				)}
 				<Textarea

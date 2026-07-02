@@ -95,6 +95,70 @@ export interface AttachedFile {
 	content: string;
 }
 
+const ATTACHMENT_KIND_LABEL: Record<ChatAttachment["kind"], string> = {
+	image: "Image",
+	pdf: "Document",
+	text: "Text file",
+};
+
+/** Card shown above the textarea once a file is attached — mirrors the
+ * detached-thumbnail-with-corner-close look of native chat composers instead
+ * of the inline pill this used to be, since a full-size preview reads much
+ * faster than a truncated filename buried in the tool row. */
+export function AttachmentPreviewCard({
+	file,
+	onRemove,
+}: {
+	file: AttachedFile;
+	onRemove: () => void;
+}) {
+	if (file.kind === "image") {
+		return (
+			<div className="relative inline-block size-16 shrink-0">
+				<img
+					src={file.content}
+					alt={file.name}
+					className="size-16 rounded-xl border object-cover"
+				/>
+				<button
+					type="button"
+					onClick={onRemove}
+					aria-label={`Remove ${file.name}`}
+					title="Remove attachment"
+					className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-foreground text-background shadow"
+				>
+					<X className="size-3" />
+				</button>
+			</div>
+		);
+	}
+
+	return (
+		<div className="relative inline-flex max-w-xs items-center gap-2.5 rounded-xl border bg-muted/60 py-2 pl-2 pr-6">
+			<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+				<FileText className="size-4" />
+			</div>
+			<div className="min-w-0">
+				<div className="truncate text-xs font-medium text-foreground">
+					{file.name}
+				</div>
+				<div className="text-[11px] text-muted-foreground">
+					{ATTACHMENT_KIND_LABEL[file.kind]}
+				</div>
+			</div>
+			<button
+				type="button"
+				onClick={onRemove}
+				aria-label={`Remove ${file.name}`}
+				title="Remove attachment"
+				className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-foreground text-background shadow"
+			>
+				<X className="size-3" />
+			</button>
+		</div>
+	);
+}
+
 interface MessageLike {
 	role: string;
 	content: string;
@@ -555,24 +619,6 @@ export function ChatComposerToolbar({
 							</DropdownMenuContent>
 						</DropdownMenu>
 
-						{attachedFile && (
-							<button
-								type="button"
-								onClick={() => onAttachedFileChange(null)}
-								className={pillClass(true)}
-								title="Remove attachment"
-							>
-								{attachedFile.kind === "image" ? (
-									<Image className="size-3.5" />
-								) : attachedFile.kind === "pdf" ? (
-									<FileText className="size-3.5" />
-								) : (
-									<Paperclip className="size-3.5" />
-								)}
-								{attachedFile.name}
-								<X className="size-3 opacity-70" />
-							</button>
-						)}
 						{attachmentCapabilityCopy && (
 							<span
 								className="shrink-0 rounded-full border border-transparent bg-muted px-2.5 py-1 text-[11px] text-muted-foreground"

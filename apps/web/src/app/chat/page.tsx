@@ -5,6 +5,7 @@ import { ArrowUp, Code2, FileText, Palette, Search } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import {
+  AttachmentPreviewCard,
   type AttachedFile,
   ChatComposerToolbar,
   type ChatToolSelection,
@@ -203,6 +204,12 @@ function ChatLandingPageContent() {
 
         <form className="w-full space-y-3" onSubmit={handleSubmit}>
           <div className="space-y-2 rounded-2xl border bg-card p-3 shadow-sm">
+            {attachedFile && (
+              <AttachmentPreviewCard
+                file={attachedFile}
+                onRemove={() => setAttachedFile(null)}
+              />
+            )}
             <Textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
