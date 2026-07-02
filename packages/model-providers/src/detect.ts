@@ -212,19 +212,41 @@ export async function fetchOllamaModelCapabilities(
   };
 }
 
+interface LmStudioNativeModels {
+  capabilities: Map<string, DetectedModelCapabilities>;
+  /** ids whose `type` is "llm"/"vlm" and whose `arch` (when reported) isn't
+   * a known image-diffusion architecture. `null` means the native endpoint
+   * wasn't reachable at all (older LM Studio build, or this isn't actually
+   * LM Studio) — callers should treat that as "unknown, don't filter"
+   * rather than "nothing is chat-capable". A concrete Set excludes ids like
+   * "embeddings" models. Note this can't be fully reliable: LM Studio's own
+   * `type` field is wrong for some GGUF-packaged diffusion checkpoints (it
+   * reports "llm" for e.g. a RealVisXL SDXL checkpoint with no `arch` at
+   * all) — those still 400 with "Failed to load model" the instant a chat
+   * request reaches them, and no metadata field distinguishes them from a
+   * real text LLM ahead of time. */
+  chatCapableIds: Set<string> | null;
+}
+
+/** `arch` values LM Studio itself reports for known non-text-generation
+ * (image diffusion) model families — these still show up with `type: "llm"`
+ * since they're loadable GGUF files, but can never serve chat completions. */
+const NON_CHAT_ARCHES = new Set(["flux", "sdxl", "sd", "sd3", "stable-diffusion"]);
+
 /** LM Studio's native `/api/v0/models` (not the OpenAI-compatible `/v1/models`)
- * reports `type` ("llm"/"vlm"/"embeddings") and, on newer builds, a richer
- * `capabilities` object/array with vision, tool-use, and reasoning flags —
- * one request covers every loaded/downloaded model. */
+ * reports `type` ("llm"/"vlm"/"embeddings", and other non-chat types) and, on
+ * newer builds, a richer `capabilities` object/array with vision, tool-use,
+ * and reasoning flags — one request covers every loaded/downloaded model. */
 async function fetchLmStudioNativeModels(
   baseUrl: string,
   apiKey?: string | null,
-): Promise<Map<string, DetectedModelCapabilities>> {
+): Promise<LmStudioNativeModels> {
   const base = normalizeOpenAiCompatibleBaseUrl(baseUrl);
   const result = await safeFetchJson<{
     data?: Array<{
       id: string;
       type?: string;
+      arch?: string;
       capabilities?: string[] | { vision?: boolean; trained_for_tool_use?: boolean; reasoning?: unknown };
     }>;
   }>(
@@ -232,9 +254,10 @@ async function fetchLmStudioNativeModels(
     apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : undefined,
     3000,
   );
-  if (!result.ok || !result.data?.data) return new Map();
+  if (!result.ok || !result.data?.data) return { capabilities: new Map(), chatCapableIds: null };
 
-  const map = new Map<string, DetectedModelCapabilities>();
+  const capabilities = new Map<string, DetectedModelCapabilities>();
+  const chatCapableIds = new Set<string>();
   for (const model of result.data.data) {
     const caps = model.capabilities;
     const visionFromCaps = Array.isArray(caps)
@@ -244,21 +267,47 @@ async function fetchLmStudioNativeModels(
       ? caps.includes("tool_use")
       : Boolean(caps?.trained_for_tool_use);
     const reasoning = Array.isArray(caps) ? caps.includes("reasoning") : Boolean(caps?.reasoning);
-    map.set(model.id, {
+    capabilities.set(model.id, {
       visionInput: model.type === "vlm" || visionFromCaps,
       toolCalling,
       reasoning,
       imageOutput: false,
     });
+    const isChatType = !model.type || model.type === "llm" || model.type === "vlm";
+    const isKnownDiffusionArch = model.arch
+      ? NON_CHAT_ARCHES.has(model.arch.toLowerCase())
+      : false;
+    if (isChatType && !isKnownDiffusionArch) {
+      chatCapableIds.add(model.id);
+    }
   }
-  return map;
+  return { capabilities, chatCapableIds };
 }
 
 const OPENAI_COMPATIBLE_CAPABILITY_CACHE_TTL_MS = 15_000;
 const openAiCompatibleCapabilityCache = new Map<
   string,
-  { expires: number; value: Map<string, DetectedModelCapabilities> }
+  { expires: number; value: LmStudioNativeModels }
 >();
+
+/** Single cached fetch of LM Studio's native `/api/v0/models` per base URL,
+ * shared by fetchOpenAiCompatibleCapabilities and fetchChatCapableModelIds
+ * below so both don't each issue their own request. */
+async function fetchLmStudioNativeModelsCached(
+  baseUrl: string,
+  apiKey: string | null | undefined,
+): Promise<LmStudioNativeModels> {
+  const cacheKey = normalizeOpenAiCompatibleBaseUrl(baseUrl);
+  const cached = openAiCompatibleCapabilityCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.value;
+
+  const value = await fetchLmStudioNativeModels(baseUrl, apiKey);
+  openAiCompatibleCapabilityCache.set(cacheKey, {
+    expires: Date.now() + OPENAI_COMPATIBLE_CAPABILITY_CACHE_TTL_MS,
+    value,
+  });
+  return value;
+}
 
 /** Best-effort capability lookup for an OpenAI-compatible local runtime:
  * tries LM Studio's native endpoint first (single bulk request), then
@@ -271,26 +320,33 @@ export async function fetchOpenAiCompatibleCapabilities(
   apiKey: string | null | undefined,
   modelIds: string[],
 ): Promise<Map<string, DetectedModelCapabilities>> {
-  const cacheKey = normalizeOpenAiCompatibleBaseUrl(baseUrl);
-  const cached = openAiCompatibleCapabilityCache.get(cacheKey);
-  if (cached && cached.expires > Date.now()) return cached.value;
+  const native = await fetchLmStudioNativeModelsCached(baseUrl, apiKey);
+  if (native.capabilities.size > 0 || modelIds.length === 0) return native.capabilities;
 
-  let value = await fetchLmStudioNativeModels(baseUrl, apiKey);
-  if (value.size === 0 && modelIds.length > 0) {
-    const entries = await Promise.all(
-      modelIds.map(async (modelId) => {
-        const caps = await fetchOllamaModelCapabilities(baseUrl, modelId).catch(() => null);
-        return caps ? ([modelId, caps] as const) : null;
-      }),
-    );
-    value = new Map(entries.filter((e): e is [string, DetectedModelCapabilities] => e !== null));
-  }
+  const entries = await Promise.all(
+    modelIds.map(async (modelId) => {
+      const caps = await fetchOllamaModelCapabilities(baseUrl, modelId).catch(() => null);
+      return caps ? ([modelId, caps] as const) : null;
+    }),
+  );
+  return new Map(entries.filter((e): e is [string, DetectedModelCapabilities] => e !== null));
+}
 
-  openAiCompatibleCapabilityCache.set(cacheKey, {
-    expires: Date.now() + OPENAI_COMPATIBLE_CAPABILITY_CACHE_TTL_MS,
-    value,
-  });
-  return value;
+/** Filters a local OpenAI-compatible runtime's model ids down to ones that
+ * can actually serve `/v1/chat/completions` — see the `chatCapableIds` doc
+ * on LmStudioNativeModels. Returns `modelIds` unfiltered when the runtime
+ * doesn't expose LM Studio's native endpoint (nothing to filter against, so
+ * don't silently drop every model for e.g. vLLM/LocalAI/Ollama). */
+async function filterChatCapableModelIds(
+  baseUrl: string,
+  apiKey: string | null | undefined,
+  modelIds: string[],
+): Promise<string[]> {
+  const native = await fetchLmStudioNativeModelsCached(baseUrl, apiKey).catch(
+    () => ({ capabilities: new Map(), chatCapableIds: null }) as LmStudioNativeModels,
+  );
+  if (!native.chatCapableIds) return modelIds;
+  return modelIds.filter((id) => native.chatCapableIds?.has(id));
 }
 
 export async function detectOllamaModels(): Promise<DetectedLocalModel[]> {
@@ -384,13 +440,16 @@ export async function detectLmStudioModels(): Promise<DetectedLocalModel[]> {
   });
   if (!detected) return [];
 
-  const capsMap = await fetchOpenAiCompatibleCapabilities(
-    detected.baseUrl,
-    getLmStudioApiKey(),
-    detected.modelIds,
-  ).catch(() => new Map<string, DetectedModelCapabilities>());
+  const [capsMap, chatCapableModelIds] = await Promise.all([
+    fetchOpenAiCompatibleCapabilities(
+      detected.baseUrl,
+      getLmStudioApiKey(),
+      detected.modelIds,
+    ).catch(() => new Map<string, DetectedModelCapabilities>()),
+    filterChatCapableModelIds(detected.baseUrl, getLmStudioApiKey(), detected.modelIds),
+  ]);
 
-  return detected.modelIds.map((modelId) => ({
+  return chatCapableModelIds.map((modelId) => ({
     id: `${detected.providerKey}/${modelId}`,
     label: modelId,
     provider: detected.providerKey,
@@ -410,14 +469,15 @@ export async function detectOpenAiCompatibleModels(): Promise<DetectedLocalModel
     if (seenBaseUrls.has(result.baseUrl)) continue;
     seenBaseUrls.add(result.baseUrl);
 
-    const capsMap = await fetchOpenAiCompatibleCapabilities(
-      result.baseUrl,
-      probe.apiKey,
-      result.modelIds,
-    ).catch(() => new Map<string, DetectedModelCapabilities>());
+    const [capsMap, chatCapableModelIds] = await Promise.all([
+      fetchOpenAiCompatibleCapabilities(result.baseUrl, probe.apiKey, result.modelIds).catch(
+        () => new Map<string, DetectedModelCapabilities>(),
+      ),
+      filterChatCapableModelIds(result.baseUrl, probe.apiKey, result.modelIds),
+    ]);
 
     detected.push(
-      ...result.modelIds.map((modelId) => ({
+      ...chatCapableModelIds.map((modelId) => ({
         id: `${result.providerKey}/${modelId}`,
         label: modelId,
         provider: result.providerKey,
