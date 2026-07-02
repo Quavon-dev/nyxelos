@@ -197,7 +197,11 @@ export async function buildToolsForAgent(
 			chatScopedBuiltin ??
 			(await resolveSkillDefinition(agent.workspaceId, skillId));
 		if (!skill) continue;
-		tools[skill.id] = tool({
+		// Sanitized because this key doubles as the model-facing function name
+		// (see sanitizeToolNamePart) — file/plugin skill ids are safe already,
+		// but nothing here guarantees a leading letter/underscore.
+		const skillToolKey = sanitizeToolNamePart(skill.id).slice(0, 128);
+		tools[skillToolKey] = tool({
 			description: skill.description,
 			inputSchema: skill.inputSchema,
 			execute: async (input) => {
@@ -313,7 +317,11 @@ export async function buildToolsForAgent(
 	for (const toolId of agent.toolIds) {
 		const workspaceTool = await resolveToolDefinition(agent.workspaceId, toolId);
 		if (!workspaceTool) continue;
-		tools[workspaceTool.id] = tool({
+		// Sanitized because this key doubles as the model-facing function name
+		// (see sanitizeToolNamePart) — workspace tool ids are randomUUID() and
+		// can start with a digit, which Gemini's function-name regex rejects.
+		const workspaceToolKey = sanitizeToolNamePart(workspaceTool.id).slice(0, 128);
+		tools[workspaceToolKey] = tool({
 			description: workspaceTool.description,
 			inputSchema: workspaceTool.inputSchema,
 			execute: async (input) => {
