@@ -21,7 +21,12 @@ export const metadata: Metadata = {
     title: "Nyxel",
   },
   icons: {
-    icon: "/icons/icon-512.png",
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icons/icon.svg", type: "image/svg+xml" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    shortcut: "/favicon.ico",
     apple: "/icons/apple-touch-icon.png",
   },
 };
