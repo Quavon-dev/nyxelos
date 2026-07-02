@@ -2,6 +2,7 @@ import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { getDb, type PluginAgentDefinition, type PluginRecord } from "@nyxel/db";
 import { loadFileSkillBundle, parseSkillMarkdown, type SkillDefinition } from "@nyxel/skills-sdk";
+import { isRemotePluginInstallEnabled } from "./feature-flags";
 import { workspaceRootDir } from "./skills-registry";
 
 /**
@@ -214,6 +215,13 @@ export async function installPluginFromGithub(input: {
 	workspaceId: string;
 	repoUrl: string;
 }): Promise<InstallPluginResult> {
+	if (!isRemotePluginInstallEnabled()) {
+		throw new Error(
+			"Remote plugin installation is disabled on this server. Installed plugin code runs " +
+				"with the same access as the server process, unsigned and unvetted (see " +
+				"docs/PLUGIN_SECURITY.md) — set ENABLE_REMOTE_PLUGIN_INSTALL=true to opt in.",
+		);
+	}
 	const parsed = parseGithubRepoUrl(input.repoUrl);
 	if (!parsed) {
 		throw new Error(

@@ -17,7 +17,15 @@ services:
       NYXEL_MODE: pc
       DB_DRIVER: sqlite
       DATABASE_URL: /data/nyxel.sqlite
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-me}
+      # Used to silently fall back to the well-known public value
+      # "dev-secret-change-me" here — every session cookie on an instance
+      # started that way was forgeable by anyone who'd read this file. Now
+      # fails loud instead, matching docker-compose.server.yml's existing
+      # pattern. Run `cp .env.example .env` and set a real value (openssl
+      # rand -base64 32) before `docker compose -f docker-compose.pc.yml up`
+      # — see docs/DEPLOYMENT_HARDENING.md.
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+      NYXEL_ENCRYPTION_KEY: ${NYXEL_ENCRYPTION_KEY:?set NYXEL_ENCRYPTION_KEY in .env}
       BETTER_AUTH_URL: http://localhost:3001
       WEB_ORIGIN: http://localhost:3000
       PUBLIC_APP_URL: http://localhost:3000

@@ -2,6 +2,7 @@ import path from "node:path";
 import type { ToolRecord } from "@nyxel/db";
 import { createSkillContext, type SkillDefinition } from "@nyxel/skills-sdk";
 import { z } from "zod";
+import { isCustomCodeSkillsEnabled } from "./feature-flags";
 import { listKnowledgeBaseDocuments } from "./knowledge-base";
 import { buildGenerateSpeechTool, buildTranscribeAudioTool } from "./tools-builtin/audio";
 import {
@@ -200,6 +201,13 @@ export function buildDynamicToolDefinition(
 				inputSchema: z.record(z.string(), z.unknown()).default({}),
 				permissions: { network: allowedHosts, filesystem: allowedDirs },
 				async run(input) {
+					if (!isCustomCodeSkillsEnabled()) {
+						throw new Error(
+							"Custom-code skills are disabled on this server. This tool kind runs " +
+								"arbitrary code in the main server process via `new Function` — set " +
+								"ENABLE_CUSTOM_CODE_SKILLS=true to opt in (dev only; not recommended in production).",
+						);
+					}
 					const ctx = createSkillContext({
 						network: allowedHosts,
 						filesystem: allowedDirs,

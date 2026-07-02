@@ -68,14 +68,16 @@ Prefer to build from this checkout instead of using the published images? Same c
 
 **🖥️ PC Mode (Testing/Home Server):**
 ```bash
-cp .env.example .env   # Secure your app with BETTER_AUTH_SECRET
+cp .env.example .env   # then set BETTER_AUTH_SECRET and NYXEL_ENCRYPTION_KEY —
+                        # openssl rand -base64 32 for each (two different values)
 docker compose -f docker-compose.pc.yml up --build
 ```
-Access at `http://localhost:3000`.
+Both compose files refuse to start without real values for these — see [`docs/DEPLOYMENT_HARDENING.md`](docs/DEPLOYMENT_HARDENING.md). Access at `http://localhost:3000`.
 
 **🌐 Server Mode (Production/Uptime):**
 ```bash
-cp .env.example .env   # Set NYXEL_DOMAIN, POSTGRES_PASSWORD, etc.
+cp .env.example .env   # Set NYXEL_DOMAIN, POSTGRES_PASSWORD, BETTER_AUTH_SECRET,
+                        # NYXEL_ENCRYPTION_KEY, etc.
 docker compose -f docker-compose.server.yml up --build -d
 ```
 Access at `https://NYXEL_DOMAIN`. Caddy handles TLS certificates, health checks (`/healthz`), and routing.

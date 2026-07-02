@@ -26,6 +26,7 @@ services:
       DB_DRIVER: pg
       DATABASE_URL: postgres://nyxel:${POSTGRES_PASSWORD}@postgres:5432/nyxel
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+      NYXEL_ENCRYPTION_KEY: ${NYXEL_ENCRYPTION_KEY:?set NYXEL_ENCRYPTION_KEY in .env}
       BETTER_AUTH_URL: https://${NYXEL_DOMAIN}
       WEB_ORIGIN: https://${NYXEL_DOMAIN}
       PUBLIC_APP_URL: https://${NYXEL_DOMAIN}

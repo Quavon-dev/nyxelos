@@ -1,7 +1,20 @@
 import { trpcServer } from "@hono/trpc-server";
 import { migrateDatabase } from "@nyxel/db/migrate";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
+import { validateEnv } from "./env";
+
+// Single documented entry point listing every secret env var this server
+// requires in production, reporting every problem at once rather than
+// stopping at the first bad one. auth.ts and @nyxel/db's crypto.ts each also
+// self-validate their own secret on import (defense in depth for anything
+// that imports them directly, e.g. a script or test) — ESM import
+// evaluation order means one of those may throw first in the normal boot
+// path, which is fine, this call is what guarantees the full picture is
+// checked either way.
+validateEnv();
+
 import { allowedWebOrigins, auth } from "./auth";
 import { startKnowledgeBaseSyncLoop } from "./knowledge-base";
 import { rateLimitMiddleware } from "./rate-limit";
@@ -34,24 +47,35 @@ app.use(
   }),
 );
 
+// Backstop against unbounded memory buffering before any per-route size
+// check runs (SECURITY_AUDIT.md SEC-04) — sized above the library upload's
+// own 50MB-per-file check (routes/library.ts), which still applies on top
+// of this. /trpc/* gets a much tighter ceiling right below: JSON tool/skill
+// config payloads have no legitimate reason to be tens of MB.
+app.use("*", bodyLimit({ maxSize: 60 * 1024 * 1024 }));
+
 // Auth endpoints are the brute-force/credential-stuffing surface — tighter
 // budget than general API traffic.
-app.use(
-  "/api/auth/*",
-  rateLimitMiddleware({ windowMs: 60_000, max: 20, keyPrefix: "auth" }),
-);
+app.use("/api/auth/*", rateLimitMiddleware({ windowMs: 60_000, max: 20, keyPrefix: "auth" }));
 app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
-app.use(
-  "/trpc/*",
-  rateLimitMiddleware({ windowMs: 60_000, max: 300, keyPrefix: "trpc" }),
-);
+app.use("/trpc/*", bodyLimit({ maxSize: 2 * 1024 * 1024 }));
+app.use("/trpc/*", rateLimitMiddleware({ windowMs: 60_000, max: 300, keyPrefix: "trpc" }));
 app.use(
   "/trpc/*",
   trpcServer({
     router: appRouter,
     createContext,
   }),
+);
+
+// Session-authed but previously unrated (SECURITY_AUDIT.md SEC-05) — heavier
+// per-request cost than a JSON tRPC call (file bytes, stream open), so a
+// lower budget than /trpc/*'s general allowance.
+app.use("/api/library/*", rateLimitMiddleware({ windowMs: 60_000, max: 60, keyPrefix: "library" }));
+app.use(
+  "/api/chat/stream",
+  rateLimitMiddleware({ windowMs: 60_000, max: 30, keyPrefix: "chat-stream" }),
 );
 
 registerChatStreamRoute(app);
