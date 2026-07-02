@@ -411,6 +411,56 @@ export type InstallPluginResult = {
 	skippedFiles: string[];
 };
 
+/** A folder in the workspace's document/image library. `parentId` null
+ * means "at the library root". See apps/server/src/library.ts. */
+export type LibraryFolderSummary = {
+	id: string;
+	workspaceId: string;
+	parentId: string | null;
+	name: string;
+	createdAt: Date;
+};
+
+export type LibraryItemKind = "image" | "document" | "other";
+
+/** Metadata for one uploaded library file — the bytes live on disk, fetched
+ * through libraryFileUrl()/libraryDownloadUrl() below, not through tRPC. */
+export type LibraryFileSummary = {
+	id: string;
+	workspaceId: string;
+	folderId: string | null;
+	name: string;
+	mimeType: string;
+	sizeBytes: number;
+	kind: LibraryItemKind;
+	storageKey: string;
+	createdAt: Date;
+	updatedAt: Date;
+};
+
+export type LibraryListing = {
+	folders: LibraryFolderSummary[];
+	files: LibraryFileSummary[];
+};
+
+/** Inline preview URL (renders in an <img>/<iframe> when the browser
+ * supports the mime type) for a library file — see GET
+ * /api/library/files/:id/content in apps/server/src/routes/library.ts. */
+export function libraryFileUrl(id: string): string {
+	return `${SERVER_URL}/api/library/files/${id}/content`;
+}
+
+/** Forces a "Save As" download instead of an inline render. */
+export function libraryDownloadUrl(id: string): string {
+	return `${SERVER_URL}/api/library/files/${id}/content?download=1`;
+}
+
+/** POST target for multipart uploads (see registerLibraryRoutes in
+ * apps/server/src/routes/library.ts) — a plain fetch, not a tRPC mutation. */
+export function libraryUploadUrl(): string {
+	return `${SERVER_URL}/api/library/upload`;
+}
+
 export type AutomationTriggerType = "cron" | "file_watch";
 export type AutomationRunStatus = "success" | "error" | "pending_approval";
 
@@ -874,6 +924,36 @@ type NyxelTrpcClient = {
 			mutate(input: { id: string; enabled: boolean }): Promise<PluginSummary>;
 		};
 		uninstall: {
+			mutate(input: { id: string }): Promise<{ ok: boolean }>;
+		};
+	};
+	library: {
+		list: {
+			query(input: { workspaceId: string }): Promise<LibraryListing>;
+		};
+		createFolder: {
+			mutate(input: {
+				workspaceId: string;
+				parentId: string | null;
+				name: string;
+			}): Promise<LibraryFolderSummary>;
+		};
+		renameFolder: {
+			mutate(input: { id: string; name: string }): Promise<LibraryFolderSummary>;
+		};
+		moveFolder: {
+			mutate(input: { id: string; parentId: string | null }): Promise<LibraryFolderSummary>;
+		};
+		deleteFolder: {
+			mutate(input: { id: string }): Promise<{ ok: boolean }>;
+		};
+		renameFile: {
+			mutate(input: { id: string; name: string }): Promise<LibraryFileSummary>;
+		};
+		moveFile: {
+			mutate(input: { id: string; folderId: string | null }): Promise<LibraryFileSummary>;
+		};
+		deleteFile: {
 			mutate(input: { id: string }): Promise<{ ok: boolean }>;
 		};
 	};

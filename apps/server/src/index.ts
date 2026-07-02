@@ -5,6 +5,7 @@ import { cors } from "hono/cors";
 import { allowedWebOrigins, auth } from "./auth";
 import { startKnowledgeBaseSyncLoop } from "./knowledge-base";
 import { registerChatStreamRoute } from "./routes/chat-stream";
+import { registerLibraryRoutes } from "./routes/library";
 import { startScheduler } from "./scheduler";
 import { seedBuiltinToolsForAllWorkspaces } from "./tools-builtin-seed";
 import { createContext } from "./trpc/context";
@@ -40,6 +41,7 @@ app.use(
 );
 
 registerChatStreamRoute(app);
+registerLibraryRoutes(app);
 startScheduler();
 startKnowledgeBaseSyncLoop();
 

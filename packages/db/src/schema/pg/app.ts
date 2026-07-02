@@ -145,6 +145,16 @@ export const automationTriggerType = pgEnum("automation_trigger_type", [
 	"file_watch",
 ]);
 
+/** Broad classification of an uploaded library file, derived from its mime
+ * type at upload time — drives which icon/preview the Library page shows,
+ * and lets the "Images" / "Documents" filter chips work without parsing
+ * mime types on the client. */
+export const libraryItemKind = pgEnum("library_item_kind", [
+	"image",
+	"document",
+	"other",
+]);
+
 export const automationRunStatus = pgEnum("automation_run_status", [
 	"success",
 	"error",
@@ -764,6 +774,44 @@ export const seoBlogPost = pgTable("seo_blog_post", {
 	status: seoBlogPostStatus("status").notNull().default("suggested"),
 	taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
 	errorMessage: text("error_message"),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** A folder in the workspace's document/image library — purely an
+ * organizational grouping, not tied to disk paths directly (see
+ * libraryFile.storageKey for where bytes actually live). `parentId` is a
+ * plain column with no FK constraint (same pattern as task.parentTaskId)
+ * since Drizzle pg-core self-references need an awkward callback form;
+ * cascading delete of subfolders/files is handled in
+ * apps/server/src/library.ts instead of at the DB level. */
+export const libraryFolder = pgTable("library_folder", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	parentId: text("parent_id"),
+	name: text("name").notNull(),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/** Metadata for one uploaded file in the library — the actual bytes live on
+ * disk under LIBRARY_ROOT/<workspaceId>/<id>-<name> (see
+ * apps/server/src/library.ts), this row is what the UI lists, renames,
+ * moves, and deletes against. `folderId` null means "at the library root". */
+export const libraryFile = pgTable("library_file", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	folderId: text("folder_id").references(() => libraryFolder.id, {
+		onDelete: "set null",
+	}),
+	name: text("name").notNull(),
+	mimeType: text("mime_type").notNull(),
+	sizeBytes: integer("size_bytes").notNull(),
+	kind: libraryItemKind("kind").notNull().default("other"),
+	storageKey: text("storage_key").notNull(),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
