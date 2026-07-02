@@ -57,6 +57,10 @@ const ANTHROPIC_THINKING_BUDGET_TOKENS: Record<ReasoningEffort, number> = {
  * runs room to actually finish. */
 const DEFAULT_MAX_TOOL_STEPS = 12;
 
+/** Applied whenever a caller doesn't set `maxOutputTokens` explicitly — see
+ * the field doc on StreamChatInput. */
+const DEFAULT_MAX_OUTPUT_TOKENS = 8_192;
+
 export interface StreamChatInput {
   modelId: string;
   messages: ChatMessageInput[];
@@ -93,6 +97,12 @@ export interface StreamChatInput {
   /** Caps the agentic tool loop (model → tool → model …) for this call.
    * Defaults to DEFAULT_MAX_TOOL_STEPS; only meaningful when tools are set. */
   maxToolSteps?: number;
+  /** Caps generated output tokens for this call. Defaults to
+   * DEFAULT_MAX_OUTPUT_TOKENS — without an explicit cap, some providers
+   * (OpenRouter in particular) size the request against the model's full
+   * context window, which can demand far more prepaid credits than a
+   * normal reply needs and 402s accounts that can't cover it. */
+  maxOutputTokens?: number;
 }
 
 const INLINE_SYSTEM_PROMPT_MODEL_PREFIXES = new Set([
@@ -203,6 +213,7 @@ export function streamChat({
   abortSignal,
   reasoningEffort,
   maxToolSteps,
+  maxOutputTokens,
 }: StreamChatInput): ChatStreamResult {
   const resolvedInstalledProviders = installedProviders ?? [];
 
@@ -253,6 +264,7 @@ export function streamChat({
     messages: preparedMessages,
     tools,
     abortSignal,
+    maxOutputTokens: maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
     ...(providerOptions ? { providerOptions } : {}),
     // Without this, streamText stops right after a tool call instead of
     // continuing on to produce a final answer from the tool's result.
