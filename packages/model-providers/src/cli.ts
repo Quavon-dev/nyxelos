@@ -11,7 +11,12 @@ export type ChatStreamPart =
 	| { type: "reasoning-delta"; text: string }
 	| { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }
 	| { type: "tool-result"; toolCallId: string; toolName: string; output: unknown }
-	| { type: "tool-error"; toolCallId: string; toolName: string; error: unknown };
+	| { type: "tool-error"; toolCallId: string; toolName: string; error: unknown }
+	/** Only emitted by the AI-SDK-backed streamText() path (see stream.ts) —
+	 * a mid-stream provider failure (rate limit, insufficient credits, etc.)
+	 * surfaces as this part instead of a thrown exception. CLI-spawned
+	 * providers (claude_cli/codex_cli) never produce it. */
+	| { type: "error"; error: unknown };
 
 export interface ChatStreamResult {
 	fullStream: AsyncIterable<ChatStreamPart>;

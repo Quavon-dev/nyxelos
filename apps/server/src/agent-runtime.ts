@@ -240,6 +240,15 @@ async function streamWithLiveUpdates(
           ),
         });
         break;
+      case "error":
+        // A mid-stream provider failure (rate limit, insufficient credits,
+        // etc.) arrives as this part rather than a thrown exception —
+        // without rethrowing, the loop would finish "normally" with
+        // whatever partial text it had (often none), and the task would be
+        // marked completed instead of failed with the real reason. Callers
+        // of executeManagedTask already catch thrown errors and record them
+        // as task.errorMessage.
+        throw part.error;
       default:
         break;
     }

@@ -326,6 +326,17 @@ export function registerChatStreamRoute(app: Hono) {
                 });
                 break;
               }
+              case "error":
+                // The AI SDK reports a mid-stream provider failure (rate
+                // limit, insufficient credits, etc.) as an "error" stream
+                // part rather than throwing — without this case it fell
+                // into the silent default branch below, so the concrete
+                // provider message (e.g. OpenRouter's 402 "requires more
+                // credits") never reached the client, only this process's
+                // console via onError. Throwing here routes it through the
+                // same catch block that already turns a thrown error's
+                // message into a visible assistant reply.
+                throw part.error;
               default:
                 break;
             }
