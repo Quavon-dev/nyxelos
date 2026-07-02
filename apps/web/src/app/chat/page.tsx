@@ -4,20 +4,20 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowUp, Code2, FileText, Palette, Search } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type DragEvent, Suspense, useEffect, useState } from "react";
+import { filesFromClipboard, useAttachmentStaging } from "@/components/chat/attachment-utils";
 import {
-  AttachmentPreviewCard,
   type AttachedFile,
+  AttachmentPreviewCard,
   ChatComposerToolbar,
   type ChatToolSelection,
 } from "@/components/chat/chat-composer-toolbar";
-import { filesFromClipboard, useAttachmentStaging } from "@/components/chat/attachment-utils";
 import { ChatTopBar } from "@/components/chat/chat-top-bar";
 import { WorkingDirectoryPicker } from "@/components/chat/working-directory-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { serializeChatMessageContent } from "@/lib/chat-message";
 import { type ChatToolMode, trpcClient } from "@/lib/trpc";
-import { cn } from "@/lib/utils";
 import { useInstallation } from "@/lib/use-installation";
+import { cn } from "@/lib/utils";
 
 const QUICK_ACTIONS = [
   { label: "Summary", icon: FileText, prompt: "Summarize " },
@@ -235,9 +235,7 @@ function ChatLandingPageContent() {
                   <AttachmentPreviewCard
                     key={file.id}
                     file={file}
-                    onRemove={() =>
-                      setAttachedFiles(attachedFiles.filter((f) => f.id !== file.id))
-                    }
+                    onRemove={() => setAttachedFiles(attachedFiles.filter((f) => f.id !== file.id))}
                     onBroken={() =>
                       setAttachedFiles(
                         attachedFiles.map((f) => (f.id === file.id ? { ...f, broken: true } : f)),
@@ -285,10 +283,8 @@ function ChatLandingPageContent() {
                   attachedFiles={attachedFiles}
                   onAttachedFilesChange={setAttachedFiles}
                   onVoiceResult={(text) => {
-                    const combined = message ? `${message} ${text}` : text;
-                    setMessage(combined);
-                    if (!modelId || createChat.isPending) return;
-                    createChat.mutate({ text: combined, files: attachedFiles });
+                    // Insert for review — dictation shouldn't skip the send button.
+                    setMessage((current) => (current ? `${current} ${text}` : text));
                   }}
                   showContextWindow={false}
                 />
@@ -296,7 +292,9 @@ function ChatLandingPageContent() {
               <button
                 type="submit"
                 disabled={
-                  (!message.trim() && attachedFiles.length === 0) || !modelId || createChat.isPending
+                  (!message.trim() && attachedFiles.length === 0) ||
+                  !modelId ||
+                  createChat.isPending
                 }
                 className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
               >

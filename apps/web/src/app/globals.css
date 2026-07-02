@@ -134,6 +134,120 @@
   }
 }
 
+/* Syntax highlighting (highlight.js) — a compact theme mapped onto the app's
+   design tokens plus a small fixed accent set, tuned for both light and dark
+   backgrounds since code blocks sit on a translucent foreground tint. */
+.hljs {
+  color: var(--foreground);
+}
+.hljs-comment,
+.hljs-quote,
+.hljs-meta {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-built_in,
+.hljs-type {
+  color: oklch(0.62 0.22 300);
+}
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-literal,
+.dark .hljs-doctag,
+.dark .hljs-built_in,
+.dark .hljs-type {
+  color: oklch(0.78 0.16 305);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute {
+  color: oklch(0.55 0.14 145);
+}
+.dark .hljs-string,
+.dark .hljs-regexp,
+.dark .hljs-addition,
+.dark .hljs-attribute {
+  color: oklch(0.8 0.15 135);
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link,
+.hljs-variable,
+.hljs-template-variable {
+  color: oklch(0.6 0.15 60);
+}
+.dark .hljs-number,
+.dark .hljs-symbol,
+.dark .hljs-bullet,
+.dark .hljs-link,
+.dark .hljs-variable,
+.dark .hljs-template-variable {
+  color: oklch(0.8 0.13 70);
+}
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.function_,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: oklch(0.55 0.16 250);
+}
+.dark .hljs-title,
+.dark .hljs-title.class_,
+.dark .hljs-title.function_,
+.dark .hljs-section,
+.dark .hljs-name,
+.dark .hljs-selector-id,
+.dark .hljs-selector-class {
+  color: oklch(0.78 0.12 235);
+}
+.hljs-deletion {
+  color: var(--destructive);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}
+
+/* KaTeX display math can overflow narrow chat bubbles — scroll, don't clip. */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25rem 0;
+}
+
+/* Shimmer for the live "Denkt nach…" reasoning header. */
+@keyframes thinking-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+.thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--muted-foreground) 0%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-shimmer 2s linear infinite;
+}
+
 @keyframes orb-spin {
   from {
     transform: rotate(0deg) scale(1);

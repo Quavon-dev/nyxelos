@@ -4,16 +4,16 @@ import { streamChat } from "@nyxel/model-providers";
 import { getKnowledgeBaseContextForPrompt } from "./knowledge-base";
 import { getInstalledProvidersForWorkspace } from "./models";
 import { notifyWorkspaceOwner } from "./push";
-import { buildToolsForAgent, type AgentRunContext } from "./tools";
+import { buildToolsForAgent } from "./tools";
 import { composeSystemPrompt } from "./workspace-prompt";
 
 export interface ExecutionPlan {
-	goal: string;
-	successCriteria: string[];
-	steps: string[];
-	neededCapabilities: string[];
-	delegationCandidates: string[];
-	completionCheck: string;
+  goal: string;
+  successCriteria: string[];
+  steps: string[];
+  neededCapabilities: string[];
+  delegationCandidates: string[];
+  completionCheck: string;
 }
 
 /** In-memory registry of the abort controller backing each live run —
@@ -25,494 +25,540 @@ const activeRunControllers = new Map<string, AbortController>();
  * abort itself if the run isn't live in this process) and always marks the
  * run/task cancelled in the DB so the UI reflects it immediately. */
 export async function cancelAgentRun(runId: string): Promise<AgentRunRecord> {
-	activeRunControllers.get(runId)?.abort();
+  activeRunControllers.get(runId)?.abort();
 
-	const db = getDb();
-	const run = await db.getAgentRun(runId);
-	if (!run) throw new Error(`Unknown agent run: ${runId}`);
+  const db = getDb();
+  const run = await db.getAgentRun(runId);
+  if (!run) throw new Error(`Unknown agent run: ${runId}`);
 
-	const updated = await db.updateAgentRun(runId, {
-		status: "cancelled",
-		completedAt: new Date(),
-	});
-	if (run.taskId) {
-		const task = await db.getTask(run.taskId);
-		if (task && task.status !== "completed" && task.status !== "cancelled") {
-			await db.updateTask(run.taskId, {
-				status: "cancelled",
-				completedAt: new Date(),
-			});
-			await db.createTaskEvent({
-				taskId: run.taskId,
-				workspaceId: run.workspaceId,
-				agentRunId: run.id,
-				agentId: run.agentId,
-				kind: "status_changed",
-				message: "Run cancelled by user.",
-				payload: { status: "cancelled" },
-			});
-		}
-	}
-	return updated;
+  const updated = await db.updateAgentRun(runId, {
+    status: "cancelled",
+    completedAt: new Date(),
+  });
+  if (run.taskId) {
+    const task = await db.getTask(run.taskId);
+    if (task && task.status !== "completed" && task.status !== "cancelled") {
+      await db.updateTask(run.taskId, {
+        status: "cancelled",
+        completedAt: new Date(),
+      });
+      await db.createTaskEvent({
+        taskId: run.taskId,
+        workspaceId: run.workspaceId,
+        agentRunId: run.id,
+        agentId: run.agentId,
+        kind: "status_changed",
+        message: "Run cancelled by user.",
+        payload: { status: "cancelled" },
+      });
+    }
+  }
+  return updated;
 }
 
 function extractJsonObject(text: string): Record<string, unknown> | null {
-	const fenced = text.match(/```json\s*([\s\S]*?)```/i);
-	const candidate = fenced?.[1] ?? text;
-	try {
-		return JSON.parse(candidate) as Record<string, unknown>;
-	} catch {
-		const firstBrace = candidate.indexOf("{");
-		const lastBrace = candidate.lastIndexOf("}");
-		if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-			return null;
-		}
-		try {
-			return JSON.parse(candidate.slice(firstBrace, lastBrace + 1)) as Record<
-				string,
-				unknown
-			>;
-		} catch {
-			return null;
-		}
-	}
+  const fenced = text.match(/```json\s*([\s\S]*?)```/i);
+  const candidate = fenced?.[1] ?? text;
+  try {
+    return JSON.parse(candidate) as Record<string, unknown>;
+  } catch {
+    const firstBrace = candidate.indexOf("{");
+    const lastBrace = candidate.lastIndexOf("}");
+    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+      return null;
+    }
+    try {
+      return JSON.parse(candidate.slice(firstBrace, lastBrace + 1)) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
 }
 
 function toExecutionPlan(task: TaskRecord, raw: string): ExecutionPlan {
-	const parsed = extractJsonObject(raw);
-	const stringArray = (value: unknown, fallback: string[]) =>
-		Array.isArray(value)
-			? value.filter((entry): entry is string => typeof entry === "string")
-			: fallback;
-	return {
-		goal:
-			typeof parsed?.goal === "string" ? parsed.goal : `${task.title}: ${task.instruction}`,
-		successCriteria: stringArray(parsed?.successCriteria, [
-			"Return a concrete result for the requested task.",
-		]),
-		steps: stringArray(parsed?.steps, [task.instruction]),
-		neededCapabilities: stringArray(parsed?.neededCapabilities, []),
-		delegationCandidates: stringArray(parsed?.delegationCandidates, []),
-		completionCheck:
-			typeof parsed?.completionCheck === "string"
-				? parsed.completionCheck
-				: "Verify the final result addresses the task instruction directly.",
-	};
+  const parsed = extractJsonObject(raw);
+  const stringArray = (value: unknown, fallback: string[]) =>
+    Array.isArray(value)
+      ? value.filter((entry): entry is string => typeof entry === "string")
+      : fallback;
+  return {
+    goal: typeof parsed?.goal === "string" ? parsed.goal : `${task.title}: ${task.instruction}`,
+    successCriteria: stringArray(parsed?.successCriteria, [
+      "Return a concrete result for the requested task.",
+    ]),
+    steps: stringArray(parsed?.steps, [task.instruction]),
+    neededCapabilities: stringArray(parsed?.neededCapabilities, []),
+    delegationCandidates: stringArray(parsed?.delegationCandidates, []),
+    completionCheck:
+      typeof parsed?.completionCheck === "string"
+        ? parsed.completionCheck
+        : "Verify the final result addresses the task instruction directly.",
+  };
 }
 
 const TASK_QUESTION_POLICY_PROMPT =
-	"You are running as a durable, mostly-unattended task. Only call ask_user_question when you are genuinely blocked by a critical, urgent gap — something destructive/irreversible, a missing credential, or directly conflicting instructions. For any ordinary ambiguity, decide yourself: pick the most reasonable interpretation, state the assumption plainly in your final answer, and keep working instead of stopping to ask.";
+  "You are running as a durable, mostly-unattended task. Only call ask_user_question when you are genuinely blocked by a critical, urgent gap — something destructive/irreversible, a missing credential, or directly conflicting instructions. For any ordinary ambiguity, decide yourself: pick the most reasonable interpretation, state the assumption plainly in your final answer, and keep working instead of stopping to ask.";
 
 async function buildSystemPrompt(agent: AgentRecord, forTask = false) {
-	const db = getDb();
-	const [workspace, knowledgeBaseContext] = await Promise.all([
-		db.getWorkspace(agent.workspaceId),
-		getKnowledgeBaseContextForPrompt(agent.workspaceId),
-	]);
-	return composeSystemPrompt(
-		workspace,
-		agent.systemPrompt,
-		knowledgeBaseContext,
-		forTask ? TASK_QUESTION_POLICY_PROMPT : undefined,
-	);
+  const db = getDb();
+  const [workspace, knowledgeBaseContext] = await Promise.all([
+    db.getWorkspace(agent.workspaceId),
+    getKnowledgeBaseContextForPrompt(agent.workspaceId),
+  ]);
+  return composeSystemPrompt(
+    workspace,
+    agent.systemPrompt,
+    knowledgeBaseContext,
+    forTask ? TASK_QUESTION_POLICY_PROMPT : undefined,
+  );
 }
 
 /** The model actually used for a task run — a task-level override takes
  * precedence over the assigned agent's default, so the same agent can run
  * different tasks against different models. */
 function effectiveModelId(agent: AgentRecord, task: TaskRecord): string {
-	return task.modelId ?? agent.modelId;
+  return task.modelId ?? agent.modelId;
 }
 
 async function planTask(
-	agent: AgentRecord,
-	task: TaskRecord,
-	instructionOverride?: string,
-	abortSignal?: AbortSignal,
+  agent: AgentRecord,
+  task: TaskRecord,
+  instructionOverride?: string,
+  abortSignal?: AbortSignal,
 ): Promise<ExecutionPlan> {
-	const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
-	const systemPrompt = await buildSystemPrompt(agent, true);
-	const planningPrompt = [
-		"Create a compact JSON execution plan for this task.",
-		"Return JSON only with keys: goal, successCriteria, steps, neededCapabilities, delegationCandidates, completionCheck.",
-		`Task title: ${task.title}`,
-		`Task instruction: ${buildTaskPrompt(task, instructionOverride)}`,
-		agent.delegateAgentIds.length > 0
-			? `Delegate candidates available: ${agent.delegateAgentIds.join(", ")}`
-			: "Delegate candidates available: none",
-	].join("\n");
-	const result = streamChat({
-		modelId: effectiveModelId(agent, task),
-		systemPrompt,
-		installedProviders,
-		messages: [{ role: "user", content: planningPrompt }],
-		abortSignal,
-	});
-	const raw = await result.text;
+  const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
+  const systemPrompt = await buildSystemPrompt(agent, true);
+  const planningPrompt = [
+    "Create a compact JSON execution plan for this task.",
+    "Return JSON only with keys: goal, successCriteria, steps, neededCapabilities, delegationCandidates, completionCheck.",
+    `Task title: ${task.title}`,
+    `Task instruction: ${buildTaskPrompt(task, instructionOverride)}`,
+    agent.delegateAgentIds.length > 0
+      ? `Delegate candidates available: ${agent.delegateAgentIds.join(", ")}`
+      : "Delegate candidates available: none",
+  ].join("\n");
+  const result = streamChat({
+    modelId: effectiveModelId(agent, task),
+    systemPrompt,
+    installedProviders,
+    messages: [{ role: "user", content: planningPrompt }],
+    abortSignal,
+  });
+  const raw = await result.text;
   return toExecutionPlan(task, raw);
 }
 
 function buildTaskPrompt(task: TaskRecord, instructionOverride?: string): string {
-	const base = task.instruction.trim();
-	const override = instructionOverride?.trim();
-	if (!override) return base;
-	return [
-		"Original task:",
-		base,
-		"",
-		"Follow-up instruction:",
-		override,
-	].join("\n");
+  const base = task.instruction.trim();
+  const override = instructionOverride?.trim();
+  if (!override) return base;
+  return ["Original task:", base, "", "Follow-up instruction:", override].join("\n");
+}
+
+/** Tool inputs/outputs can be arbitrarily large (whole file contents) — the
+ * task-event timeline only needs enough to identify the call, not replay it. */
+function truncateForEventPayload(value: unknown, limit = 2_000): string {
+  let serialized: string;
+  try {
+    serialized = typeof value === "string" ? value : JSON.stringify(value);
+  } catch {
+    serialized = String(value);
+  }
+  return serialized.length > limit ? `${serialized.slice(0, limit)}…` : serialized;
 }
 
 /** Streams a chat completion while progressively persisting the growing
  * output onto the given agent run — so a task's "Agent runs" panel (which
  * just polls the row) shows the answer taking shape live instead of only
  * appearing once the whole run finishes. Throttled to avoid hammering the
- * DB on every token. Cancellation is the caller's concern: pass `abortSignal`
+ * DB on every token. Consumes `fullStream` rather than `textStream` so a
+ * background run's tool calls land on the task-event timeline as
+ * `tool_called` entries instead of vanishing (only chat streaming used to
+ * surface them). Cancellation is the caller's concern: pass `abortSignal`
  * on `input` and it's forwarded to the model call as-is — this function
  * doesn't own a controller, so it stays consistent with the single
  * per-run controller `executeManagedTask` registers in
  * `activeRunControllers`. */
 async function streamWithLiveUpdates(
-	input: Parameters<typeof streamChat>[0],
-	runId: string,
-): Promise<string> {
-	const db = getDb();
-	const result = streamChat(input);
-	let acc = "";
-	let lastFlush = 0;
-	const FLUSH_INTERVAL_MS = 400;
-	for await (const delta of result.textStream) {
-		acc += delta;
-		const now = Date.now();
-		if (now - lastFlush >= FLUSH_INTERVAL_MS) {
-			lastFlush = now;
-			await db.updateAgentRun(runId, { finalOutput: acc }).catch(() => {});
-		}
-	}
-	return acc;
+  input: Parameters<typeof streamChat>[0],
+  runId: string,
+  eventContext?: { taskId: string; workspaceId: string; agentId: string },
+): Promise<{ text: string; toolStepCount: number }> {
+  const db = getDb();
+  const result = streamChat(input);
+  let acc = "";
+  let toolStepCount = 0;
+  let lastFlush = 0;
+  const FLUSH_INTERVAL_MS = 400;
+
+  async function recordToolEvent(
+    kind: "tool_called" | "failed",
+    message: string,
+    payload: Record<string, unknown>,
+  ) {
+    if (!eventContext) return;
+    await db
+      .createTaskEvent({
+        taskId: eventContext.taskId,
+        workspaceId: eventContext.workspaceId,
+        agentRunId: runId,
+        agentId: eventContext.agentId,
+        kind,
+        message,
+        payload,
+      })
+      .catch(() => {});
+  }
+
+  for await (const part of result.fullStream) {
+    switch (part.type) {
+      case "text-delta": {
+        acc += part.text;
+        const now = Date.now();
+        if (now - lastFlush >= FLUSH_INTERVAL_MS) {
+          lastFlush = now;
+          await db.updateAgentRun(runId, { finalOutput: acc }).catch(() => {});
+        }
+        break;
+      }
+      case "tool-call":
+        toolStepCount++;
+        await recordToolEvent("tool_called", `Tool ${part.toolName} aufgerufen.`, {
+          toolName: part.toolName,
+          toolCallId: part.toolCallId,
+          input: truncateForEventPayload(part.input),
+        });
+        break;
+      case "tool-error":
+        await recordToolEvent("failed", `Tool ${part.toolName} fehlgeschlagen.`, {
+          toolName: part.toolName,
+          toolCallId: part.toolCallId,
+          error: truncateForEventPayload(
+            part.error instanceof Error ? part.error.message : part.error,
+          ),
+        });
+        break;
+      default:
+        break;
+    }
+  }
+  return { text: acc, toolStepCount };
 }
 
 async function runDirectExecution(
-	agent: AgentRecord,
-	task: TaskRecord,
-	run: AgentRunRecord,
-	instructionOverride?: string,
-	abortSignal?: AbortSignal,
-): Promise<string> {
-	const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
-	const systemPrompt = await buildSystemPrompt(agent, true);
-	const tools = await buildToolsForAgent(agent, {
-		taskId: task.id,
-		agentRunId: run.id,
-	});
-	return streamWithLiveUpdates(
-		{
-			modelId: effectiveModelId(agent, task),
-			systemPrompt,
-			installedProviders,
-			tools,
-			abortSignal,
-			messages: [
-				{ role: "user", content: buildTaskPrompt(task, instructionOverride) },
-			],
-		},
-		run.id,
-	);
+  agent: AgentRecord,
+  task: TaskRecord,
+  run: AgentRunRecord,
+  instructionOverride?: string,
+  abortSignal?: AbortSignal,
+): Promise<{ text: string; toolStepCount: number }> {
+  const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
+  const systemPrompt = await buildSystemPrompt(agent, true);
+  const tools = await buildToolsForAgent(agent, {
+    taskId: task.id,
+    agentRunId: run.id,
+  });
+  return streamWithLiveUpdates(
+    {
+      modelId: effectiveModelId(agent, task),
+      systemPrompt,
+      installedProviders,
+      tools,
+      abortSignal,
+      // Unattended runs have no human to catch a shallow answer — let the
+      // model think before acting where the provider supports it.
+      reasoningEffort: "medium",
+      messages: [{ role: "user", content: buildTaskPrompt(task, instructionOverride) }],
+    },
+    run.id,
+    { taskId: task.id, workspaceId: task.workspaceId, agentId: agent.id },
+  );
 }
 
 export async function executeManagedTask(input: {
-	taskId: string;
-	agent: AgentRecord;
-	trigger: "task" | "automation" | "delegate" | "chat" | "extension";
-	chatId?: string | null;
-	automationId?: string | null;
-	instructionOverride?: string;
+  taskId: string;
+  agent: AgentRecord;
+  trigger: "task" | "automation" | "delegate" | "chat" | "extension";
+  chatId?: string | null;
+  automationId?: string | null;
+  instructionOverride?: string;
 }): Promise<{ task: TaskRecord; run: AgentRunRecord; output: string }> {
-	const db = getDb();
-	const task = await db.getTask(input.taskId);
-	if (!task) throw new Error(`Unknown task: ${input.taskId}`);
+  const db = getDb();
+  const task = await db.getTask(input.taskId);
+  if (!task) throw new Error(`Unknown task: ${input.taskId}`);
 
-	let run = await db.createAgentRun({
-		workspaceId: task.workspaceId,
-		taskId: task.id,
-		agentId: input.agent.id,
-		chatId: input.chatId ?? null,
-		automationId: input.automationId ?? null,
-		trigger: input.trigger,
-		modelId: effectiveModelId(input.agent, task),
-		status: "running",
-		startedAt: new Date(),
-	});
+  const run = await db.createAgentRun({
+    workspaceId: task.workspaceId,
+    taskId: task.id,
+    agentId: input.agent.id,
+    chatId: input.chatId ?? null,
+    automationId: input.automationId ?? null,
+    trigger: input.trigger,
+    modelId: effectiveModelId(input.agent, task),
+    status: "running",
+    startedAt: new Date(),
+  });
 
-	const controller = new AbortController();
-	activeRunControllers.set(run.id, controller);
+  const controller = new AbortController();
+  activeRunControllers.set(run.id, controller);
 
-	try {
-		return await runManagedTask(input, task, run, controller.signal);
-	} catch (err) {
-		if (controller.signal.aborted) {
-			const cancelledTask = (await db.getTask(task.id)) ?? task;
-			const cancelledRun = (await db.getAgentRun(run.id)) ?? run;
-			return {
-				task: cancelledTask,
-				run: cancelledRun,
-				output: cancelledRun.finalOutput ?? "",
-			};
-		}
-		throw err;
-	} finally {
-		activeRunControllers.delete(run.id);
-	}
+  try {
+    return await runManagedTask(input, task, run, controller.signal);
+  } catch (err) {
+    if (controller.signal.aborted) {
+      const cancelledTask = (await db.getTask(task.id)) ?? task;
+      const cancelledRun = (await db.getAgentRun(run.id)) ?? run;
+      return {
+        task: cancelledTask,
+        run: cancelledRun,
+        output: cancelledRun.finalOutput ?? "",
+      };
+    }
+    throw err;
+  } finally {
+    activeRunControllers.delete(run.id);
+  }
 }
 
 async function runManagedTask(
-	input: {
-		taskId: string;
-		agent: AgentRecord;
-		trigger: "task" | "automation" | "delegate" | "chat" | "extension";
-		chatId?: string | null;
-		automationId?: string | null;
-		instructionOverride?: string;
-	},
-	task: TaskRecord,
-	run: AgentRunRecord,
-	abortSignal: AbortSignal,
+  input: {
+    taskId: string;
+    agent: AgentRecord;
+    trigger: "task" | "automation" | "delegate" | "chat" | "extension";
+    chatId?: string | null;
+    automationId?: string | null;
+    instructionOverride?: string;
+  },
+  task: TaskRecord,
+  run: AgentRunRecord,
+  abortSignal: AbortSignal,
 ): Promise<{ task: TaskRecord; run: AgentRunRecord; output: string }> {
-	const db = getDb();
+  const db = getDb();
 
-	await db.updateTask(task.id, {
-		status: "planning",
-		startedAt: task.startedAt ?? new Date(),
-		assignedAgentId: task.assignedAgentId ?? input.agent.id,
-		completedAt: null,
-		errorMessage: null,
-	});
-	await db.createTaskEvent({
-		taskId: task.id,
-		workspaceId: task.workspaceId,
-		agentRunId: run.id,
-		agentId: input.agent.id,
-		kind: "run_started",
-		message: `Run started by ${input.agent.name}.`,
-	});
+  await db.updateTask(task.id, {
+    status: "planning",
+    startedAt: task.startedAt ?? new Date(),
+    assignedAgentId: task.assignedAgentId ?? input.agent.id,
+    completedAt: null,
+    errorMessage: null,
+  });
+  await db.createTaskEvent({
+    taskId: task.id,
+    workspaceId: task.workspaceId,
+    agentRunId: run.id,
+    agentId: input.agent.id,
+    kind: "run_started",
+    message: `Run started by ${input.agent.name}.`,
+  });
 
-	const activeTask: TaskRecord = {
-		...task,
-		status: "planning",
-		startedAt: task.startedAt ?? new Date(),
-		assignedAgentId: task.assignedAgentId ?? input.agent.id,
-		completedAt: null,
-		errorMessage: null,
-	};
-	const plan = await planTask(
-		input.agent,
-		activeTask,
-		input.instructionOverride,
-		abortSignal,
-	);
-	await db.updateTask(task.id, {
-		status: "running",
-		plan: plan as unknown as Record<string, unknown>,
-		assignedAgentId: input.agent.id,
-	});
-	await db.createTaskEvent({
-		taskId: task.id,
-		workspaceId: task.workspaceId,
-		agentRunId: run.id,
-		agentId: input.agent.id,
-		kind: "planned",
-		message: "Execution plan created.",
-		payload: plan as unknown as Record<string, unknown>,
-	});
+  const activeTask: TaskRecord = {
+    ...task,
+    status: "planning",
+    startedAt: task.startedAt ?? new Date(),
+    assignedAgentId: task.assignedAgentId ?? input.agent.id,
+    completedAt: null,
+    errorMessage: null,
+  };
+  const plan = await planTask(input.agent, activeTask, input.instructionOverride, abortSignal);
+  await db.updateTask(task.id, {
+    status: "running",
+    plan: plan as unknown as Record<string, unknown>,
+    assignedAgentId: input.agent.id,
+  });
+  await db.createTaskEvent({
+    taskId: task.id,
+    workspaceId: task.workspaceId,
+    agentRunId: run.id,
+    agentId: input.agent.id,
+    kind: "planned",
+    message: "Execution plan created.",
+    payload: plan as unknown as Record<string, unknown>,
+  });
 
-	let output: string;
+  let output: string;
+  let toolStepCount = 0;
 
-	if (
-		input.agent.autonomyLevel === "super_agent" &&
-		input.agent.delegateAgentIds.length > 0 &&
-		plan.delegationCandidates.length > 0
-	) {
-		// Every delegate candidate the planner picked gets its own child task
-		// and runs concurrently instead of one after another — they're
-		// independent sub-agents working on independent sub-tasks, so there's
-		// no reason to serialize them. A failure in one delegate doesn't stop
-		// the others; it just shows up as a shorter/failed contribution to the
-		// synthesis step below.
-		const candidateAgentIds = plan.delegationCandidates.filter((id) =>
-			input.agent.delegateAgentIds.includes(id),
-		);
-		const settled = await Promise.allSettled(
-			candidateAgentIds.map(async (delegateAgentId) => {
-				const delegateAgent = await db.getAgent(delegateAgentId);
-				if (!delegateAgent) return null;
-				const childTask = await db.createTask({
-					workspaceId: task.workspaceId,
-					parentTaskId: task.id,
-					createdByAgentId: input.agent.id,
-					assignedAgentId: delegateAgent.id,
-					title: `${task.title} · ${delegateAgent.name}`,
-					instruction: task.instruction,
-					status: "ready",
-					priority: task.priority,
-					input: { delegatedBy: input.agent.id, parentTaskId: task.id },
-				});
-				await db.createTaskEvent({
-					taskId: task.id,
-					workspaceId: task.workspaceId,
-					agentRunId: run.id,
-					agentId: input.agent.id,
-					kind: "delegated",
-					message: `Delegated child task to ${delegateAgent.name}.`,
-					payload: { childTaskId: childTask.id, delegateAgentId: delegateAgent.id },
-				});
-				const childResult = await executeManagedTask({
-					taskId: childTask.id,
-					agent: delegateAgent,
-					trigger: "delegate",
-				});
-				return { agentId: delegateAgent.id, resultSummary: childResult.output };
-			}),
-		);
-		const children: { agentId: string; resultSummary: string }[] = [];
-		for (const [index, outcome] of settled.entries()) {
-			if (outcome.status === "fulfilled") {
-				if (outcome.value) children.push(outcome.value);
-				continue;
-			}
-			const failedAgentId = candidateAgentIds[index];
-			const message =
-				outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
-			await db.createTaskEvent({
-				taskId: task.id,
-				workspaceId: task.workspaceId,
-				agentRunId: run.id,
-				agentId: input.agent.id,
-				kind: "failed",
-				message: `Delegated task failed: ${message}`,
-				payload: { delegateAgentId: failedAgentId, error: message },
-			});
-		}
+  if (
+    input.agent.autonomyLevel === "super_agent" &&
+    input.agent.delegateAgentIds.length > 0 &&
+    plan.delegationCandidates.length > 0
+  ) {
+    // Every delegate candidate the planner picked gets its own child task
+    // and runs concurrently instead of one after another — they're
+    // independent sub-agents working on independent sub-tasks, so there's
+    // no reason to serialize them. A failure in one delegate doesn't stop
+    // the others; it just shows up as a shorter/failed contribution to the
+    // synthesis step below.
+    const candidateAgentIds = plan.delegationCandidates.filter((id) =>
+      input.agent.delegateAgentIds.includes(id),
+    );
+    const settled = await Promise.allSettled(
+      candidateAgentIds.map(async (delegateAgentId) => {
+        const delegateAgent = await db.getAgent(delegateAgentId);
+        if (!delegateAgent) return null;
+        const childTask = await db.createTask({
+          workspaceId: task.workspaceId,
+          parentTaskId: task.id,
+          createdByAgentId: input.agent.id,
+          assignedAgentId: delegateAgent.id,
+          title: `${task.title} · ${delegateAgent.name}`,
+          instruction: task.instruction,
+          status: "ready",
+          priority: task.priority,
+          input: { delegatedBy: input.agent.id, parentTaskId: task.id },
+        });
+        await db.createTaskEvent({
+          taskId: task.id,
+          workspaceId: task.workspaceId,
+          agentRunId: run.id,
+          agentId: input.agent.id,
+          kind: "delegated",
+          message: `Delegated child task to ${delegateAgent.name}.`,
+          payload: { childTaskId: childTask.id, delegateAgentId: delegateAgent.id },
+        });
+        const childResult = await executeManagedTask({
+          taskId: childTask.id,
+          agent: delegateAgent,
+          trigger: "delegate",
+        });
+        return { agentId: delegateAgent.id, resultSummary: childResult.output };
+      }),
+    );
+    const children: { agentId: string; resultSummary: string }[] = [];
+    for (const [index, outcome] of settled.entries()) {
+      if (outcome.status === "fulfilled") {
+        if (outcome.value) children.push(outcome.value);
+        continue;
+      }
+      const failedAgentId = candidateAgentIds[index];
+      const message =
+        outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+      await db.createTaskEvent({
+        taskId: task.id,
+        workspaceId: task.workspaceId,
+        agentRunId: run.id,
+        agentId: input.agent.id,
+        kind: "failed",
+        message: `Delegated task failed: ${message}`,
+        payload: { delegateAgentId: failedAgentId, error: message },
+      });
+    }
 
-		const synthesisPrompt = [
-			"Merge the delegated task results into one final response.",
-			`Original task: ${buildTaskPrompt(task, input.instructionOverride)}`,
-			"Delegated outputs:",
-			...children.map(
-				(child) => `- ${child.agentId}: ${child.resultSummary.slice(0, 4000)}`,
-			),
-		].join("\n");
-		const installedProviders = await getInstalledProvidersForWorkspace(
-			input.agent.workspaceId,
-		);
-		const systemPrompt = await buildSystemPrompt(input.agent, true);
-		output = await streamWithLiveUpdates(
-			{
-				modelId: effectiveModelId(input.agent, task),
-				systemPrompt,
-				installedProviders,
-				messages: [{ role: "user", content: synthesisPrompt }],
-				abortSignal,
-			},
-			run.id,
-		);
-	} else {
-		output = await runDirectExecution(
-			input.agent,
-			task,
-			run,
-			input.instructionOverride,
-			abortSignal,
-		);
-	}
+    const synthesisPrompt = [
+      "Merge the delegated task results into one final response.",
+      `Original task: ${buildTaskPrompt(task, input.instructionOverride)}`,
+      "Delegated outputs:",
+      ...children.map((child) => `- ${child.agentId}: ${child.resultSummary.slice(0, 4000)}`),
+    ].join("\n");
+    const installedProviders = await getInstalledProvidersForWorkspace(input.agent.workspaceId);
+    const systemPrompt = await buildSystemPrompt(input.agent, true);
+    const synthesis = await streamWithLiveUpdates(
+      {
+        modelId: effectiveModelId(input.agent, task),
+        systemPrompt,
+        installedProviders,
+        reasoningEffort: "medium",
+        messages: [{ role: "user", content: synthesisPrompt }],
+        abortSignal,
+      },
+      run.id,
+    );
+    output = synthesis.text;
+  } else {
+    const execution = await runDirectExecution(
+      input.agent,
+      task,
+      run,
+      input.instructionOverride,
+      abortSignal,
+    );
+    output = execution.text;
+    toolStepCount = execution.toolStepCount;
+  }
 
-	const pausedOnQuestion = output.includes("pending_question");
-	const pausedOnApproval = !pausedOnQuestion && output.includes("pending_approval");
-	const isPaused = pausedOnQuestion || pausedOnApproval;
-	// AgentRunStatus has no "blocked" state (a question-pause is still an
-	// agent run that's technically waiting on the human) — only TaskStatus
-	// distinguishes "blocked" (question) from "waiting_approval" (tool
-	// approval).
-	const taskStatus = pausedOnQuestion
-		? ("blocked" as const)
-		: pausedOnApproval
-			? ("waiting_approval" as const)
-			: ("completed" as const);
+  const pausedOnQuestion = output.includes("pending_question");
+  const pausedOnApproval = !pausedOnQuestion && output.includes("pending_approval");
+  const isPaused = pausedOnQuestion || pausedOnApproval;
+  // AgentRunStatus has no "blocked" state (a question-pause is still an
+  // agent run that's technically waiting on the human) — only TaskStatus
+  // distinguishes "blocked" (question) from "waiting_approval" (tool
+  // approval).
+  const taskStatus = pausedOnQuestion
+    ? ("blocked" as const)
+    : pausedOnApproval
+      ? ("waiting_approval" as const)
+      : ("completed" as const);
 
-	run = await db.updateAgentRun(run.id, {
-		status: isPaused ? "waiting_approval" : "completed",
-		finalOutput: output,
-		completedAt: isPaused ? null : new Date(),
-		stepCount: Math.max(1, plan.steps.length),
-	});
-	const finalTask = await db.updateTask(task.id, {
-		status: taskStatus,
-		resultSummary: output,
-		completedAt: isPaused ? null : new Date(),
-	});
-	await db.createTaskEvent({
-		taskId: task.id,
-		workspaceId: task.workspaceId,
-		agentRunId: run.id,
-		agentId: input.agent.id,
-		kind: pausedOnQuestion
-			? "status_changed"
-			: pausedOnApproval
-				? "approval_waiting"
-				: "completed",
-		message: pausedOnQuestion
-			? "Run paused pending the user's answer."
-			: pausedOnApproval
-				? "Run paused pending approval."
-				: "Run completed.",
-	});
+  run = await db.updateAgentRun(run.id, {
+    status: isPaused ? "waiting_approval" : "completed",
+    finalOutput: output,
+    completedAt: isPaused ? null : new Date(),
+    // Real tool calls when the run made any; the plan length otherwise.
+    stepCount: Math.max(1, toolStepCount || plan.steps.length),
+  });
+  const finalTask = await db.updateTask(task.id, {
+    status: taskStatus,
+    resultSummary: output,
+    completedAt: isPaused ? null : new Date(),
+  });
+  await db.createTaskEvent({
+    taskId: task.id,
+    workspaceId: task.workspaceId,
+    agentRunId: run.id,
+    agentId: input.agent.id,
+    kind: pausedOnQuestion ? "status_changed" : pausedOnApproval ? "approval_waiting" : "completed",
+    message: pausedOnQuestion
+      ? "Run paused pending the user's answer."
+      : pausedOnApproval
+        ? "Run paused pending approval."
+        : "Run completed.",
+  });
 
-	// pausedOnApproval already notified when the approval was created
-	// (tools.ts) — only question-pauses and real completions need one here.
-	if (pausedOnQuestion) {
-		await notifyWorkspaceOwner(task.workspaceId, {
-			title: "Agent has a question",
-			body: `${input.agent.name} needs input on "${task.title}"`,
-			url: `/workspace/${task.workspaceId}/tasks/${task.id}`,
-			tag: `task-${task.id}`,
-		});
-	} else if (taskStatus === "completed") {
-		await notifyWorkspaceOwner(task.workspaceId, {
-			title: "Task completed",
-			body: task.title,
-			url: `/workspace/${task.workspaceId}/tasks/${task.id}`,
-			tag: `task-${task.id}`,
-		});
-	}
+  // pausedOnApproval already notified when the approval was created
+  // (tools.ts) — only question-pauses and real completions need one here.
+  if (pausedOnQuestion) {
+    await notifyWorkspaceOwner(task.workspaceId, {
+      title: "Agent has a question",
+      body: `${input.agent.name} needs input on "${task.title}"`,
+      url: `/workspace/${task.workspaceId}/tasks/${task.id}`,
+      tag: `task-${task.id}`,
+    });
+  } else if (taskStatus === "completed") {
+    await notifyWorkspaceOwner(task.workspaceId, {
+      title: "Task completed",
+      body: task.title,
+      url: `/workspace/${task.workspaceId}/tasks/${task.id}`,
+      tag: `task-${task.id}`,
+    });
+  }
 
-	return { task: finalTask, run, output };
+  return { task: finalTask, run, output };
 }
 
 export async function startTaskExecutionIfIdle(input: {
-	taskId: string;
-	trigger: "task" | "automation" | "delegate" | "chat" | "extension";
-	chatId?: string | null;
-	automationId?: string | null;
-	instructionOverride?: string;
+  taskId: string;
+  trigger: "task" | "automation" | "delegate" | "chat" | "extension";
+  chatId?: string | null;
+  automationId?: string | null;
+  instructionOverride?: string;
 }): Promise<{ task: TaskRecord; run: AgentRunRecord; output: string } | null> {
-	const db = getDb();
-	const task = await db.getTask(input.taskId);
-	if (!task || !task.assignedAgentId) return null;
-	if (task.status === "completed" || task.status === "cancelled") return null;
-	if (task.startedAt || task.status === "running" || task.status === "planning") {
-		return null;
-	}
+  const db = getDb();
+  const task = await db.getTask(input.taskId);
+  if (!task?.assignedAgentId) return null;
+  if (task.status === "completed" || task.status === "cancelled") return null;
+  if (task.startedAt || task.status === "running" || task.status === "planning") {
+    return null;
+  }
 
-	const agent = await db.getAgent(task.assignedAgentId);
-	if (!agent) return null;
+  const agent = await db.getAgent(task.assignedAgentId);
+  if (!agent) return null;
 
-	return executeManagedTask({
-		taskId: task.id,
-		agent,
-		trigger: input.trigger,
-		chatId: input.chatId ?? task.sourceChatId ?? null,
-		automationId: input.automationId ?? null,
-		instructionOverride: input.instructionOverride,
-	});
+  return executeManagedTask({
+    taskId: task.id,
+    agent,
+    trigger: input.trigger,
+    chatId: input.chatId ?? task.sourceChatId ?? null,
+    automationId: input.automationId ?? null,
+    instructionOverride: input.instructionOverride,
+  });
 }
