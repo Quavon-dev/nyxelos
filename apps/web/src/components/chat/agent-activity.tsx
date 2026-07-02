@@ -57,12 +57,20 @@ function generatedImageFromOutput(output: unknown): { mimeType: string; base64: 
   return null;
 }
 
+/** Library file ids are server-generated randomUUID()s — anything else in a
+ * tool-output payload is malformed or attacker-shaped and must not reach a
+ * media src URL. */
+const LIBRARY_FILE_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Matches the `{ mimeType, libraryFileId }` shape shared by generate_video
  * and edit_video's tool output — unlike generate_image, a video clip is
  * megabytes, far too large to inline as base64 in every persisted chat
  * message, so these tools save straight to the library and hand back an id
  * to resolve through libraryFileUrl() instead. edit_video's extractFrame/
- * toGif operations reuse this same shape with an image/* mimeType. */
+ * toGif operations reuse this same shape with an image/* mimeType. Ids are
+ * validated against the UUID shape so untrusted tool output can never smuggle
+ * arbitrary URL content into the rendered <video>/<img> src. */
 function generatedMediaFromOutput(
   output: unknown,
 ): { mimeType: string; libraryFileId: string; posterLibraryFileId: string | null } | null {
@@ -72,13 +80,16 @@ function generatedMediaFromOutput(
     typeof record.mimeType === "string" &&
     (record.mimeType.startsWith("video/") || record.mimeType.startsWith("image/")) &&
     typeof record.libraryFileId === "string" &&
-    record.libraryFileId.length > 0
+    LIBRARY_FILE_ID_PATTERN.test(record.libraryFileId)
   ) {
     return {
       mimeType: record.mimeType,
       libraryFileId: record.libraryFileId,
       posterLibraryFileId:
-        typeof record.posterLibraryFileId === "string" ? record.posterLibraryFileId : null,
+        typeof record.posterLibraryFileId === "string" &&
+        LIBRARY_FILE_ID_PATTERN.test(record.posterLibraryFileId)
+          ? record.posterLibraryFileId
+          : null,
     };
   }
   return null;
