@@ -100,6 +100,12 @@ import {
 	listVideoGenerationJobsForWorkspace,
 	queueVideoGeneration,
 } from "../video";
+import {
+	getWorkflowRun,
+	listWorkflowRunNodes,
+	listWorkflowRunsForWorkflow,
+	startWorkflowRun,
+} from "../workflow-runner";
 import { publicProcedure, router } from "./trpc";
 
 const autonomyLevelSchema = z.enum([
@@ -200,6 +206,34 @@ const NON_SENSITIVE_DEFAULT_TOOL_KINDS = new Set([
 	"github_code_search",
 	"generate_image",
 ]);
+const workflowNodeKindSchema = z.enum([
+	"text_prompt",
+	"image_upload",
+	"video_upload",
+	"generate_image",
+	"generate_video",
+	"edit_video",
+	"output",
+]);
+const workflowDefinitionSchema = z.object({
+	nodes: z.array(
+		z.object({
+			id: z.string(),
+			type: workflowNodeKindSchema,
+			position: z.object({ x: z.number(), y: z.number() }),
+			data: z.record(z.string(), z.unknown()),
+		}),
+	),
+	edges: z.array(
+		z.object({ id: z.string(), source: z.string(), target: z.string() }),
+	),
+	viewport: z.object({ x: z.number(), y: z.number(), zoom: z.number() }).optional(),
+});
+const EMPTY_WORKFLOW_DEFINITION: z.infer<typeof workflowDefinitionSchema> = {
+	nodes: [],
+	edges: [],
+};
+
 const automationTriggerTypeSchema = z.enum(["cron", "file_watch"]);
 const taskStatusSchema = z.enum([
 	"pending",
@@ -909,6 +943,84 @@ export const appRouter = router({
 				}),
 			)
 			.mutation(({ input }) => editVideo(input).then((result) => result.file)),
+	}),
+
+	// Workflow Studio — node-based image/video generation pipelines. This
+	// router covers graph CRUD (definition = React Flow's nodes/edges, see
+	// WorkflowDefinition in @nyxel/db) plus execution, which is delegated to
+	// workflow-runner.ts the same way video generation is delegated to
+	// ../video.ts.
+	workflows: router({
+		list: publicProcedure
+			.input(z.object({ workspaceId: z.string() }))
+			.query(({ input }) => getDb().listWorkflowsByWorkspace(input.workspaceId)),
+		get: publicProcedure
+			.input(z.object({ id: z.string() }))
+			.query(({ input }) => getDb().getWorkflow(input.id)),
+		create: publicProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					name: z.string().min(1),
+					description: z.string().optional(),
+					definition: workflowDefinitionSchema.optional(),
+				}),
+			)
+			.mutation(({ input }) =>
+				getDb().createWorkflow({
+					...input,
+					definition: input.definition ?? EMPTY_WORKFLOW_DEFINITION,
+				}),
+			),
+		update: publicProcedure
+			.input(
+				z.object({
+					id: z.string(),
+					name: z.string().min(1).optional(),
+					description: z.string().nullable().optional(),
+					definition: workflowDefinitionSchema.optional(),
+				}),
+			)
+			.mutation(({ input: { id, ...patch } }) => getDb().updateWorkflow(id, patch)),
+		duplicate: publicProcedure
+			.input(z.object({ id: z.string() }))
+			.mutation(async ({ input }) => {
+				const original = await getDb().getWorkflow(input.id);
+				if (!original) throw new Error(`Workflow not found: ${input.id}`);
+				return getDb().createWorkflow({
+					workspaceId: original.workspaceId,
+					name: `${original.name} (copy)`,
+					description: original.description,
+					definition: original.definition,
+				});
+			}),
+		delete: publicProcedure
+			.input(z.object({ id: z.string() }))
+			.mutation(async ({ input }) => {
+				await getDb().deleteWorkflow(input.id);
+				return { ok: true };
+			}),
+
+		// Execution — see workflow-runner.ts. `start` is fire-and-forget like
+		// video.generate: it returns as soon as the run + per-node rows exist,
+		// and the builder page polls `get` (run + all its nodes together, one
+		// call) to paint live per-node status on the canvas.
+		runs: router({
+			start: publicProcedure
+				.input(z.object({ workflowId: z.string() }))
+				.mutation(({ input }) => startWorkflowRun(input.workflowId)),
+			get: publicProcedure
+				.input(z.object({ id: z.string() }))
+				.query(async ({ input }) => {
+					const run = await getWorkflowRun(input.id);
+					if (!run) return null;
+					const nodes = await listWorkflowRunNodes(input.id);
+					return { run, nodes };
+				}),
+			listForWorkflow: publicProcedure
+				.input(z.object({ workflowId: z.string() }))
+				.query(({ input }) => listWorkflowRunsForWorkflow(input.workflowId)),
+		}),
 	}),
 
 	tools: router({

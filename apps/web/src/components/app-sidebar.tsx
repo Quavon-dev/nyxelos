@@ -18,13 +18,14 @@ import {
   Puzzle,
   ScrollText,
   Settings,
-  Sparkles,
   TrendingUp,
+  Workflow,
   Wrench,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { NyxelLogoMark } from "@/components/brand-mark";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Sidebar,
@@ -148,6 +149,11 @@ export function AppSidebar() {
           icon: Film,
           dot: videoStudioUnseen > 0,
         },
+        {
+          href: `/workspace/${workspaceId}/workflows`,
+          label: "Workflows",
+          icon: Workflow,
+        },
       ]
     : [{ href: "/", label: "Overview", icon: LayoutDashboard }];
 
@@ -158,9 +164,7 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link href="/">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                  <Sparkles className="size-4" />
-                </div>
+                <NyxelLogoMark className="h-8 w-[31px] shrink-0 text-sidebar-foreground" />
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-semibold">Nyxel</span>
                   <span className="truncate text-xs text-muted-foreground">Agentic OS</span>

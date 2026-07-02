@@ -523,6 +523,73 @@ export interface VideoGenerationJobRecord {
 	updatedAt: Date;
 }
 
+export type WorkflowRunStatus = "queued" | "running" | "completed" | "failed" | "partial";
+export type WorkflowRunNodeStatus = "queued" | "running" | "completed" | "failed" | "skipped";
+export type WorkflowNodeKind =
+	| "text_prompt"
+	| "image_upload"
+	| "video_upload"
+	| "generate_image"
+	| "generate_video"
+	| "edit_video"
+	| "output";
+
+/** See packages/db/src/schema/sqlite/app.ts's WorkflowDefinition doc comment
+ * for why this is one JSON blob rather than normalized node/edge tables. */
+export interface WorkflowDefinition {
+	nodes: {
+		id: string;
+		type: WorkflowNodeKind;
+		position: { x: number; y: number };
+		data: Record<string, unknown>;
+	}[];
+	edges: { id: string; source: string; target: string }[];
+	viewport?: { x: number; y: number; zoom: number };
+}
+
+export interface WorkflowRecord {
+	id: string;
+	workspaceId: string;
+	name: string;
+	description: string | null;
+	definition: WorkflowDefinition;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+/** One execution of a workflow's graph — see workflow-runner.ts. Kept as its
+ * own row (rather than only a return value) for the same reason
+ * VideoGenerationJobRecord is: a run can take minutes, so the builder page
+ * polls this back out to paint live per-node progress instead of blocking on
+ * one request. */
+export interface WorkflowRunRecord {
+	id: string;
+	workflowId: string;
+	workspaceId: string;
+	status: WorkflowRunStatus;
+	errorMessage: string | null;
+	startedAt: Date | null;
+	completedAt: Date | null;
+	createdAt: Date;
+}
+
+/** Per-node status/output within one WorkflowRunRecord. `nodeId` points at a
+ * node inside the parent workflow's `definition.nodes` JSON, not another
+ * table's primary key. */
+export interface WorkflowRunNodeRecord {
+	id: string;
+	runId: string;
+	nodeId: string;
+	status: WorkflowRunNodeStatus;
+	progress: number;
+	libraryFileId: string | null;
+	errorMessage: string | null;
+	startedAt: Date | null;
+	completedAt: Date | null;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
 export interface SeoProjectRecord {
 	id: string;
 	workspaceId: string;
@@ -1133,6 +1200,57 @@ export interface DbRepository {
 			errorMessage: string | null;
 		}>,
 	): Promise<VideoGenerationJobRecord>;
+
+	createWorkflow(input: {
+		workspaceId: string;
+		name: string;
+		description?: string | null;
+		definition: WorkflowDefinition;
+	}): Promise<WorkflowRecord>;
+	listWorkflowsByWorkspace(workspaceId: string): Promise<WorkflowRecord[]>;
+	getWorkflow(id: string): Promise<WorkflowRecord | null>;
+	updateWorkflow(
+		id: string,
+		patch: Partial<{
+			name: string;
+			description: string | null;
+			definition: WorkflowDefinition;
+		}>,
+	): Promise<WorkflowRecord>;
+	deleteWorkflow(id: string): Promise<void>;
+
+	createWorkflowRun(input: {
+		workflowId: string;
+		workspaceId: string;
+	}): Promise<WorkflowRunRecord>;
+	getWorkflowRun(id: string): Promise<WorkflowRunRecord | null>;
+	listWorkflowRunsByWorkflow(workflowId: string): Promise<WorkflowRunRecord[]>;
+	updateWorkflowRun(
+		id: string,
+		patch: Partial<{
+			status: WorkflowRunStatus;
+			errorMessage: string | null;
+			startedAt: Date | null;
+			completedAt: Date | null;
+		}>,
+	): Promise<WorkflowRunRecord>;
+
+	createWorkflowRunNode(input: {
+		runId: string;
+		nodeId: string;
+	}): Promise<WorkflowRunNodeRecord>;
+	listWorkflowRunNodesByRun(runId: string): Promise<WorkflowRunNodeRecord[]>;
+	updateWorkflowRunNode(
+		id: string,
+		patch: Partial<{
+			status: WorkflowRunNodeStatus;
+			progress: number;
+			libraryFileId: string | null;
+			errorMessage: string | null;
+			startedAt: Date | null;
+			completedAt: Date | null;
+		}>,
+	): Promise<WorkflowRunNodeRecord>;
 
 	createSeoProject(input: {
 		workspaceId: string;

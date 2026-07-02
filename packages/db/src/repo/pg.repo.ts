@@ -1888,6 +1888,110 @@ export function createPgRepository(connectionString: string): DbRepository {
 			return row;
 		},
 
+		async createWorkflow({ workspaceId, name, description, definition }) {
+			const [row] = await db
+				.insert(schema.workflow)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					name,
+					description: description ?? null,
+					definition,
+				})
+				.returning();
+			if (!row) throw new Error("Failed to create workflow");
+			return row;
+		},
+
+		async listWorkflowsByWorkspace(workspaceId) {
+			return db
+				.select()
+				.from(schema.workflow)
+				.where(eq(schema.workflow.workspaceId, workspaceId))
+				.orderBy(desc(schema.workflow.updatedAt));
+		},
+
+		async getWorkflow(id) {
+			const row = await db.query.workflow.findFirst({
+				where: eq(schema.workflow.id, id),
+			});
+			return row ?? null;
+		},
+
+		async updateWorkflow(id, patch) {
+			const [row] = await db
+				.update(schema.workflow)
+				.set({ ...patch, updatedAt: new Date() })
+				.where(eq(schema.workflow.id, id))
+				.returning();
+			if (!row) throw new Error(`Workflow not found: ${id}`);
+			return row;
+		},
+
+		async deleteWorkflow(id) {
+			await db.delete(schema.workflow).where(eq(schema.workflow.id, id));
+		},
+
+		async createWorkflowRun({ workflowId, workspaceId }) {
+			const [row] = await db
+				.insert(schema.workflowRun)
+				.values({ id: randomUUID(), workflowId, workspaceId })
+				.returning();
+			if (!row) throw new Error("Failed to create workflow run");
+			return row;
+		},
+
+		async getWorkflowRun(id) {
+			const row = await db.query.workflowRun.findFirst({
+				where: eq(schema.workflowRun.id, id),
+			});
+			return row ?? null;
+		},
+
+		async listWorkflowRunsByWorkflow(workflowId) {
+			return db
+				.select()
+				.from(schema.workflowRun)
+				.where(eq(schema.workflowRun.workflowId, workflowId))
+				.orderBy(desc(schema.workflowRun.createdAt));
+		},
+
+		async updateWorkflowRun(id, patch) {
+			const [row] = await db
+				.update(schema.workflowRun)
+				.set(patch)
+				.where(eq(schema.workflowRun.id, id))
+				.returning();
+			if (!row) throw new Error(`Workflow run not found: ${id}`);
+			return row;
+		},
+
+		async createWorkflowRunNode({ runId, nodeId }) {
+			const [row] = await db
+				.insert(schema.workflowRunNode)
+				.values({ id: randomUUID(), runId, nodeId })
+				.returning();
+			if (!row) throw new Error("Failed to create workflow run node");
+			return row;
+		},
+
+		async listWorkflowRunNodesByRun(runId) {
+			return db
+				.select()
+				.from(schema.workflowRunNode)
+				.where(eq(schema.workflowRunNode.runId, runId));
+		},
+
+		async updateWorkflowRunNode(id, patch) {
+			const [row] = await db
+				.update(schema.workflowRunNode)
+				.set({ ...patch, updatedAt: new Date() })
+				.where(eq(schema.workflowRunNode.id, id))
+				.returning();
+			if (!row) throw new Error(`Workflow run node not found: ${id}`);
+			return row;
+		},
+
 		async createSeoProject({ workspaceId, extensionId, domain, repoPath }) {
 			const [row] = await db
 				.insert(schema.seoProject)

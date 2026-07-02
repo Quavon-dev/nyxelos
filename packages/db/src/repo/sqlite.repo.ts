@@ -2143,6 +2143,131 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			return row;
 		},
 
+		async createWorkflow({ workspaceId, name, description, definition }) {
+			const now = new Date();
+			const row = db
+				.insert(schema.workflow)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					name,
+					description: description ?? null,
+					definition,
+					createdAt: now,
+					updatedAt: now,
+				})
+				.returning()
+				.get();
+			return row;
+		},
+
+		async listWorkflowsByWorkspace(workspaceId) {
+			return db
+				.select()
+				.from(schema.workflow)
+				.where(eq(schema.workflow.workspaceId, workspaceId))
+				.orderBy(desc(schema.workflow.updatedAt))
+				.all();
+		},
+
+		async getWorkflow(id) {
+			const row = db.select().from(schema.workflow).where(eq(schema.workflow.id, id)).get();
+			return row ?? null;
+		},
+
+		async updateWorkflow(id, patch) {
+			const row = db
+				.update(schema.workflow)
+				.set({ ...patch, updatedAt: new Date() })
+				.where(eq(schema.workflow.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Workflow not found: ${id}`);
+			return row;
+		},
+
+		async deleteWorkflow(id) {
+			db.delete(schema.workflow).where(eq(schema.workflow.id, id)).run();
+		},
+
+		async createWorkflowRun({ workflowId, workspaceId }) {
+			const row = db
+				.insert(schema.workflowRun)
+				.values({
+					id: randomUUID(),
+					workflowId,
+					workspaceId,
+					createdAt: new Date(),
+				})
+				.returning()
+				.get();
+			return row;
+		},
+
+		async getWorkflowRun(id) {
+			const row = db
+				.select()
+				.from(schema.workflowRun)
+				.where(eq(schema.workflowRun.id, id))
+				.get();
+			return row ?? null;
+		},
+
+		async listWorkflowRunsByWorkflow(workflowId) {
+			return db
+				.select()
+				.from(schema.workflowRun)
+				.where(eq(schema.workflowRun.workflowId, workflowId))
+				.orderBy(desc(schema.workflowRun.createdAt))
+				.all();
+		},
+
+		async updateWorkflowRun(id, patch) {
+			const row = db
+				.update(schema.workflowRun)
+				.set(patch)
+				.where(eq(schema.workflowRun.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Workflow run not found: ${id}`);
+			return row;
+		},
+
+		async createWorkflowRunNode({ runId, nodeId }) {
+			const now = new Date();
+			const row = db
+				.insert(schema.workflowRunNode)
+				.values({
+					id: randomUUID(),
+					runId,
+					nodeId,
+					createdAt: now,
+					updatedAt: now,
+				})
+				.returning()
+				.get();
+			return row;
+		},
+
+		async listWorkflowRunNodesByRun(runId) {
+			return db
+				.select()
+				.from(schema.workflowRunNode)
+				.where(eq(schema.workflowRunNode.runId, runId))
+				.all();
+		},
+
+		async updateWorkflowRunNode(id, patch) {
+			const row = db
+				.update(schema.workflowRunNode)
+				.set({ ...patch, updatedAt: new Date() })
+				.where(eq(schema.workflowRunNode.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Workflow run node not found: ${id}`);
+			return row;
+		},
+
 		async createSeoProject({ workspaceId, extensionId, domain, repoPath }) {
 			const now = new Date();
 			const row = db

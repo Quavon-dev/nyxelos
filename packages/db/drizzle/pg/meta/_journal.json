@@ -239,6 +239,13 @@
       "when": 1783000021001,
       "tag": "0033_model_parameter",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1783000022001,
+      "tag": "0034_workflow_studio",
+      "breakpoints": true
     }
   ]
 }

@@ -142,6 +142,41 @@ export type LibraryItemKind = "image" | "document" | "video" | "other";
 /** See ../pg/app.ts. */
 export type VideoGenerationJobStatus = "queued" | "in_progress" | "completed" | "failed";
 
+/** See ../pg/app.ts. */
+export type WorkflowRunStatus = "queued" | "running" | "completed" | "failed" | "partial";
+
+/** See ../pg/app.ts. */
+export type WorkflowRunNodeStatus = "queued" | "running" | "completed" | "failed" | "skipped";
+
+/** Node kinds the canvas builder (apps/web) and workflow-runner
+ * (apps/server) both understand — see WorkflowDefinition below. */
+export type WorkflowNodeKind =
+	| "text_prompt"
+	| "image_upload"
+	| "video_upload"
+	| "generate_image"
+	| "generate_video"
+	| "edit_video"
+	| "output";
+
+/** The graph a workflow's canvas builds and the runner executes — plain
+ * JSON rather than a normalized table per node/edge because the whole graph
+ * is always read and written together (one autosave, one run), and React
+ * Flow's own node/edge shape is the natural fit to persist as-is. `data` is
+ * intentionally untyped per node kind: each node kind's own config (prompt
+ * text, model id, edit params, ...) is validated by the runner/UI, not the
+ * DB layer. */
+export interface WorkflowDefinition {
+	nodes: {
+		id: string;
+		type: WorkflowNodeKind;
+		position: { x: number; y: number };
+		data: Record<string, unknown>;
+	}[];
+	edges: { id: string; source: string; target: string }[];
+	viewport?: { x: number; y: number; zoom: number };
+}
+
 /** A sub-agent bundled in an installed plugin's `agents/*.md` directory
  * (Claude Code plugin format) — parsed and stored for display; not wired
  * into NyxelOS's own agent runtime automatically. See ../pg/app.ts. */
@@ -823,6 +858,59 @@ export const videoGenerationJob = sqliteTable("video_generation_job", {
 		onDelete: "set null",
 	}),
 	errorMessage: text("error_message"),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+/** See ../pg/app.ts. */
+export const workflow = sqliteTable("workflow", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	name: text("name").notNull(),
+	description: text("description"),
+	definition: text("definition", { mode: "json" })
+		.notNull()
+		.$type<WorkflowDefinition>(),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+/** See ../pg/app.ts. */
+export const workflowRun = sqliteTable("workflow_run", {
+	id: text("id").primaryKey(),
+	workflowId: text("workflow_id")
+		.notNull()
+		.references(() => workflow.id, { onDelete: "cascade" }),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	status: text("status").notNull().default("queued").$type<WorkflowRunStatus>(),
+	errorMessage: text("error_message"),
+	startedAt: integer("started_at", { mode: "timestamp" }),
+	completedAt: integer("completed_at", { mode: "timestamp" }),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+/** See ../pg/app.ts. */
+export const workflowRunNode = sqliteTable("workflow_run_node", {
+	id: text("id").primaryKey(),
+	runId: text("run_id")
+		.notNull()
+		.references(() => workflowRun.id, { onDelete: "cascade" }),
+	// References a node id inside the parent run's workflow.definition JSON,
+	// not a row in another table — the graph isn't normalized (see
+	// WorkflowDefinition above), so there's nothing to foreign-key against.
+	nodeId: text("node_id").notNull(),
+	status: text("status").notNull().default("queued").$type<WorkflowRunNodeStatus>(),
+	progress: integer("progress").notNull().default(0),
+	libraryFileId: text("library_file_id").references(() => libraryFile.id, {
+		onDelete: "set null",
+	}),
+	errorMessage: text("error_message"),
+	startedAt: integer("started_at", { mode: "timestamp" }),
+	completedAt: integer("completed_at", { mode: "timestamp" }),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });

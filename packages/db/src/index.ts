@@ -60,5 +60,12 @@ export type {
 	UserRecord,
 	VideoGenerationJobRecord,
 	VideoGenerationJobStatus,
+	WorkflowDefinition,
+	WorkflowNodeKind,
+	WorkflowRecord,
+	WorkflowRunNodeRecord,
+	WorkflowRunNodeStatus,
+	WorkflowRunRecord,
+	WorkflowRunStatus,
 	WorkspaceRecord,
 } from "./repo/types";

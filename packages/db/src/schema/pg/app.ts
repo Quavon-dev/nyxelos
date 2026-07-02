@@ -165,6 +165,22 @@ export const videoGenerationJobStatus = pgEnum("video_generation_job_status", [
 	"failed",
 ]);
 
+export const workflowRunStatus = pgEnum("workflow_run_status", [
+	"queued",
+	"running",
+	"completed",
+	"failed",
+	"partial",
+]);
+
+export const workflowRunNodeStatus = pgEnum("workflow_run_node_status", [
+	"queued",
+	"running",
+	"completed",
+	"failed",
+	"skipped",
+]);
+
 export const automationRunStatus = pgEnum("automation_run_status", [
 	"success",
 	"error",
@@ -915,6 +931,76 @@ export const videoGenerationJob = pgTable("video_generation_job", {
 		onDelete: "set null",
 	}),
 	errorMessage: text("error_message"),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** See ../sqlite/app.ts. */
+export type WorkflowNodeKind =
+	| "text_prompt"
+	| "image_upload"
+	| "video_upload"
+	| "generate_image"
+	| "generate_video"
+	| "edit_video"
+	| "output";
+
+/** See ../sqlite/app.ts. */
+export interface WorkflowDefinition {
+	nodes: {
+		id: string;
+		type: WorkflowNodeKind;
+		position: { x: number; y: number };
+		data: Record<string, unknown>;
+	}[];
+	edges: { id: string; source: string; target: string }[];
+	viewport?: { x: number; y: number; zoom: number };
+}
+
+/** See ../sqlite/app.ts. */
+export const workflow = pgTable("workflow", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	name: text("name").notNull(),
+	description: text("description"),
+	definition: jsonb("definition").notNull().$type<WorkflowDefinition>(),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** See ../sqlite/app.ts. */
+export const workflowRun = pgTable("workflow_run", {
+	id: text("id").primaryKey(),
+	workflowId: text("workflow_id")
+		.notNull()
+		.references(() => workflow.id, { onDelete: "cascade" }),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	status: workflowRunStatus("status").notNull().default("queued"),
+	errorMessage: text("error_message"),
+	startedAt: timestamp("started_at"),
+	completedAt: timestamp("completed_at"),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/** See ../sqlite/app.ts. */
+export const workflowRunNode = pgTable("workflow_run_node", {
+	id: text("id").primaryKey(),
+	runId: text("run_id")
+		.notNull()
+		.references(() => workflowRun.id, { onDelete: "cascade" }),
+	nodeId: text("node_id").notNull(),
+	status: workflowRunNodeStatus("status").notNull().default("queued"),
+	progress: integer("progress").notNull().default(0),
+	libraryFileId: text("library_file_id").references(() => libraryFile.id, {
+		onDelete: "set null",
+	}),
+	errorMessage: text("error_message"),
+	startedAt: timestamp("started_at"),
+	completedAt: timestamp("completed_at"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
