@@ -1,7 +1,15 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckSquare, Clock, ListTodo, Workflow } from "lucide-react";
+import {
+  Activity,
+  CheckSquare,
+  CircleAlert,
+  Clock,
+  ListTodo,
+  Loader2,
+  Workflow,
+} from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
@@ -74,6 +82,27 @@ const OPEN_STATUSES: TaskStatus[] = [
   "waiting_approval",
 ];
 
+function formatElapsed(startedAt: string | Date | null): string {
+  if (!startedAt) return "–";
+  const elapsedMs = Date.now() - new Date(startedAt).getTime();
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ${minutes % 60}m`;
+  }
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+/** Last ~two lines of a run's live output — enough to see what the agent is
+ * doing right now without dumping the whole growing answer into the board. */
+function outputTail(finalOutput: string | null): string | null {
+  const text = finalOutput?.trim();
+  if (!text) return null;
+  return text.length > 220 ? `…${text.slice(-220)}` : text;
+}
+
 export default function TasksPage() {
   const params = useParams<{ workspaceId: string }>();
   const workspaceId = params.workspaceId;
@@ -94,6 +123,18 @@ export default function TasksPage() {
   const agentsQuery = useQuery({
     queryKey: ["agents", workspaceId],
     queryFn: () => trpcClient.agents.list.query({ workspaceId }),
+  });
+  // Unfiltered task list for the "needs attention" strip — independent of the
+  // status filter below so a paused question never hides behind a filter.
+  const attentionTasksQuery = useQuery({
+    queryKey: ["tasks", workspaceId, "attention"],
+    queryFn: () => trpcClient.tasks.list.query({ workspaceId }),
+    refetchInterval: 5_000,
+  });
+  const activeRunsQuery = useQuery({
+    queryKey: ["agentRuns", workspaceId, "active"],
+    queryFn: () => trpcClient.agentRuns.listActive.query({ workspaceId }),
+    refetchInterval: 3_000,
   });
   const modelsQuery = useQuery({
     queryKey: ["models", workspaceId],
@@ -179,9 +220,24 @@ export default function TasksPage() {
     },
   });
 
+  const cancelRun = useMutation({
+    mutationFn: (runId: string) => trpcClient.agentRuns.cancel.mutate({ runId }),
+    onSuccess: () => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ["agentRuns", workspaceId] });
+    },
+  });
+
   const openCount = allTasks.filter((t) => OPEN_STATUSES.includes(t.status)).length;
   const waitingApprovalCount = allTasks.filter((t) => t.status === "waiting_approval").length;
   const completedCount = allTasks.filter((t) => t.status === "completed").length;
+
+  const activeRuns = activeRunsQuery.data ?? [];
+  const attentionTasks = (attentionTasksQuery.data ?? []).filter(
+    (t) => t.status === "blocked" || t.status === "waiting_approval",
+  );
+  const taskTitle = (taskId: string | null) =>
+    taskId ? (attentionTasksQuery.data?.find((t) => t.id === taskId)?.title ?? taskId) : null;
 
   if (tasksQuery.isLoading) {
     return (
@@ -200,7 +256,12 @@ export default function TasksPage() {
         description="Durable work items tracked across agents — created from chat, automations, or delegated by super-agents."
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label="Running now"
+          value={activeRuns.length}
+          icon={<Activity className="size-4" />}
+        />
         <StatCard label="Open" value={openCount} icon={<ListTodo className="size-4" />} />
         <StatCard
           label="Waiting on approval"
@@ -213,6 +274,93 @@ export default function TasksPage() {
           icon={<CheckSquare className="size-4" />}
         />
       </div>
+
+      {attentionTasks.length > 0 && (
+        <Card className="border-amber-500/40">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CircleAlert className="size-4 text-amber-600 dark:text-amber-400" />
+              Needs your attention
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {attentionTasks.map((task) => (
+              <Link
+                key={task.id}
+                href={`/workspace/${workspaceId}/tasks/${task.id}`}
+                className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-3 py-2 transition-colors hover:bg-muted/50"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{task.title}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {task.status === "blocked"
+                      ? "The agent asked a question and is waiting for your answer."
+                      : "A tool call is waiting for your approval."}
+                  </p>
+                </div>
+                <Badge variant="outline" className={cn(STATUS_BADGE[task.status], "shrink-0")}>
+                  {task.status.replace("_", " ")}
+                </Badge>
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {activeRuns.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Loader2 className="size-4 animate-spin text-primary" />
+              Live activity
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {activeRuns.map((run) => {
+              const tail = outputTail(run.finalOutput);
+              return (
+                <div key={run.id} className="space-y-2 rounded-lg border border-border/60 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="relative flex size-2">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
+                      <span className="relative inline-flex size-2 rounded-full bg-primary" />
+                    </span>
+                    <span className="text-sm font-medium">{agentName(run.agentId)}</span>
+                    {run.taskId && (
+                      <Link
+                        href={`/workspace/${workspaceId}/tasks/${run.taskId}`}
+                        className="truncate text-sm text-muted-foreground hover:underline"
+                      >
+                        {taskTitle(run.taskId)}
+                      </Link>
+                    )}
+                    <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+                      <Badge variant="outline" className="border-0 bg-muted font-mono text-[10px]">
+                        {run.trigger}
+                      </Badge>
+                      {formatElapsed(run.startedAt)}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs"
+                        onClick={() => cancelRun.mutate(run.id)}
+                        disabled={cancelRun.isPending}
+                      >
+                        Stop
+                      </Button>
+                    </span>
+                  </div>
+                  {tail && (
+                    <pre className="max-h-24 overflow-hidden whitespace-pre-wrap rounded-md bg-muted/40 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-muted-foreground">
+                      {tail}
+                    </pre>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
