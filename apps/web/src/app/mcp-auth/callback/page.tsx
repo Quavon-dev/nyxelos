@@ -25,7 +25,10 @@ const DETAIL: Record<AuthState["status"], string> = {
 // skips starting a new one, and nobody left with cancelled === false is
 // around to move the UI out of "working" — the spinner hangs forever even
 // though the exchange actually succeeded server-side.
-const pendingAuthExchanges = new Map<string, ReturnType<typeof trpcClient.mcpServers.finishAuth.mutate>>();
+const pendingAuthExchanges = new Map<
+  string,
+  ReturnType<typeof trpcClient.mcpServers.finishAuth.mutate>
+>();
 
 export default function McpAuthCallbackPage() {
   return (
