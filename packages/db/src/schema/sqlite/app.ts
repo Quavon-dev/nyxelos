@@ -159,6 +159,9 @@ export type WorkflowNodeKind =
 	| "generate_video"
 	| "edit_video"
 	| "agent"
+	| "http_request"
+	| "delay"
+	| "condition"
 	| "output";
 
 /** The graph a workflow's canvas builds and the runner executes — plain
@@ -175,7 +178,12 @@ export interface WorkflowDefinition {
 		position: { x: number; y: number };
 		data: Record<string, unknown>;
 	}[];
-	edges: { id: string; source: string; target: string }[];
+	edges: {
+		id: string;
+		source: string;
+		target: string;
+		sourceHandle?: string | null;
+	}[];
 	viewport?: { x: number; y: number; zoom: number };
 }
 

@@ -214,6 +214,9 @@ const workflowNodeKindSchema = z.enum([
 	"generate_video",
 	"edit_video",
 	"agent",
+	"http_request",
+	"delay",
+	"condition",
 	"output",
 ]);
 const workflowDefinitionSchema = z.object({
@@ -226,7 +229,12 @@ const workflowDefinitionSchema = z.object({
 		}),
 	),
 	edges: z.array(
-		z.object({ id: z.string(), source: z.string(), target: z.string() }),
+		z.object({
+			id: z.string(),
+			source: z.string(),
+			target: z.string(),
+			sourceHandle: z.string().nullable().optional(),
+		}),
 	),
 	viewport: z.object({ x: z.number(), y: z.number(), zoom: z.number() }).optional(),
 });

@@ -9,8 +9,8 @@ import {
 import { resolveImageModel } from "@nyxel/model-providers";
 import { generateImage, NoImageGeneratedError } from "ai";
 import { executeManagedTask } from "./agent-runtime";
-import { getInstalledProvidersForWorkspace } from "./models";
 import { libraryFileDiskPath, saveLibraryUpload } from "./library";
+import { getInstalledProvidersForWorkspace } from "./models";
 import { generateVideo } from "./video";
 import { editVideo, type VideoEditOperation } from "./video-edit";
 
@@ -101,7 +101,7 @@ async function resolveSourceImage(
 ): Promise<{ base64: string; mimeType: string } | null> {
   if (!fileLibraryFileId) return null;
   const file = await getDb().getLibraryFile(fileLibraryFileId);
-  if (!file || file.kind !== "image") return null;
+  if (file?.kind !== "image") return null;
   const diskPath = libraryFileDiskPath(file.workspaceId, file.storageKey);
   const bytes = new Uint8Array(await Bun.file(diskPath).arrayBuffer());
   return { base64: Buffer.from(bytes).toString("base64"), mimeType: file.mimeType };
@@ -177,9 +177,7 @@ async function runAgentNode(
 
   const instruction = ((data.instruction as string) || textInputs(inputs) || "").trim();
   if (!instruction) {
-    throw new Error(
-      "No instruction available — set one directly or connect a Text Prompt node.",
-    );
+    throw new Error("No instruction available — set one directly or connect a Text Prompt node.");
   }
 
   const task = await db.createTask({
@@ -201,27 +199,81 @@ async function runOutputNode(inputs: NodeOutput[]): Promise<NodeOutput> {
   return output;
 }
 
+async function runHttpRequestNode(
+  data: Record<string, unknown>,
+  inputs: NodeOutput[],
+): Promise<NodeOutput> {
+  const url = (data.url as string) || "";
+  if (!url) throw new Error("No URL set for this node.");
+  const method = ((data.method as string) || "GET").toUpperCase();
+  const body = method === "GET" ? undefined : textInputs(inputs);
+
+  const res = await fetch(url, {
+    method,
+    headers: body ? { "content-type": "text/plain" } : undefined,
+    body,
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Request to ${url} failed: ${res.status} ${res.statusText}`);
+  }
+  return { kind: "text", text };
+}
+
+async function runDelayNode(
+  data: Record<string, unknown>,
+  inputs: NodeOutput[],
+): Promise<NodeOutput> {
+  const seconds = Math.max(0, (data.seconds as number) ?? 5);
+  await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+  return inputs[0] ?? { kind: "text", text: "" };
+}
+
+type ConditionBranch = "true" | "false";
+
+/** Evaluates a case-insensitive "does the connected text contain this
+ * value" check and passes its first input straight through — the branch
+ * (not the passthrough value) is what determines which of the node's two
+ * output handles actually fires, resolved separately in executeWorkflowRun
+ * since a single NodeOutput has no room to carry "which handle". */
+async function runConditionNode(
+  data: Record<string, unknown>,
+  inputs: NodeOutput[],
+): Promise<{ output: NodeOutput; branch: ConditionBranch }> {
+  const text = textInputs(inputs) ?? "";
+  const needle = ((data.value as string) ?? "").trim().toLowerCase();
+  const matches = needle.length > 0 && text.toLowerCase().includes(needle);
+  const output = inputs[0] ?? { kind: "text" as const, text };
+  return { output, branch: matches ? "true" : "false" };
+}
+
 async function executeNode(
   node: WorkflowNode,
   inputs: NodeOutput[],
   workspaceId: string,
-): Promise<NodeOutput> {
+): Promise<{ output: NodeOutput; branch?: ConditionBranch }> {
   switch (node.type) {
     case "text_prompt":
-      return runTextPromptNode(node.data);
+      return { output: await runTextPromptNode(node.data) };
     case "image_upload":
     case "video_upload":
-      return runFileRefNode(node.data);
+      return { output: await runFileRefNode(node.data) };
     case "generate_image":
-      return runGenerateImageNode(node.data, inputs, workspaceId);
+      return { output: await runGenerateImageNode(node.data, inputs, workspaceId) };
     case "generate_video":
-      return runGenerateVideoNode(node.data, inputs, workspaceId);
+      return { output: await runGenerateVideoNode(node.data, inputs, workspaceId) };
     case "edit_video":
-      return runEditVideoNode(node.data, inputs, workspaceId);
+      return { output: await runEditVideoNode(node.data, inputs, workspaceId) };
     case "agent":
-      return runAgentNode(node.data, inputs, workspaceId);
+      return { output: await runAgentNode(node.data, inputs, workspaceId) };
+    case "http_request":
+      return { output: await runHttpRequestNode(node.data, inputs) };
+    case "delay":
+      return { output: await runDelayNode(node.data, inputs) };
+    case "condition":
+      return runConditionNode(node.data, inputs);
     case "output":
-      return runOutputNode(inputs);
+      return { output: await runOutputNode(inputs) };
   }
 }
 
@@ -243,25 +295,40 @@ async function executeWorkflowRun(run: WorkflowRunRecord, workflow: WorkflowReco
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const incoming = new Map<string, string[]>();
   const outgoing = new Map<string, string[]>();
+  const inboundEdges = new Map<string, WorkflowDefinition["edges"]>();
   for (const node of nodes) {
     incoming.set(node.id, []);
     outgoing.set(node.id, []);
+    inboundEdges.set(node.id, []);
   }
   for (const edge of edges) {
     incoming.get(edge.target)?.push(edge.source);
     outgoing.get(edge.source)?.push(edge.target);
+    inboundEdges.get(edge.target)?.push(edge);
   }
 
   const runNodes = await db.listWorkflowRunNodesByRun(run.id);
   const runNodeIdByNodeId = new Map(runNodes.map((rn) => [rn.nodeId, rn.id]));
 
   const resolved = new Map<string, NodeOutput>();
+  const branchByNodeId = new Map<string, ConditionBranch>();
   const failedOrSkipped = new Set<string>();
   const processed = new Set<string>();
   const remainingIncoming = new Map<string, number>();
   for (const [id, srcs] of incoming) remainingIncoming.set(id, srcs.length);
 
   let frontier = nodes.filter((n) => (incoming.get(n.id)?.length ?? 0) === 0).map((n) => n.id);
+
+  // An inbound edge only "counts" if its source completed successfully and,
+  // for a condition source specifically, the edge leaves from the handle
+  // that condition actually took — this is what makes the untaken branch's
+  // whole downstream subtree get skipped instead of running on stale input.
+  function edgeSatisfied(edge: WorkflowDefinition["edges"][number]): boolean {
+    if (failedOrSkipped.has(edge.source)) return false;
+    const branch = branchByNodeId.get(edge.source);
+    if (branch && edge.sourceHandle && edge.sourceHandle !== branch) return false;
+    return true;
+  }
 
   while (frontier.length > 0) {
     const wave = frontier;
@@ -274,25 +341,25 @@ async function executeWorkflowRun(run: WorkflowRunRecord, workflow: WorkflowReco
         const runNodeId = runNodeIdByNodeId.get(nodeId);
         if (!node) return;
 
-        const upstreamFailed = (incoming.get(nodeId) ?? []).some((src) =>
-          failedOrSkipped.has(src),
-        );
-        if (upstreamFailed) {
+        const inbound = inboundEdges.get(nodeId) ?? [];
+        const satisfiedEdges = inbound.filter(edgeSatisfied);
+        if (inbound.length > 0 && satisfiedEdges.length === 0) {
           failedOrSkipped.add(nodeId);
           if (runNodeId) await db.updateWorkflowRunNode(runNodeId, { status: "skipped" });
           return;
         }
 
-        const inputs = (incoming.get(nodeId) ?? [])
-          .map((src) => resolved.get(src))
+        const inputs = satisfiedEdges
+          .map((edge) => resolved.get(edge.source))
           .filter((v): v is NodeOutput => Boolean(v));
 
         if (runNodeId) {
           await db.updateWorkflowRunNode(runNodeId, { status: "running", startedAt: new Date() });
         }
         try {
-          const output = await executeNode(node, inputs, workflow.workspaceId);
+          const { output, branch } = await executeNode(node, inputs, workflow.workspaceId);
           resolved.set(nodeId, output);
+          if (branch) branchByNodeId.set(nodeId, branch);
           if (runNodeId) {
             await db.updateWorkflowRunNode(runNodeId, {
               status: "completed",
@@ -344,9 +411,7 @@ async function executeWorkflowRun(run: WorkflowRunRecord, workflow: WorkflowReco
   });
 }
 
-async function createWorkflowRunRow(
-  workflow: WorkflowRecord,
-): Promise<WorkflowRunRecord> {
+async function createWorkflowRunRow(workflow: WorkflowRecord): Promise<WorkflowRunRecord> {
   const db = getDb();
   const run = await db.createWorkflowRun({
     workflowId: workflow.id,

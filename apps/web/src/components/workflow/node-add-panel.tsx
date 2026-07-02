@@ -4,15 +4,17 @@ import { ChevronRight, Search, X } from "lucide-react";
 import { useState } from "react";
 import type { WorkflowNodeKind } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
-import { NODE_KIND_META, NODE_KIND_ORDER } from "./node-meta";
+import { NODE_KIND_META, NODE_KIND_ORDER, type NodeKindCategory } from "./node-meta";
+
+const CATEGORY_ORDER: NodeKindCategory[] = ["Inputs", "Generate", "Flow", "Output"];
 
 /**
  * Slide-over node picker triggered by the canvas's floating "+" button —
  * click-to-add rather than drag-and-drop, matching the reference n8n-style
- * "What happens next?" panel: search box up top, each node kind as a
- * icon/title/description row. With only 7 kinds there's no need for the
- * category → sub-list drill-down n8n uses for its much larger catalog; a
- * single filtered list covers it.
+ * "What happens next?" panel: search box up top, kinds grouped under
+ * category headers (Inputs / Generate / Flow / Output), each row an
+ * icon/title/description. Searching flattens the groups into one filtered
+ * list — grouping only matters when browsing.
  */
 export function NodeAddPanel({
   onSelect,
@@ -28,6 +30,10 @@ export function NodeAddPanel({
     const meta = NODE_KIND_META[kind];
     return meta.label.toLowerCase().includes(q) || meta.description.toLowerCase().includes(q);
   });
+  const groups = CATEGORY_ORDER.map((category) => ({
+    category,
+    kinds: kinds.filter((kind) => NODE_KIND_META[kind].category === category),
+  })).filter((group) => group.kinds.length > 0);
 
   return (
     <div className="absolute inset-y-0 right-0 z-10 flex w-80 flex-col border-l bg-background shadow-lg">
@@ -57,37 +63,44 @@ export function NodeAddPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto p-2">
-        {kinds.length === 0 && (
+        {groups.length === 0 && (
           <p className="p-3 text-center text-sm text-muted-foreground">No matching nodes.</p>
         )}
-        {kinds.map((kind) => {
-          const meta = NODE_KIND_META[kind];
-          const Icon = meta.icon;
-          return (
-            <button
-              key={kind}
-              type="button"
-              onClick={() => onSelect(kind)}
-              className="flex w-full items-start gap-3 rounded-lg p-2.5 text-left transition-colors hover:bg-muted"
-            >
-              <span
-                className={cn(
-                  "flex size-8 shrink-0 items-center justify-center rounded-lg",
-                  meta.accent,
-                )}
-              >
-                <Icon className="size-4" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium">{meta.label}</span>
-                <span className="line-clamp-2 block text-xs text-muted-foreground">
-                  {meta.description}
-                </span>
-              </span>
-              <ChevronRight className="mt-1.5 size-3.5 shrink-0 text-muted-foreground" />
-            </button>
-          );
-        })}
+        {groups.map((group) => (
+          <div key={group.category} className="mb-1">
+            <p className="px-2.5 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {group.category}
+            </p>
+            {group.kinds.map((kind) => {
+              const meta = NODE_KIND_META[kind];
+              const Icon = meta.icon;
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => onSelect(kind)}
+                  className="flex w-full items-start gap-3 rounded-lg p-2.5 text-left transition-colors hover:bg-muted"
+                >
+                  <span
+                    className={cn(
+                      "flex size-8 shrink-0 items-center justify-center rounded-lg",
+                      meta.accent,
+                    )}
+                  >
+                    <Icon className="size-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">{meta.label}</span>
+                    <span className="line-clamp-2 block text-xs text-muted-foreground">
+                      {meta.description}
+                    </span>
+                  </span>
+                  <ChevronRight className="mt-1.5 size-3.5 shrink-0 text-muted-foreground" />
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );

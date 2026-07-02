@@ -82,7 +82,12 @@ function WorkflowEditor({ workspaceId, workflowId }: { workspaceId: string; work
               position: n.position,
               data: n.data as Record<string, unknown>,
             })),
-            edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+            edges: edges.map((e) => ({
+              id: e.id,
+              source: e.source,
+              target: e.target,
+              sourceHandle: e.sourceHandle,
+            })),
           },
         })
         .then(() => {
@@ -208,11 +213,12 @@ function WorkflowEditor({ workspaceId, workflowId }: { workspaceId: string; work
           nodeTypes={workflowNodeTypes}
           onNodeClick={(_, node) => setSelectedNodeId(node.id)}
           onPaneClick={() => setSelectedNodeId(null)}
+          defaultEdgeOptions={{ type: "smoothstep", style: { strokeWidth: 1.5 } }}
           fitView
         >
-          <Background />
-          <Controls showInteractive={false} />
-          <MiniMap pannable zoomable className="!bg-background" />
+          <Background gap={16} />
+          <Controls showInteractive={false} className="!rounded-xl !border !shadow-md" />
+          <MiniMap pannable zoomable className="!rounded-xl !border !bg-background !shadow-md" />
 
           <Panel position="top-right" className="flex flex-col gap-2">
             <Button

@@ -536,6 +536,9 @@ export type WorkflowNodeKind =
 	| "generate_video"
 	| "edit_video"
 	| "agent"
+	| "http_request"
+	| "delay"
+	| "condition"
 	| "output";
 
 /** See packages/db/src/schema/sqlite/app.ts's WorkflowDefinition doc comment
@@ -547,7 +550,15 @@ export interface WorkflowDefinition {
 		position: { x: number; y: number };
 		data: Record<string, unknown>;
 	}[];
-	edges: { id: string; source: string; target: string }[];
+	edges: {
+		id: string;
+		source: string;
+		target: string;
+		/** Which of a source node's output handles this edge leaves from —
+		 * only meaningful for multi-output kinds like "condition" (true/false).
+		 * Undefined for every single-output kind. */
+		sourceHandle?: string | null;
+	}[];
 	viewport?: { x: number; y: number; zoom: number };
 }
 

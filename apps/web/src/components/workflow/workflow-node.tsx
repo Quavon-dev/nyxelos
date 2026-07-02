@@ -29,6 +29,12 @@ function summarize(kind: WorkflowNodeKind, data: Record<string, unknown>): strin
       return EDIT_OPERATION_LABELS[data.operation as string] ?? "Trim";
     case "agent":
       return (data.instruction as string) || "Uses connected input";
+    case "http_request":
+      return (data.url as string) || "No URL set";
+    case "delay":
+      return `Wait ${(data.seconds as number) ?? 5}s`;
+    case "condition":
+      return data.value ? `Contains "${data.value}"?` : "No condition set";
     case "output":
       return (data.label as string) || "Final result";
   }
@@ -90,12 +96,29 @@ function makeWorkflowNodeComponent(kind: WorkflowNodeKind) {
             <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
           )}
         </div>
-        {meta.hasOutput && (
-          <Handle
-            type="source"
-            position={Position.Bottom}
-            className="!size-2.5 !border-2 !border-background !bg-muted-foreground"
-          />
+        {meta.outputs ? (
+          <div className="flex justify-around border-t px-3 py-1">
+            {meta.outputs.map((output) => (
+              <div key={output.id} className="relative px-2 pb-1 text-[10px] text-muted-foreground">
+                {output.label}
+                <Handle
+                  type="source"
+                  id={output.id}
+                  position={Position.Bottom}
+                  className="!size-2.5 !border-2 !border-background !bg-muted-foreground"
+                  style={{ left: "50%" }}
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          meta.hasOutput && (
+            <Handle
+              type="source"
+              position={Position.Bottom}
+              className="!size-2.5 !border-2 !border-background !bg-muted-foreground"
+            />
+          )
         )}
       </div>
     );

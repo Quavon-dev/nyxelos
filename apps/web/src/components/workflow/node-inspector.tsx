@@ -296,6 +296,67 @@ export function NodeInspector({
           </>
         )}
 
+        {kind === "http_request" && (
+          <>
+            <div className="space-y-1.5">
+              <Label>URL</Label>
+              <Input
+                value={(data.url as string) ?? ""}
+                onChange={(e) => set({ url: e.target.value })}
+                placeholder="https://example.com/webhook"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Method</Label>
+              <Select
+                value={(data.method as string) ?? "GET"}
+                onValueChange={(v) => set({ method: v })}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="GET">GET</SelectItem>
+                  <SelectItem value="POST">POST</SelectItem>
+                  <SelectItem value="PUT">PUT</SelectItem>
+                  <SelectItem value="PATCH">PATCH</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Whatever's connected as input is sent as the request body (POST/PUT/PATCH) or ignored
+              (GET). The response body becomes this node's text output.
+            </p>
+          </>
+        )}
+
+        {kind === "delay" && (
+          <div className="space-y-1.5">
+            <Label>Seconds to wait</Label>
+            <Input
+              type="number"
+              min={0}
+              value={(data.seconds as number) ?? 5}
+              onChange={(e) => set({ seconds: Number(e.target.value) })}
+            />
+          </div>
+        )}
+
+        {kind === "condition" && (
+          <div className="space-y-1.5">
+            <Label>If the connected text contains</Label>
+            <Input
+              value={(data.value as string) ?? ""}
+              onChange={(e) => set({ value: e.target.value })}
+              placeholder="e.g. portrait"
+            />
+            <p className="text-xs text-muted-foreground">
+              Case-insensitive. Connect this node's "True" handle to what should run when it
+              matches, and "False" to what should run otherwise.
+            </p>
+          </div>
+        )}
+
         {kind === "output" && (
           <div className="space-y-1.5">
             <Label>Label (optional)</Label>

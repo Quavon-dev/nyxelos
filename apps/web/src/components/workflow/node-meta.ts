@@ -2,7 +2,10 @@ import {
   Bot,
   CheckCircle2,
   Clapperboard,
+  Clock,
   FileVideo,
+  GitBranch,
+  Globe,
   ImagePlus,
   type LucideIcon,
   Scissors,
@@ -11,11 +14,16 @@ import {
 } from "lucide-react";
 import type { WorkflowNodeKind } from "@/lib/trpc";
 
+export type NodeKindCategory = "Inputs" | "Generate" | "Flow" | "Output";
+
 export interface NodeKindMeta {
   kind: WorkflowNodeKind;
   label: string;
   description: string;
   icon: LucideIcon;
+  /** Grouping for the add-node panel — matches the reference editor's
+   * categorized "What happens next?" list. */
+  category: NodeKindCategory;
   /** Whether this kind accepts an incoming edge / produces an outgoing one —
    * drives which handles WorkflowNode renders and what the add-node panel
    * explains. */
@@ -25,11 +33,16 @@ export interface NodeKindMeta {
    * a distinct identity on the canvas and in the add-node panel, same idea
    * as n8n's per-integration colored icon chips. */
   accent: string;
+  /** Named output handles for multi-output kinds (currently only
+   * "condition"'s true/false branches) — overrides the single default
+   * output handle `hasOutput` alone would render. */
+  outputs?: { id: string; label: string }[];
 }
 
 export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
   text_prompt: {
     kind: "text_prompt",
+    category: "Inputs",
     label: "Text Prompt",
     description: "A fixed piece of prompt text to feed downstream nodes.",
     icon: Type,
@@ -39,6 +52,7 @@ export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
   },
   image_upload: {
     kind: "image_upload",
+    category: "Inputs",
     label: "Image",
     description: "An existing image from the Library.",
     icon: ImagePlus,
@@ -48,6 +62,7 @@ export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
   },
   video_upload: {
     kind: "video_upload",
+    category: "Inputs",
     label: "Video",
     description: "An existing video from the Library.",
     icon: FileVideo,
@@ -57,6 +72,7 @@ export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
   },
   generate_image: {
     kind: "generate_image",
+    category: "Generate",
     label: "Generate Image",
     description: "Generate an image from a prompt (and optional reference image).",
     icon: Sparkles,
@@ -66,6 +82,7 @@ export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
   },
   generate_video: {
     kind: "generate_video",
+    category: "Generate",
     label: "Generate Video",
     description: "Generate a video from a prompt (and optional reference image).",
     icon: Clapperboard,
@@ -75,6 +92,7 @@ export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
   },
   edit_video: {
     kind: "edit_video",
+    category: "Generate",
     label: "Edit Video",
     description: "Trim, mute, adjust volume/speed, extract a frame, or render a GIF.",
     icon: Scissors,
@@ -84,6 +102,7 @@ export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
   },
   agent: {
     kind: "agent",
+    category: "Generate",
     label: "Agent",
     description: "Hand this step off to one of the workspace's agents and use its reply.",
     icon: Bot,
@@ -91,8 +110,43 @@ export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
     hasOutput: true,
     accent: "bg-indigo-500/15 text-indigo-500",
   },
+  http_request: {
+    kind: "http_request",
+    category: "Flow",
+    label: "HTTP Request",
+    description: "Call a URL with the connected input and capture the response as text.",
+    icon: Globe,
+    hasInput: true,
+    hasOutput: true,
+    accent: "bg-teal-500/15 text-teal-500",
+  },
+  delay: {
+    kind: "delay",
+    category: "Flow",
+    label: "Delay",
+    description: "Wait a fixed number of seconds before passing the input along.",
+    icon: Clock,
+    hasInput: true,
+    hasOutput: true,
+    accent: "bg-slate-500/15 text-slate-500",
+  },
+  condition: {
+    kind: "condition",
+    category: "Flow",
+    label: "Condition",
+    description: "Branch the workflow depending on whether the input text matches a value.",
+    icon: GitBranch,
+    hasInput: true,
+    hasOutput: true,
+    accent: "bg-fuchsia-500/15 text-fuchsia-500",
+    outputs: [
+      { id: "true", label: "True" },
+      { id: "false", label: "False" },
+    ],
+  },
   output: {
     kind: "output",
+    category: "Output",
     label: "Output",
     description: "Marks a result as one of this workflow's final outputs.",
     icon: CheckCircle2,
@@ -110,6 +164,9 @@ export const NODE_KIND_ORDER: WorkflowNodeKind[] = [
   "generate_video",
   "edit_video",
   "agent",
+  "http_request",
+  "delay",
+  "condition",
   "output",
 ];
 
@@ -131,6 +188,12 @@ export function defaultNodeData(kind: WorkflowNodeKind): Record<string, unknown>
       return { operation: "trim" };
     case "agent":
       return { agentId: null, instruction: "" };
+    case "http_request":
+      return { url: "", method: "GET" };
+    case "delay":
+      return { seconds: 5 };
+    case "condition":
+      return { value: "" };
     case "output":
       return { label: "" };
   }

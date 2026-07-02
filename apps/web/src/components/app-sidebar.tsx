@@ -51,6 +51,7 @@ import { useInstallation } from "@/lib/use-installation";
 // instead of shipping component references over tRPC.
 const EXTENSION_ICON_MAP: Record<string, typeof Puzzle> = {
   TrendingUp,
+  Film,
 };
 
 export function AppSidebar() {
@@ -71,17 +72,13 @@ export function AppSidebar() {
   });
   const pendingCount = pendingApprovalsQuery.data?.length ?? 0;
 
-  // Popping dot on "Chat"/"Video Studio" when a generation finishes
-  // elsewhere in the app — see use-app-notifications.ts, which relays the
-  // same push events the service worker receives. Cleared once the user
-  // actually visits that section.
+  // Popping dot on "Chat" when a generation finishes elsewhere in the app —
+  // see use-app-notifications.ts, which relays the same push events the
+  // service worker receives. Cleared once the user actually visits that
+  // section.
   const chatUnseen = useUnseenNotificationBadge("/chat");
-  const videoStudioUnseen = useUnseenNotificationBadge("/video-studio");
   useEffect(() => {
     if (pathname.startsWith("/chat")) markNotificationSeen("/chat");
-    if (pathname.startsWith("/workspace") && pathname.includes("/video-studio")) {
-      markNotificationSeen("/video-studio");
-    }
   }, [pathname]);
 
   // Installed + enabled extensions render as their own sidebar group below
@@ -142,12 +139,6 @@ export function AppSidebar() {
           href: `/workspace/${workspaceId}/library`,
           label: "Library",
           icon: Images,
-        },
-        {
-          href: `/workspace/${workspaceId}/video-studio`,
-          label: "Video Studio",
-          icon: Film,
-          dot: videoStudioUnseen > 0,
         },
         {
           href: `/workspace/${workspaceId}/workflows`,
