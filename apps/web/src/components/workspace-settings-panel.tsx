@@ -6,6 +6,7 @@ import {
   NotebookPen,
   Plug,
   Puzzle,
+  Router,
   Search,
   Settings2,
   ShieldCheck,
@@ -33,6 +34,7 @@ import {
   type ChatToolPolicy,
   type CliProviderKind,
   DEFAULT_CHAT_TOOL_POLICY,
+  type OpenRouterModel,
   type ProbedModelProvider,
   trpcClient,
 } from "@/lib/trpc";
@@ -324,6 +326,165 @@ function CliProviderCard({
             <p className="text-xs text-destructive">{(install.error as Error).message}</p>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+/** OpenRouter card — enter an API key, fetch its full model catalog directly
+ * from OpenRouter, then import all (or a hand-picked subset) as one workspace
+ * provider installation. The catalog fetch itself needs no key (OpenRouter's
+ * `/models` list is public); the key is only required to actually install,
+ * since that's what generation calls will authenticate with. */
+function OpenRouterProviderCard({
+  workspaceId,
+  queryClient,
+}: {
+  workspaceId: string;
+  queryClient: QueryClient;
+}) {
+  const [apiKey, setApiKey] = useState("");
+  const [label, setLabel] = useState("OpenRouter");
+  const [models, setModels] = useState<OpenRouterModel[] | null>(null);
+  const [selectedModelIds, setSelectedModelIds] = useState<Set<string>>(new Set());
+
+  const fetchModels = useMutation({
+    mutationFn: () => trpcClient.models.listOpenRouterModels.query({ apiKey: apiKey.trim() || undefined }),
+    onSuccess: (result) => {
+      setModels(result);
+      setSelectedModelIds(new Set(result.map((model) => model.id)));
+    },
+  });
+
+  const install = useMutation({
+    mutationFn: () =>
+      trpcClient.models.installOpenRouter.mutate({
+        workspaceId,
+        label: label.trim() || "OpenRouter",
+        apiKey: apiKey.trim(),
+        modelIds: Array.from(selectedModelIds),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["models", "installations", workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["models", "list", workspaceId] });
+      setModels(null);
+      setSelectedModelIds(new Set());
+      setApiKey("");
+    },
+  });
+
+  function toggleModel(id: string, checked: boolean) {
+    setSelectedModelIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h4 className="text-sm font-medium">OpenRouter</h4>
+          <p className="text-xs text-muted-foreground">
+            One API key, hundreds of models from every major lab.
+          </p>
+        </div>
+        <Badge variant="secondary" className="text-[10px]">
+          openrouter.ai
+        </Badge>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <Input
+          placeholder="Label (optional)"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          className="h-8"
+        />
+        <Input
+          placeholder="OpenRouter API key (sk-or-...)"
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          className="h-8"
+        />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => fetchModels.mutate()}
+          disabled={fetchModels.isPending}
+        >
+          {fetchModels.isPending ? "Fetching…" : "Fetch models"}
+        </Button>
+        {models && models.length > 0 && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedModelIds(new Set(models.map((m) => m.id)))}
+            >
+              Select all
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedModelIds(new Set())}>
+              Select none
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {selectedModelIds.size} of {models.length} selected
+            </span>
+          </>
+        )}
+      </div>
+
+      {fetchModels.isError && (
+        <p className="text-xs text-destructive">{(fetchModels.error as Error).message}</p>
+      )}
+
+      {models && models.length === 0 && (
+        <p className="text-xs text-destructive">
+          No models returned — OpenRouter may be unreachable, or the API key is invalid.
+        </p>
+      )}
+
+      {models && models.length > 0 && (
+        <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2">
+          {models.map((model) => (
+            <label
+              key={model.id}
+              className="flex items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-muted/60"
+            >
+              <Checkbox
+                checked={selectedModelIds.has(model.id)}
+                onCheckedChange={(checked) => toggleModel(model.id, checked === true)}
+              />
+              <span className="min-w-0 flex-1 truncate">{model.label}</span>
+              <span className="shrink-0 text-muted-foreground">{model.id}</span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      <Button
+        size="sm"
+        onClick={() => install.mutate()}
+        disabled={
+          install.isPending ||
+          !apiKey.trim() ||
+          !models ||
+          models.length === 0 ||
+          selectedModelIds.size === 0
+        }
+      >
+        {install.isPending
+          ? "Importing…"
+          : `Import ${selectedModelIds.size || ""} model${selectedModelIds.size === 1 ? "" : "s"}`.trim()}
+      </Button>
+      {install.isError && (
+        <p className="text-xs text-destructive">{(install.error as Error).message}</p>
       )}
     </div>
   );
@@ -980,6 +1141,14 @@ export function WorkspaceSettingsPanel({
                   queryClient={queryClient}
                 />
               </div>
+            </div>
+
+            <div className="space-y-3 border-t pt-6">
+              <div className="flex items-center gap-2">
+                <Router className="size-4 text-muted-foreground" />
+                <h3 className="text-sm font-medium">Cloud aggregators</h3>
+              </div>
+              <OpenRouterProviderCard workspaceId={workspaceId} queryClient={queryClient} />
             </div>
 
             <div className="space-y-3 border-t pt-6">

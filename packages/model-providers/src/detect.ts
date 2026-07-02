@@ -86,6 +86,40 @@ export function getLmStudioApiKey(): string | undefined {
   );
 }
 
+export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+
+export interface OpenRouterModel {
+  id: string;
+  label: string;
+  contextLength: number | null;
+}
+
+/** OpenRouter's `/models` catalog is public (no key required to list), so
+ * this is used both for the settings-panel "fetch models" step (which may
+ * run before the user has pasted a key) and for env-based auto-import. */
+export async function fetchOpenRouterModels(apiKey?: string | null): Promise<OpenRouterModel[]> {
+  const result = await safeFetchJson<{
+    data?: Array<{ id: string; name?: string; context_length?: number }>;
+  }>(
+    `${OPENROUTER_BASE_URL}/models`,
+    apiKey
+      ? {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+          },
+        }
+      : undefined,
+    5000,
+  );
+  if (!result.ok || !result.data?.data) return [];
+
+  return result.data.data.map((model) => ({
+    id: model.id,
+    label: model.name?.trim() || model.id,
+    contextLength: model.context_length ?? null,
+  }));
+}
+
 export function normalizeOpenAiCompatibleBaseUrl(baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/+$/, "");
   return trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : trimmed;

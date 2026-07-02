@@ -13,6 +13,7 @@ export type InstallationMode = "pc" | "server";
 export type ModelProviderKind =
 	| "anthropic"
 	| "openai"
+	| "openrouter"
 	| "openai_compatible"
 	| "claude_cli"
 	| "codex_cli";
