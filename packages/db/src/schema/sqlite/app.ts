@@ -137,6 +137,28 @@ export type AutomationTriggerType = "cron" | "file_watch";
 export type AutomationTargetKind = "agent" | "workflow";
 export type AutomationRunStatus = "success" | "error" | "pending_approval";
 
+export type MemoryType =
+	| "user_preference"
+	| "workspace_fact"
+	| "project_decision"
+	| "agent_observation"
+	| "task_summary"
+	| "file_summary"
+	| "repo_summary"
+	| "long_term_note";
+export type MemorySource = "user" | "agent" | "automation" | "system";
+export type ArtifactType =
+	| "text"
+	| "markdown"
+	| "code_patch"
+	| "diff"
+	| "file"
+	| "report"
+	| "json"
+	| "image_reference"
+	| "task_result"
+	| "command_output";
+
 /** See ../pg/app.ts. */
 export type LibraryItemKind = "image" | "document" | "video" | "other";
 
@@ -642,6 +664,13 @@ export const approvalRequest = sqliteTable("approval_request", {
 	errorMessage: text("error_message"),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 	resolvedAt: integer("resolved_at", { mode: "timestamp" }),
+	// See ../pg/app.ts for the rationale — additive/nullable richer
+	// approval-dialog context (ADR-0017).
+	title: text("title"),
+	description: text("description"),
+	riskLevel: text("risk_level"),
+	affectedResources: text("affected_resources", { mode: "json" }).$type<string[]>(),
+	diffPreview: text("diff_preview"),
 });
 
 export const auditLog = sqliteTable("audit_log", {
@@ -661,6 +690,46 @@ export const auditLog = sqliteTable("audit_log", {
 	input: text("input", { mode: "json" }).$type<unknown>(),
 	output: text("output", { mode: "json" }).$type<unknown>(),
 	status: text("status").notNull().$type<AuditStatus>(),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+	// See ../pg/app.ts for the rationale — additive/nullable (ADR-0017).
+	inputHash: text("input_hash"),
+	permissionSnapshot: text("permission_snapshot", { mode: "json" }).$type<
+		Record<string, unknown>
+	>(),
+});
+
+/** See ../pg/app.ts. */
+export const memoryEntry = sqliteTable("memory_entry", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	type: text("type").notNull().$type<MemoryType>(),
+	content: text("content").notNull(),
+	source: text("source").notNull().$type<MemorySource>(),
+	confidence: real("confidence").notNull().default(1),
+	createdByAgentId: text("created_by_agent_id").references(() => agent.id, {
+		onDelete: "set null",
+	}),
+	expiresAt: integer("expires_at", { mode: "timestamp" }),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+/** See ../pg/app.ts. */
+export const artifact = sqliteTable("artifact", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	type: text("type").notNull().$type<ArtifactType>(),
+	title: text("title").notNull(),
+	content: text("content").notNull(),
+	taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
+	agentRunId: text("agent_run_id").references(() => agentRun.id, {
+		onDelete: "set null",
+	}),
+	agentId: text("agent_id").references(() => agent.id, { onDelete: "set null" }),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

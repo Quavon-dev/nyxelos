@@ -232,6 +232,13 @@
       "when": 1783016354300,
       "tag": "0032_vengeful_morph",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1783020002324,
+      "tag": "0033_small_the_hood",
+      "breakpoints": true
     }
   ]
 }

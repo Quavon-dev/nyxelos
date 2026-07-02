@@ -253,6 +253,13 @@
       "when": 1783016353788,
       "tag": "0035_optimal_rogue",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1783020001601,
+      "tag": "0036_colorful_cammi",
+      "breakpoints": true
     }
   ]
 }

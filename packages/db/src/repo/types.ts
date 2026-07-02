@@ -361,6 +361,11 @@ export interface ApprovalRequestRecord {
 	errorMessage: string | null;
 	createdAt: Date;
 	resolvedAt: Date | null;
+	title: string | null;
+	description: string | null;
+	riskLevel: string | null;
+	affectedResources: string[] | null;
+	diffPreview: string | null;
 }
 
 export interface AuditLogRecord {
@@ -374,6 +379,56 @@ export interface AuditLogRecord {
 	input: unknown;
 	output: unknown;
 	status: AuditStatus;
+	createdAt: Date;
+	inputHash: string | null;
+	permissionSnapshot: Record<string, unknown> | null;
+}
+
+export type MemoryType =
+	| "user_preference"
+	| "workspace_fact"
+	| "project_decision"
+	| "agent_observation"
+	| "task_summary"
+	| "file_summary"
+	| "repo_summary"
+	| "long_term_note";
+export type MemorySource = "user" | "agent" | "automation" | "system";
+
+export interface MemoryEntryRecord {
+	id: string;
+	workspaceId: string;
+	type: MemoryType;
+	content: string;
+	source: MemorySource;
+	confidence: number;
+	createdByAgentId: string | null;
+	expiresAt: Date | null;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+export type ArtifactType =
+	| "text"
+	| "markdown"
+	| "code_patch"
+	| "diff"
+	| "file"
+	| "report"
+	| "json"
+	| "image_reference"
+	| "task_result"
+	| "command_output";
+
+export interface ArtifactRecord {
+	id: string;
+	workspaceId: string;
+	type: ArtifactType;
+	title: string;
+	content: string;
+	taskId: string | null;
+	agentRunId: string | null;
+	agentId: string | null;
 	createdAt: Date;
 }
 
@@ -1102,6 +1157,11 @@ export interface DbRepository {
 		mcpToolName?: string | null;
 		toolLabel: string;
 		input: Record<string, unknown>;
+		title?: string | null;
+		description?: string | null;
+		riskLevel?: string | null;
+		affectedResources?: string[] | null;
+		diffPreview?: string | null;
 	}): Promise<ApprovalRequestRecord>;
 	listApprovalsByWorkspace(
 		workspaceId: string,
@@ -1125,11 +1185,46 @@ export interface DbRepository {
 		input?: unknown;
 		output?: unknown;
 		status: AuditStatus;
+		inputHash?: string | null;
+		permissionSnapshot?: Record<string, unknown> | null;
 	}): Promise<AuditLogRecord>;
 	listAuditLogByWorkspace(
 		workspaceId: string,
 		limit?: number,
 	): Promise<AuditLogRecord[]>;
+
+	createMemoryEntry(input: {
+		workspaceId: string;
+		type: MemoryType;
+		content: string;
+		source: MemorySource;
+		confidence?: number;
+		createdByAgentId?: string | null;
+		expiresAt?: Date | null;
+	}): Promise<MemoryEntryRecord>;
+	listMemoryEntriesByWorkspace(
+		workspaceId: string,
+		type?: MemoryType,
+	): Promise<MemoryEntryRecord[]>;
+	getMemoryEntry(id: string): Promise<MemoryEntryRecord | null>;
+	updateMemoryEntry(
+		id: string,
+		input: { content?: string; confidence?: number; expiresAt?: Date | null },
+	): Promise<MemoryEntryRecord>;
+	deleteMemoryEntry(id: string): Promise<void>;
+
+	createArtifact(input: {
+		workspaceId: string;
+		type: ArtifactType;
+		title: string;
+		content: string;
+		taskId?: string | null;
+		agentRunId?: string | null;
+		agentId?: string | null;
+	}): Promise<ArtifactRecord>;
+	listArtifactsByWorkspace(workspaceId: string): Promise<ArtifactRecord[]>;
+	listArtifactsByTask(taskId: string): Promise<ArtifactRecord[]>;
+	getArtifact(id: string): Promise<ArtifactRecord | null>;
 
 	installExtension(input: {
 		workspaceId: string;

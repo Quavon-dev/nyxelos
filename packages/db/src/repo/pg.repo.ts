@@ -1495,6 +1495,11 @@ export function createPgRepository(connectionString: string): DbRepository {
 			mcpToolName,
 			toolLabel,
 			input,
+			title,
+			description,
+			riskLevel,
+			affectedResources,
+			diffPreview,
 		}) {
 			const [row] = await db
 				.insert(schema.approvalRequest)
@@ -1514,6 +1519,11 @@ export function createPgRepository(connectionString: string): DbRepository {
 					toolLabel,
 					input,
 					status: "pending",
+					title: title ?? null,
+					description: description ?? null,
+					riskLevel: riskLevel ?? null,
+					affectedResources: affectedResources ?? null,
+					diffPreview: diffPreview ?? null,
 				})
 				.returning();
 			if (!row) throw new Error("Failed to create approval request");
@@ -1566,6 +1576,8 @@ export function createPgRepository(connectionString: string): DbRepository {
 			input,
 			output,
 			status,
+			inputHash,
+			permissionSnapshot,
 		}) {
 			const [row] = await db
 				.insert(schema.auditLog)
@@ -1580,6 +1592,8 @@ export function createPgRepository(connectionString: string): DbRepository {
 					input: input ?? null,
 					output: output ?? null,
 					status,
+					inputHash: inputHash ?? null,
+					permissionSnapshot: permissionSnapshot ?? null,
 				})
 				.returning();
 			if (!row) throw new Error("Failed to create audit log entry");
@@ -1593,6 +1607,113 @@ export function createPgRepository(connectionString: string): DbRepository {
 				.where(eq(schema.auditLog.workspaceId, workspaceId))
 				.orderBy(desc(schema.auditLog.createdAt))
 				.limit(limit);
+		},
+
+		async createMemoryEntry({
+			workspaceId,
+			type,
+			content,
+			source,
+			confidence,
+			createdByAgentId,
+			expiresAt,
+		}) {
+			const now = new Date();
+			const [row] = await db
+				.insert(schema.memoryEntry)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					type,
+					content,
+					source,
+					confidence: confidence ?? 1,
+					createdByAgentId: createdByAgentId ?? null,
+					expiresAt: expiresAt ?? null,
+					createdAt: now,
+					updatedAt: now,
+				})
+				.returning();
+			if (!row) throw new Error("Failed to create memory entry");
+			return row;
+		},
+
+		async listMemoryEntriesByWorkspace(workspaceId, type) {
+			const condition = type
+				? and(eq(schema.memoryEntry.workspaceId, workspaceId), eq(schema.memoryEntry.type, type))
+				: eq(schema.memoryEntry.workspaceId, workspaceId);
+			return db
+				.select()
+				.from(schema.memoryEntry)
+				.where(condition)
+				.orderBy(desc(schema.memoryEntry.updatedAt));
+		},
+
+		async getMemoryEntry(id) {
+			const row = await db.query.memoryEntry.findFirst({
+				where: eq(schema.memoryEntry.id, id),
+			});
+			return row ?? null;
+		},
+
+		async updateMemoryEntry(id, { content, confidence, expiresAt }) {
+			const [row] = await db
+				.update(schema.memoryEntry)
+				.set({
+					...(content !== undefined ? { content } : {}),
+					...(confidence !== undefined ? { confidence } : {}),
+					...(expiresAt !== undefined ? { expiresAt } : {}),
+					updatedAt: new Date(),
+				})
+				.where(eq(schema.memoryEntry.id, id))
+				.returning();
+			if (!row) throw new Error(`Memory entry not found: ${id}`);
+			return row;
+		},
+
+		async deleteMemoryEntry(id) {
+			await db.delete(schema.memoryEntry).where(eq(schema.memoryEntry.id, id));
+		},
+
+		async createArtifact({ workspaceId, type, title, content, taskId, agentRunId, agentId }) {
+			const [row] = await db
+				.insert(schema.artifact)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					type,
+					title,
+					content,
+					taskId: taskId ?? null,
+					agentRunId: agentRunId ?? null,
+					agentId: agentId ?? null,
+				})
+				.returning();
+			if (!row) throw new Error("Failed to create artifact");
+			return row;
+		},
+
+		async listArtifactsByWorkspace(workspaceId) {
+			return db
+				.select()
+				.from(schema.artifact)
+				.where(eq(schema.artifact.workspaceId, workspaceId))
+				.orderBy(desc(schema.artifact.createdAt));
+		},
+
+		async listArtifactsByTask(taskId) {
+			return db
+				.select()
+				.from(schema.artifact)
+				.where(eq(schema.artifact.taskId, taskId))
+				.orderBy(desc(schema.artifact.createdAt));
+		},
+
+		async getArtifact(id) {
+			const row = await db.query.artifact.findFirst({
+				where: eq(schema.artifact.id, id),
+			});
+			return row ?? null;
 		},
 
 		async installExtension({ workspaceId, key, config }) {

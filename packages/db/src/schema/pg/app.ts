@@ -196,6 +196,37 @@ export const automationRunStatus = pgEnum("automation_run_status", [
 	"pending_approval",
 ]);
 
+export const memoryType = pgEnum("memory_type", [
+	"user_preference",
+	"workspace_fact",
+	"project_decision",
+	"agent_observation",
+	"task_summary",
+	"file_summary",
+	"repo_summary",
+	"long_term_note",
+]);
+
+export const memorySource = pgEnum("memory_source", [
+	"user",
+	"agent",
+	"automation",
+	"system",
+]);
+
+export const artifactType = pgEnum("artifact_type", [
+	"text",
+	"markdown",
+	"code_patch",
+	"diff",
+	"file",
+	"report",
+	"json",
+	"image_reference",
+	"task_result",
+	"command_output",
+]);
+
 /** A workspace is the top-level category a user sorts chats, agents, and
  * automations into (e.g. "Work", "Personal"). See ARCHITECTURE.md section 5. */
 export const installation = pgTable("installation", {
@@ -695,6 +726,20 @@ export const approvalRequest = pgTable("approval_request", {
 	errorMessage: text("error_message"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	resolvedAt: timestamp("resolved_at"),
+	// Richer approval-dialog context (ADR-0017) — all nullable/additive so
+	// existing rows and callers that don't populate them are unaffected.
+	// `title`/`description` are human-facing summaries generated at
+	// defer-time; `riskLevel` mirrors PermissionRisk from
+	// @nyxel/core-agent-engine (kept as plain text here, not a pg enum, for
+	// the same reason `tool.kind` isn't one — see tool.kind's comment);
+	// `affectedResources` lists file paths / URLs / resource ids the action
+	// touches; `diffPreview` carries a unified diff or command string so the
+	// approval UI can render a preview without re-deriving one.
+	title: text("title"),
+	description: text("description"),
+	riskLevel: text("risk_level"),
+	affectedResources: jsonb("affected_resources").$type<string[]>(),
+	diffPreview: text("diff_preview"),
 });
 
 /** Immutable record of every tool/agent action taken, satisfying the "every
@@ -716,6 +761,57 @@ export const auditLog = pgTable("audit_log", {
 	input: jsonb("input").$type<unknown>(),
 	output: jsonb("output").$type<unknown>(),
 	status: auditStatus("status").notNull(),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	// Permission-layer bookkeeping (ADR-0017), both nullable/additive.
+	// `inputHash` is a SHA-256 of the canonicalized input (hashToolInput in
+	// @nyxel/core-agent-engine) — lets two calls with identical arguments be
+	// recognized without keeping raw input around indefinitely, and keeps a
+	// leaked audit row from also leaking secrets that happened to be part of
+	// an input. `permissionSnapshot` is the PermissionSnapshot at call time
+	// (category/risk/autonomy level/policy mode/whether approval was
+	// required) so "why was this allowed" survives later policy changes.
+	inputHash: text("input_hash"),
+	permissionSnapshot: jsonb("permission_snapshot").$type<Record<string, unknown>>(),
+});
+
+/** A single unit of controlled, workspace-scoped agent memory (ADR-0017).
+ * Not a free-form scratchpad — every entry has a declared `type`, a
+ * `source` (who/what wrote it), and a `confidence`, and is always
+ * user-editable/deletable from the workspace's Memory page. */
+export const memoryEntry = pgTable("memory_entry", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	type: memoryType("type").notNull(),
+	content: text("content").notNull(),
+	source: memorySource("source").notNull(),
+	confidence: doublePrecision("confidence").notNull().default(1),
+	createdByAgentId: text("created_by_agent_id").references(() => agent.id, {
+		onDelete: "set null",
+	}),
+	expiresAt: timestamp("expires_at"),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** A durable result an agent run produces beyond plain chat text — a code
+ * patch, a diff, a generated report, a command's captured output — so it
+ * can be linked from a task/run and browsed independently of the chat
+ * transcript that produced it (ADR-0017). */
+export const artifact = pgTable("artifact", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	type: artifactType("type").notNull(),
+	title: text("title").notNull(),
+	content: text("content").notNull(),
+	taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
+	agentRunId: text("agent_run_id").references(() => agentRun.id, {
+		onDelete: "set null",
+	}),
+	agentId: text("agent_id").references(() => agent.id, { onDelete: "set null" }),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

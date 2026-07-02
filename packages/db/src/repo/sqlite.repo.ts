@@ -1700,6 +1700,11 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			mcpToolName,
 			toolLabel,
 			input,
+			title,
+			description,
+			riskLevel,
+			affectedResources,
+			diffPreview,
 		}) {
 			const row = db
 				.insert(schema.approvalRequest)
@@ -1720,6 +1725,11 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					input,
 					status: "pending",
 					createdAt: new Date(),
+					title: title ?? null,
+					description: description ?? null,
+					riskLevel: riskLevel ?? null,
+					affectedResources: affectedResources ?? null,
+					diffPreview: diffPreview ?? null,
 				})
 				.returning()
 				.get();
@@ -1776,6 +1786,8 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			input,
 			output,
 			status,
+			inputHash,
+			permissionSnapshot,
 		}) {
 			const row = db
 				.insert(schema.auditLog)
@@ -1791,6 +1803,8 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					output: output ?? null,
 					status,
 					createdAt: new Date(),
+					inputHash: inputHash ?? null,
+					permissionSnapshot: permissionSnapshot ?? null,
 				})
 				.returning()
 				.get();
@@ -1805,6 +1819,118 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.orderBy(desc(schema.auditLog.createdAt))
 				.limit(limit)
 				.all();
+		},
+
+		async createMemoryEntry({
+			workspaceId,
+			type,
+			content,
+			source,
+			confidence,
+			createdByAgentId,
+			expiresAt,
+		}) {
+			const now = new Date();
+			const row = db
+				.insert(schema.memoryEntry)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					type,
+					content,
+					source,
+					confidence: confidence ?? 1,
+					createdByAgentId: createdByAgentId ?? null,
+					expiresAt: expiresAt ?? null,
+					createdAt: now,
+					updatedAt: now,
+				})
+				.returning()
+				.get();
+			return row;
+		},
+
+		async listMemoryEntriesByWorkspace(workspaceId, type) {
+			const condition = type
+				? and(eq(schema.memoryEntry.workspaceId, workspaceId), eq(schema.memoryEntry.type, type))
+				: eq(schema.memoryEntry.workspaceId, workspaceId);
+			return db
+				.select()
+				.from(schema.memoryEntry)
+				.where(condition)
+				.orderBy(desc(schema.memoryEntry.updatedAt))
+				.all();
+		},
+
+		async getMemoryEntry(id) {
+			const row = db
+				.select()
+				.from(schema.memoryEntry)
+				.where(eq(schema.memoryEntry.id, id))
+				.get();
+			return row ?? null;
+		},
+
+		async updateMemoryEntry(id, { content, confidence, expiresAt }) {
+			const row = db
+				.update(schema.memoryEntry)
+				.set({
+					...(content !== undefined ? { content } : {}),
+					...(confidence !== undefined ? { confidence } : {}),
+					...(expiresAt !== undefined ? { expiresAt } : {}),
+					updatedAt: new Date(),
+				})
+				.where(eq(schema.memoryEntry.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Memory entry not found: ${id}`);
+			return row;
+		},
+
+		async deleteMemoryEntry(id) {
+			db.delete(schema.memoryEntry).where(eq(schema.memoryEntry.id, id)).run();
+		},
+
+		async createArtifact({ workspaceId, type, title, content, taskId, agentRunId, agentId }) {
+			const row = db
+				.insert(schema.artifact)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					type,
+					title,
+					content,
+					taskId: taskId ?? null,
+					agentRunId: agentRunId ?? null,
+					agentId: agentId ?? null,
+					createdAt: new Date(),
+				})
+				.returning()
+				.get();
+			return row;
+		},
+
+		async listArtifactsByWorkspace(workspaceId) {
+			return db
+				.select()
+				.from(schema.artifact)
+				.where(eq(schema.artifact.workspaceId, workspaceId))
+				.orderBy(desc(schema.artifact.createdAt))
+				.all();
+		},
+
+		async listArtifactsByTask(taskId) {
+			return db
+				.select()
+				.from(schema.artifact)
+				.where(eq(schema.artifact.taskId, taskId))
+				.orderBy(desc(schema.artifact.createdAt))
+				.all();
+		},
+
+		async getArtifact(id) {
+			const row = db.select().from(schema.artifact).where(eq(schema.artifact.id, id)).get();
+			return row ?? null;
 		},
 
 		async installExtension({ workspaceId, key, config }) {
