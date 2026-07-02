@@ -229,10 +229,28 @@ export default function AgentsPage() {
     onSettled: () => setStoppingRunId(null),
   });
 
+  const unusedChatAgentIdsQuery = useQuery({
+    queryKey: ["agents", "unusedChatAgentIds", workspaceId],
+    queryFn: () => trpcClient.agents.listUnusedChatAgentIds.query({ workspaceId }),
+  });
+  const unusedChatAgentCount = unusedChatAgentIdsQuery.data?.length ?? 0;
+
   const cleanupUnusedChatAgents = useMutation({
     mutationFn: () => trpcClient.agents.cleanupUnusedChatAgents.mutate({ workspaceId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agents", workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["agents", "unusedChatAgentIds", workspaceId] });
+    },
+  });
+
+  const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+  const deleteManyAgents = useMutation({
+    mutationFn: (ids: string[]) => trpcClient.agents.deleteMany.mutate({ ids }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["agents", workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["agents", "unusedChatAgentIds", workspaceId] });
+      setSelectedAgentIds(result.errors.map((e) => e.id));
     },
   });
 
@@ -299,11 +317,16 @@ export default function AgentsPage() {
               variant="outline"
               size="sm"
               onClick={() => cleanupUnusedChatAgents.mutate()}
-              disabled={cleanupUnusedChatAgents.isPending}
+              disabled={cleanupUnusedChatAgents.isPending || unusedChatAgentCount === 0}
+              title={
+                unusedChatAgentCount === 0
+                  ? "All one-off chat agents are still in use by a chat."
+                  : undefined
+              }
             >
               {cleanupUnusedChatAgents.isPending
                 ? "Cleaning up…"
-                : `Clean up unused chat agents (${oneOffChatAgentCount})`}
+                : `Clean up unused chat agents (${unusedChatAgentCount})`}
             </Button>
           )}
         </CardHeader>
@@ -314,6 +337,34 @@ export default function AgentsPage() {
               {cleanupUnusedChatAgents.data === 1 ? "" : "s"}.
             </p>
           )}
+          {selectedAgentIds.length > 0 && (
+            <div className="mb-3 flex items-center justify-between rounded-lg border bg-muted/50 px-3 py-2">
+              <p className="text-sm">
+                {selectedAgentIds.length} agent{selectedAgentIds.length === 1 ? "" : "s"} selected
+              </p>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setSelectedAgentIds([])}>
+                  Clear
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setBulkDeleteConfirmOpen(true)}
+                  disabled={deleteManyAgents.isPending}
+                >
+                  <Trash2 className="mr-1 size-3.5" />
+                  Delete selected
+                </Button>
+              </div>
+            </div>
+          )}
+          {deleteManyAgents.data && deleteManyAgents.data.errors.length > 0 && (
+            <p className="mb-3 text-sm text-destructive">
+              Deleted {deleteManyAgents.data.deletedCount}, but{" "}
+              {deleteManyAgents.data.errors.length} couldn't be deleted:{" "}
+              {deleteManyAgents.data.errors.map((e) => `${e.name} (${e.message})`).join("; ")}
+            </p>
+          )}
           {agents.length === 0 ? (
             <p className="text-sm text-muted-foreground">No agents yet.</p>
           ) : (
@@ -321,6 +372,21 @@ export default function AgentsPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
+                    <TableHead className="w-[36px]">
+                      <Checkbox
+                        checked={
+                          agents.length > 0 && selectedAgentIds.length === agents.length
+                            ? true
+                            : selectedAgentIds.length > 0
+                              ? "indeterminate"
+                              : false
+                        }
+                        onCheckedChange={(checked) =>
+                          setSelectedAgentIds(checked ? agents.map((a) => a.id) : [])
+                        }
+                        aria-label="Select all agents"
+                      />
+                    </TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Model</TableHead>
@@ -336,7 +402,16 @@ export default function AgentsPage() {
                   {agents.map((agent) => {
                     const activeRun = activeRunByAgentId.get(agent.id);
                     return (
-                      <TableRow key={agent.id}>
+                      <TableRow key={agent.id} data-state={selectedAgentIds.includes(agent.id) ? "selected" : undefined}>
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedAgentIds.includes(agent.id)}
+                            onCheckedChange={() =>
+                              toggle(selectedAgentIds, agent.id, setSelectedAgentIds)
+                            }
+                            aria-label={`Select ${agent.name}`}
+                          />
+                        </TableCell>
                         <TableCell className="font-medium">
                           <Link
                             href={`/workspace/${workspaceId}/agents/${agent.id}`}
@@ -687,6 +762,31 @@ export default function AgentsPage() {
                 }
               }}
               disabled={deleteAgent.isPending}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {selectedAgentIds.length} agents</DialogTitle>
+            <DialogDescription>
+              This permanently deletes {selectedAgentIds.length} selected agent
+              {selectedAgentIds.length === 1 ? "" : "s"}. Agents still used by an automation or a
+              run in progress are skipped. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter showCloseButton>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                deleteManyAgents.mutate(selectedAgentIds);
+                setBulkDeleteConfirmOpen(false);
+              }}
+              disabled={deleteManyAgents.isPending}
             >
               Delete
             </Button>

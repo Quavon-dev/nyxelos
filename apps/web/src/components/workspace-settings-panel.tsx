@@ -1187,6 +1187,39 @@ export function WorkspaceSettingsPanel({
                           );
                         })}
                       </div>
+                      <div className="flex items-center gap-2 pt-1">
+                        <Input
+                          placeholder="Add model id (e.g. gpt-5.5)"
+                          value={newModelIdByInstallation[provider.id] ?? ""}
+                          onChange={(e) =>
+                            setNewModelIdByInstallation((current) => ({
+                              ...current,
+                              [provider.id]: e.target.value,
+                            }))
+                          }
+                          onKeyDown={(e) => {
+                            const modelId = (newModelIdByInstallation[provider.id] ?? "").trim();
+                            if (e.key === "Enter" && modelId) {
+                              addModel.mutate({ id: provider.id, modelId });
+                            }
+                          }}
+                          className="h-8 text-xs"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 shrink-0"
+                          onClick={() => {
+                            const modelId = (newModelIdByInstallation[provider.id] ?? "").trim();
+                            if (modelId) addModel.mutate({ id: provider.id, modelId });
+                          }}
+                          disabled={
+                            addModel.isPending || !(newModelIdByInstallation[provider.id] ?? "").trim()
+                          }
+                        >
+                          Add
+                        </Button>
+                      </div>
                     </div>
                     <Button
                       variant="outline"

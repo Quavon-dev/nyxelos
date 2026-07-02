@@ -315,6 +315,36 @@ function toMcpConfigResponse(err: McpInvalidConfigurationError) {
 	};
 }
 
+// Shared by agents.delete and agents.deleteMany — throws with a message
+// naming the blocker instead of letting a FOREIGN KEY failure bubble up raw.
+async function deleteAgentGuarded(db: ReturnType<typeof getDb>, id: string) {
+	const agent = await db.getAgent(id);
+	if (!agent) throw new Error(`Unknown agent: ${id}`);
+
+	const automations = await db.listAutomationsByWorkspace(agent.workspaceId);
+	const blockingAutomations = automations.filter((a) => a.agentId === id);
+	if (blockingAutomations.length > 0) {
+		throw new Error(
+			`This agent is used by ${blockingAutomations.length} automation(s) (${blockingAutomations
+				.map((a) => a.name)
+				.join(", ")}) — delete or reassign those first.`,
+		);
+	}
+
+	const runs = await db.listAgentRunsByAgent(id);
+	const hasActiveRun = runs.some(
+		(run) =>
+			run.status === "pending" ||
+			run.status === "running" ||
+			run.status === "waiting_approval",
+	);
+	if (hasActiveRun) {
+		throw new Error("This agent has a run in progress — stop it before deleting the agent.");
+	}
+
+	await db.deleteAgent(id);
+}
+
 export const appRouter = router({
 	health: publicProcedure.query(() => ({ ok: true, name: "nyxel-server" })),
 
@@ -1122,36 +1152,37 @@ export const appRouter = router({
 		delete: publicProcedure
 			.input(z.object({ id: z.string() }))
 			.mutation(async ({ input }) => {
-				const db = getDb();
-				const agent = await db.getAgent(input.id);
-				if (!agent) throw new Error(`Unknown agent: ${input.id}`);
-
-				const automations = await db.listAutomationsByWorkspace(agent.workspaceId);
-				const blockingAutomations = automations.filter((a) => a.agentId === input.id);
-				if (blockingAutomations.length > 0) {
-					throw new Error(
-						`This agent is used by ${blockingAutomations.length} automation(s) (${blockingAutomations
-							.map((a) => a.name)
-							.join(", ")}) — delete or reassign those first.`,
-					);
-				}
-
-				const runs = await db.listAgentRunsByAgent(input.id);
-				const hasActiveRun = runs.some(
-					(run) =>
-						run.status === "pending" ||
-						run.status === "running" ||
-						run.status === "waiting_approval",
-				);
-				if (hasActiveRun) {
-					throw new Error(
-						"This agent has a run in progress — stop it before deleting the agent.",
-					);
-				}
-
-				await db.deleteAgent(input.id);
+				await deleteAgentGuarded(getDb(), input.id);
 				return { ok: true };
 			}),
+		// Deletes each id independently — one agent still in use by an
+		// automation/active run doesn't block the rest of the selection.
+		deleteMany: publicProcedure
+			.input(z.object({ ids: z.array(z.string()).min(1) }))
+			.mutation(async ({ input }) => {
+				const db = getDb();
+				const errors: { id: string; name: string; message: string }[] = [];
+				let deletedCount = 0;
+				for (const id of input.ids) {
+					try {
+						await deleteAgentGuarded(db, id);
+						deletedCount++;
+					} catch (err) {
+						const agent = await db.getAgent(id);
+						errors.push({
+							id,
+							name: agent?.name ?? id,
+							message: err instanceof Error ? err.message : String(err),
+						});
+					}
+				}
+				return { deletedCount, errors };
+			}),
+		// Read-only version of cleanupUnusedChatAgents' filter — lets the UI show
+		// an accurate "N unused" count before the user commits to deleting.
+		listUnusedChatAgentIds: publicProcedure
+			.input(z.object({ workspaceId: z.string() }))
+			.query(({ input }) => getDb().listUnusedChatAgentIds(input.workspaceId)),
 		// Bulk-cleans the "Chat — custom tools" one-off agents that pile up from
 		// repeatedly changing a chat's tool/model selection (see chat/[chatId]
 		// page.tsx's forkAgent) — only removes ones no chat currently points at.

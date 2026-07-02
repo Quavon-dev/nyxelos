@@ -1327,6 +1327,15 @@ type NyxelTrpcClient = {
 		delete: {
 			mutate(input: { id: string }): Promise<{ ok: boolean }>;
 		};
+		deleteMany: {
+			mutate(input: { ids: string[] }): Promise<{
+				deletedCount: number;
+				errors: { id: string; name: string; message: string }[];
+			}>;
+		};
+		listUnusedChatAgentIds: {
+			query(input: { workspaceId: string }): Promise<string[]>;
+		};
 		cleanupUnusedChatAgents: {
 			mutate(input: { workspaceId: string }): Promise<number>;
 		};

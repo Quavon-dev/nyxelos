@@ -11,6 +11,29 @@ export function createPgRepository(connectionString: string): DbRepository {
 	const client = postgres(connectionString);
 	const db = drizzle(client, { schema });
 
+	async function findUnusedChatAgentIds(workspaceId: string) {
+		const usedAgentIds = new Set(
+			(
+				await db
+					.select({ agentId: schema.chat.agentId })
+					.from(schema.chat)
+					.where(eq(schema.chat.workspaceId, workspaceId))
+			)
+				.map((row) => row.agentId)
+				.filter((id): id is string => id !== null),
+		);
+		const candidates = await db
+			.select({ id: schema.agent.id })
+			.from(schema.agent)
+			.where(
+				and(
+					eq(schema.agent.workspaceId, workspaceId),
+					eq(schema.agent.name, "Chat — custom tools"),
+				),
+			);
+		return candidates.map((row) => row.id).filter((id) => !usedAgentIds.has(id));
+	}
+
 	function toWorkspaceRecord(row: typeof schema.workspace.$inferSelect) {
 		return {
 			id: row.id,
@@ -766,29 +789,12 @@ export function createPgRepository(connectionString: string): DbRepository {
 			await db.delete(schema.agent).where(eq(schema.agent.id, agentId));
 		},
 
+		async listUnusedChatAgentIds(workspaceId) {
+			return findUnusedChatAgentIds(workspaceId);
+		},
+
 		async deleteUnusedChatAgents(workspaceId) {
-			const usedAgentIds = new Set(
-				(
-					await db
-						.select({ agentId: schema.chat.agentId })
-						.from(schema.chat)
-						.where(eq(schema.chat.workspaceId, workspaceId))
-				)
-					.map((row) => row.agentId)
-					.filter((id): id is string => id !== null),
-			);
-			const candidates = await db
-				.select({ id: schema.agent.id })
-				.from(schema.agent)
-				.where(
-					and(
-						eq(schema.agent.workspaceId, workspaceId),
-						eq(schema.agent.name, "Chat — custom tools"),
-					),
-				);
-			const idsToDelete = candidates
-				.map((row) => row.id)
-				.filter((id) => !usedAgentIds.has(id));
+			const idsToDelete = await findUnusedChatAgentIds(workspaceId);
 			if (idsToDelete.length === 0) return 0;
 			await db.delete(schema.agent).where(inArray(schema.agent.id, idsToDelete));
 			return idsToDelete.length;

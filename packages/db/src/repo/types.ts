@@ -756,6 +756,10 @@ export interface DbRepository {
 	 * up the pile that builds up from repeatedly tweaking a chat's tool
 	 * toolbar. Returns the number deleted. */
 	deleteUnusedChatAgents(workspaceId: string): Promise<number>;
+	/** Same "unused" definition as deleteUnusedChatAgents but read-only — lets
+	 * the UI show an accurate count before the user commits to deleting, since
+	 * not every agent named "Chat — custom tools" is actually orphaned. */
+	listUnusedChatAgentIds(workspaceId: string): Promise<string[]>;
 
 	createTask(input: {
 		workspaceId: string;
