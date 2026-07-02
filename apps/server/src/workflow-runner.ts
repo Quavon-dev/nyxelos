@@ -8,6 +8,7 @@ import {
 } from "@nyxel/db";
 import { resolveImageModel } from "@nyxel/model-providers";
 import { generateImage, NoImageGeneratedError } from "ai";
+import { executeManagedTask } from "./agent-runtime";
 import { getInstalledProvidersForWorkspace } from "./models";
 import { libraryFileDiskPath, saveLibraryUpload } from "./library";
 import { generateVideo } from "./video";
@@ -152,6 +153,48 @@ async function runEditVideoNode(
   return { kind: "file", libraryFileId: result.file.id };
 }
 
+/** Runs one of the workspace's agents as a workflow step — the connection
+ * point that lets a media-generation pipeline hand off to an LLM agent
+ * mid-graph (e.g. caption an image, review a generated video's transcript)
+ * instead of the two systems staying siloed. Runs the agent through the same
+ * managed-task path a delegated sub-agent uses, so it gets a real task/run
+ * row, respects the agent's own autonomy-level tool policy, and shows up in
+ * that agent's history — just triggered by a workflow instead of a chat or
+ * automation. */
+async function runAgentNode(
+  data: Record<string, unknown>,
+  inputs: NodeOutput[],
+  workspaceId: string,
+): Promise<NodeOutput> {
+  const agentId = data.agentId as string | undefined;
+  if (!agentId) throw new Error("No agent selected for this node.");
+
+  const db = getDb();
+  const agent = await db.getAgent(agentId);
+  if (!agent || agent.workspaceId !== workspaceId) {
+    throw new Error("Selected agent is not available in this workspace.");
+  }
+
+  const instruction = ((data.instruction as string) || textInputs(inputs) || "").trim();
+  if (!instruction) {
+    throw new Error(
+      "No instruction available — set one directly or connect a Text Prompt node.",
+    );
+  }
+
+  const task = await db.createTask({
+    workspaceId,
+    createdByAgentId: agent.id,
+    assignedAgentId: agent.id,
+    title: `Workflow step · ${agent.name}`,
+    instruction,
+    status: "ready",
+    input: { workflowStep: true },
+  });
+  const result = await executeManagedTask({ taskId: task.id, agent, trigger: "task" });
+  return { kind: "text", text: result.output };
+}
+
 async function runOutputNode(inputs: NodeOutput[]): Promise<NodeOutput> {
   const output = inputs[0];
   if (!output) throw new Error("Nothing is connected into this Output node.");
@@ -175,6 +218,8 @@ async function executeNode(
       return runGenerateVideoNode(node.data, inputs, workspaceId);
     case "edit_video":
       return runEditVideoNode(node.data, inputs, workspaceId);
+    case "agent":
+      return runAgentNode(node.data, inputs, workspaceId);
     case "output":
       return runOutputNode(inputs);
   }
@@ -299,6 +344,20 @@ async function executeWorkflowRun(run: WorkflowRunRecord, workflow: WorkflowReco
   });
 }
 
+async function createWorkflowRunRow(
+  workflow: WorkflowRecord,
+): Promise<WorkflowRunRecord> {
+  const db = getDb();
+  const run = await db.createWorkflowRun({
+    workflowId: workflow.id,
+    workspaceId: workflow.workspaceId,
+  });
+  for (const node of workflow.definition.nodes) {
+    await db.createWorkflowRunNode({ runId: run.id, nodeId: node.id });
+  }
+  return run;
+}
+
 /**
  * Starts a workflow run without waiting for it to finish — mirrors
  * queueVideoGeneration's fire-and-forget shape (apps/server/src/video.ts):
@@ -312,16 +371,40 @@ export async function startWorkflowRun(workflowId: string): Promise<WorkflowRunR
   const workflow = await db.getWorkflow(workflowId);
   if (!workflow) throw new Error(`Workflow not found: ${workflowId}`);
 
-  const run = await db.createWorkflowRun({ workflowId, workspaceId: workflow.workspaceId });
-  for (const node of workflow.definition.nodes) {
-    await db.createWorkflowRunNode({ runId: run.id, nodeId: node.id });
-  }
-
+  const run = await createWorkflowRunRow(workflow);
   void executeWorkflowRun(run, workflow).catch((err) => {
     console.error(`Workflow run ${run.id} failed:`, err);
   });
 
   return run;
+}
+
+/**
+ * Runs a workflow to completion and returns its final result — the
+ * synchronous counterpart to startWorkflowRun, for callers that need the
+ * outcome inline instead of polling (the run_workflow agent tool, and
+ * cron/file-watch automations that target a workflow). Scoped to
+ * `workspaceId` so an agent/automation from one workspace can't run another
+ * workspace's workflow by guessing its id.
+ */
+export async function runWorkflowAndWait(
+  workflowId: string,
+  workspaceId: string,
+): Promise<{ run: WorkflowRunRecord; nodes: WorkflowRunNodeRecord[] }> {
+  const db = getDb();
+  const workflow = await db.getWorkflow(workflowId);
+  if (!workflow || workflow.workspaceId !== workspaceId) {
+    throw new Error(`Workflow not found: ${workflowId}`);
+  }
+
+  const run = await createWorkflowRunRow(workflow);
+  await executeWorkflowRun(run, workflow);
+
+  const [finalRun, nodes] = await Promise.all([
+    db.getWorkflowRun(run.id),
+    db.listWorkflowRunNodesByRun(run.id),
+  ]);
+  return { run: finalRun ?? run, nodes };
 }
 
 export async function getWorkflowRun(runId: string): Promise<WorkflowRunRecord | null> {

@@ -145,6 +145,7 @@ export type ToolKind =
 	| "transcribe_audio";
 
 export type AutomationTriggerType = "cron" | "file_watch";
+export type AutomationTargetKind = "agent" | "workflow";
 export type AutomationRunStatus = "success" | "error" | "pending_approval";
 
 export interface WorkspaceRecord {
@@ -308,7 +309,9 @@ export interface UserRecord {
 export interface AutomationRecord {
 	id: string;
 	workspaceId: string;
-	agentId: string;
+	agentId: string | null;
+	workflowId: string | null;
+	targetKind: AutomationTargetKind;
 	name: string;
 	triggerType: AutomationTriggerType;
 	cronExpression: string;
@@ -532,6 +535,7 @@ export type WorkflowNodeKind =
 	| "generate_image"
 	| "generate_video"
 	| "edit_video"
+	| "agent"
 	| "output";
 
 /** See packages/db/src/schema/sqlite/app.ts's WorkflowDefinition doc comment
@@ -1001,13 +1005,16 @@ export interface DbRepository {
 
 	createAutomation(input: {
 		workspaceId: string;
-		agentId: string;
+		/** Exactly one of agentId/workflowId, matching targetKind. */
+		agentId?: string | null;
+		workflowId?: string | null;
+		targetKind?: AutomationTargetKind;
 		name: string;
 		triggerType?: AutomationTriggerType;
 		cronExpression?: string;
 		watchPath?: string | null;
 		watchGlob?: string | null;
-		prompt: string;
+		prompt?: string;
 		enabled?: boolean;
 		nextRunAt?: Date | null;
 	}): Promise<AutomationRecord>;
@@ -1042,6 +1049,7 @@ export interface DbRepository {
 		patch: {
 			name?: string;
 			agentId?: string;
+			workflowId?: string;
 			cronExpression?: string;
 			watchPath?: string | null;
 			watchGlob?: string | null;

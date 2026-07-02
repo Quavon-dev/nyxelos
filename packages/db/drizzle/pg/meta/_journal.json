@@ -246,6 +246,13 @@
       "when": 1783000022001,
       "tag": "0034_workflow_studio",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1783016353788,
+      "tag": "0035_optimal_rogue",
+      "breakpoints": true
     }
   ]
 }

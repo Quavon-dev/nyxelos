@@ -147,6 +147,15 @@ export const automationTriggerType = pgEnum("automation_trigger_type", [
 	"file_watch",
 ]);
 
+/** What a scheduled run actually does when it fires — "agent" (existing
+ * behavior, runs `prompt` as an agent task) or "workflow" (runs a saved
+ * workflow graph to completion, no prompt/agent needed). See
+ * ADR-0016-Automation-Workflow-Target. */
+export const automationTargetKind = pgEnum("automation_target_kind", [
+	"agent",
+	"workflow",
+]);
+
 /** Broad classification of an uploaded library file, derived from its mime
  * type at upload time — drives which icon/preview the Library page shows,
  * and lets the "Images" / "Documents" filter chips work without parsing
@@ -540,9 +549,13 @@ export const automation = pgTable("automation", {
 	workspaceId: text("workspace_id")
 		.notNull()
 		.references(() => workspace.id, { onDelete: "cascade" }),
-	agentId: text("agent_id")
-		.notNull()
-		.references(() => agent.id, { onDelete: "cascade" }),
+	// Exactly one of agentId/workflowId is set, matching targetKind — see
+	// ADR-0016. Nullable rather than a discriminated pair of tables because
+	// every other column (triggerType, schedule fields, enabled, run
+	// tracking) is identical between the two targets.
+	agentId: text("agent_id").references(() => agent.id, { onDelete: "cascade" }),
+	workflowId: text("workflow_id").references(() => workflow.id, { onDelete: "cascade" }),
+	targetKind: automationTargetKind("target_kind").notNull().default("agent"),
 	name: text("name").notNull(),
 	// "cron" (default, existing behavior) or "file_watch". See ADR-0013.
 	triggerType: automationTriggerType("trigger_type").notNull().default("cron"),
@@ -556,7 +569,8 @@ export const automation = pgTable("automation", {
 	lastWatchCheckAt: timestamp("last_watch_check_at"),
 	// The instruction sent as the "user" turn on every scheduled run — the
 	// agent's systemPrompt stays its persona, this is "what to do right now".
-	prompt: text("prompt").notNull(),
+	// Empty for targetKind "workflow" (a workflow graph has no single prompt).
+	prompt: text("prompt").notNull().default(""),
 	enabled: boolean("enabled").notNull().default(true),
 	lastRunAt: timestamp("last_run_at"),
 	nextRunAt: timestamp("next_run_at"),
@@ -943,6 +957,7 @@ export type WorkflowNodeKind =
 	| "generate_image"
 	| "generate_video"
 	| "edit_video"
+	| "agent"
 	| "output";
 
 /** See ../sqlite/app.ts. */

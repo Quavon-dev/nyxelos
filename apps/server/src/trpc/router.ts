@@ -213,6 +213,7 @@ const workflowNodeKindSchema = z.enum([
 	"generate_image",
 	"generate_video",
 	"edit_video",
+	"agent",
 	"output",
 ]);
 const workflowDefinitionSchema = z.object({
@@ -235,6 +236,7 @@ const EMPTY_WORKFLOW_DEFINITION: z.infer<typeof workflowDefinitionSchema> = {
 };
 
 const automationTriggerTypeSchema = z.enum(["cron", "file_watch"]);
+const automationTargetKindSchema = z.enum(["agent", "workflow"]);
 const taskStatusSchema = z.enum([
 	"pending",
 	"planning",
@@ -1962,24 +1964,44 @@ export const appRouter = router({
 			.input(
 				z.object({
 					workspaceId: z.string(),
-					agentId: z.string(),
+					targetKind: automationTargetKindSchema.default("agent"),
+					agentId: z.string().optional(),
+					workflowId: z.string().optional(),
 					name: z.string().min(1),
 					triggerType: automationTriggerTypeSchema.default("cron"),
 					cronExpression: z.string().optional(),
 					watchPath: z.string().optional(),
 					watchGlob: z.string().optional(),
-					prompt: z.string().min(1),
+					// Only meaningful for targetKind "agent" — a workflow graph has no
+					// single prompt, it just runs.
+					prompt: z.string().optional(),
 					enabled: z.boolean().optional(),
 				}),
 			)
 			.mutation(async ({ input }) => {
 				const db = getDb();
-				const agent = await db.getAgent(input.agentId);
-				if (!agent) throw new Error(`Unknown agent: ${input.agentId}`);
-				if (!AUTOMATABLE_LEVELS.has(agent.autonomyLevel)) {
-					throw new Error(
-						`Agent "${agent.name}" has autonomy level "${agent.autonomyLevel}" — only "autonomous" or "super_agent" agents can be scheduled.`,
-					);
+				if (input.targetKind === "workflow") {
+					if (!input.workflowId) {
+						throw new Error('A workflow automation needs "workflowId".');
+					}
+					const workflow = await db.getWorkflow(input.workflowId);
+					if (!workflow || workflow.workspaceId !== input.workspaceId) {
+						throw new Error(`Unknown workflow: ${input.workflowId}`);
+					}
+				} else {
+					if (!input.agentId) {
+						throw new Error('An agent automation needs "agentId".');
+					}
+					const agent = await db.getAgent(input.agentId);
+					if (!agent) throw new Error(`Unknown agent: ${input.agentId}`);
+					if (!AUTOMATABLE_LEVELS.has(agent.autonomyLevel)) {
+						throw new Error(
+							`Agent "${agent.name}" has autonomy level "${agent.autonomyLevel}" — only "autonomous" or "super_agent" agents can be scheduled.`,
+						);
+					}
+					if (!input.prompt) {
+						throw new Error('An agent automation needs "prompt".');
+					}
 				}
 
 				if (input.triggerType === "file_watch") {
@@ -2030,6 +2052,7 @@ export const appRouter = router({
 					id: z.string(),
 					name: z.string().min(1).optional(),
 					agentId: z.string().optional(),
+					workflowId: z.string().optional(),
 					cronExpression: z.string().optional(),
 					watchPath: z.string().optional(),
 					watchGlob: z.string().optional(),
@@ -2049,6 +2072,12 @@ export const appRouter = router({
 						throw new Error(
 							`Agent "${agent.name}" has autonomy level "${agent.autonomyLevel}" — only "autonomous" or "super_agent" agents can be scheduled.`,
 						);
+					}
+				}
+				if (patch.workflowId) {
+					const workflow = await db.getWorkflow(patch.workflowId);
+					if (!workflow || workflow.workspaceId !== automation.workspaceId) {
+						throw new Error(`Unknown workflow: ${patch.workflowId}`);
 					}
 				}
 

@@ -7,6 +7,7 @@ import { executeManagedTask } from "./agent-runtime";
 import { logAudit } from "./audit";
 import { notifyWorkspaceOwner } from "./push";
 import { runSeoAnalysis } from "./seo-analyzer";
+import { runWorkflowAndWait } from "./workflow-runner";
 
 const POLL_INTERVAL_MS = 30_000;
 const REPO_ROOT = path.resolve(new URL("../../..", import.meta.url).pathname);
@@ -26,13 +27,51 @@ export function computeNextRunAt(cronExpression: string, from: Date): Date | nul
   }
 }
 
-/** Exported for automations.runNow — lets a user trigger a run immediately
- * without waiting for the schedule, e.g. to test a new automation. */
-export async function runAutomation(
+/** Records the run outcome shared by both automation target kinds: audit
+ * log entry, lastRunAt/nextRunAt/lastRunStatus bookkeeping on the
+ * automation row, and (for cron) computing the following nextRunAt. */
+async function finishAutomationRun(
+  automation: AutomationRecord,
+  outcome: {
+    agentId?: string | null;
+    toolLabel: string;
+    auditInput: unknown;
+    outputText: string;
+    status: "success" | "error" | "pending_approval";
+  },
+): Promise<void> {
+  const db = getDb();
+  await logAudit({
+    workspaceId: automation.workspaceId,
+    agentId: outcome.agentId ?? null,
+    automationId: automation.id,
+    actor: "automation",
+    toolLabel: outcome.toolLabel,
+    input: outcome.auditInput,
+    output: outcome.outputText,
+    status: outcome.status,
+  });
+
+  const now = new Date();
+  // File-watch automations have no cron schedule — computeNextRunAt would
+  // reject an empty cronExpression anyway; they're re-triggered by the file
+  // poll loop below, not by nextRunAt.
+  const nextRunAt =
+    automation.triggerType === "cron" ? computeNextRunAt(automation.cronExpression, now) : null;
+  await db.updateAutomationRun({
+    id: automation.id,
+    lastRunAt: now,
+    nextRunAt,
+    lastRunStatus: outcome.status,
+    lastErrorMessage: outcome.status === "error" ? outcome.outputText : null,
+  });
+}
+
+async function runAgentAutomation(
   automation: AutomationRecord,
 ): Promise<{ taskId: string; runId: string; output: string }> {
   const db = getDb();
-  const agent = await db.getAgent(automation.agentId);
+  const agent = automation.agentId ? await db.getAgent(automation.agentId) : null;
   if (!agent) {
     console.error(
       `Automation "${automation.name}" (${automation.id}) references a missing agent — disabling it.`,
@@ -80,31 +119,80 @@ export async function runAutomation(
     });
   }
 
-  await logAudit({
-    workspaceId: automation.workspaceId,
+  await finishAutomationRun(automation, {
     agentId: agent.id,
-    automationId: automation.id,
-    actor: "automation",
     toolLabel: "agent_run",
-    input: { prompt: automation.prompt },
-    output: outputText,
+    auditInput: { prompt: automation.prompt },
+    outputText,
     status,
   });
-
-  const now = new Date();
-  // File-watch automations have no cron schedule — computeNextRunAt would
-  // reject an empty cronExpression anyway; they're re-triggered by the file
-  // poll loop below, not by nextRunAt.
-  const nextRunAt =
-    automation.triggerType === "cron" ? computeNextRunAt(automation.cronExpression, now) : null;
-  await db.updateAutomationRun({
-    id: automation.id,
-    lastRunAt: now,
-    nextRunAt,
-    lastRunStatus: status,
-    lastErrorMessage: status === "error" ? outputText : null,
-  });
   return { taskId: task.id, runId: runId ?? "", output: outputText };
+}
+
+async function runWorkflowAutomation(
+  automation: AutomationRecord,
+): Promise<{ taskId: string; runId: string; output: string }> {
+  const db = getDb();
+  if (!automation.workflowId) {
+    console.error(
+      `Automation "${automation.name}" (${automation.id}) has no workflow configured — disabling it.`,
+    );
+    await db.setAutomationEnabled(automation.id, false);
+    return { taskId: "", runId: "", output: "Workflow missing; automation disabled." };
+  }
+
+  let outputText: string;
+  let status: "success" | "error" | "pending_approval";
+  let runId = "";
+  try {
+    const { run, nodes } = await runWorkflowAndWait(automation.workflowId, automation.workspaceId);
+    runId = run.id;
+    const failedCount = nodes.filter((n) => n.status === "failed").length;
+    status = run.status === "failed" ? "error" : "success";
+    outputText =
+      run.status === "completed"
+        ? `Workflow run completed (${nodes.length} node(s)).`
+        : `Workflow run ${run.status}${failedCount > 0 ? ` — ${failedCount} node(s) failed` : ""}.`;
+    if (run.errorMessage) outputText += ` ${run.errorMessage}`;
+    if (status === "error") {
+      await notifyWorkspaceOwner(automation.workspaceId, {
+        title: "Automation failed",
+        body: `"${automation.name}" failed: ${outputText.slice(0, 120)}`,
+        url: `/workspace/${automation.workspaceId}/automations`,
+        tag: `automation-${automation.id}`,
+      });
+    }
+  } catch (err) {
+    outputText = err instanceof Error ? err.message : String(err);
+    status = "error";
+    await notifyWorkspaceOwner(automation.workspaceId, {
+      title: "Automation failed",
+      body: `"${automation.name}" failed: ${outputText.slice(0, 120)}`,
+      url: `/workspace/${automation.workspaceId}/automations`,
+      tag: `automation-${automation.id}`,
+    });
+  }
+
+  await finishAutomationRun(automation, {
+    toolLabel: "workflow_run",
+    auditInput: { workflowId: automation.workflowId },
+    outputText,
+    status,
+  });
+  return { taskId: "", runId, output: outputText };
+}
+
+/** Exported for automations.runNow — lets a user trigger a run immediately
+ * without waiting for the schedule, e.g. to test a new automation. Dispatches
+ * on targetKind: "agent" (default, existing behavior) runs the automation's
+ * prompt as an agent task; "workflow" runs a saved workflow graph to
+ * completion instead — see ADR-0016. */
+export async function runAutomation(
+  automation: AutomationRecord,
+): Promise<{ taskId: string; runId: string; output: string }> {
+  return automation.targetKind === "workflow"
+    ? runWorkflowAutomation(automation)
+    : runAgentAutomation(automation);
 }
 
 function resolveWatchPath(watchPath: string): string {

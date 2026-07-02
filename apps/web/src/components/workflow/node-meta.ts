@@ -1,4 +1,5 @@
 import {
+  Bot,
   CheckCircle2,
   Clapperboard,
   FileVideo,
@@ -16,9 +17,14 @@ export interface NodeKindMeta {
   description: string;
   icon: LucideIcon;
   /** Whether this kind accepts an incoming edge / produces an outgoing one —
-   * drives which handles WorkflowNode renders and what the palette explains. */
+   * drives which handles WorkflowNode renders and what the add-node panel
+   * explains. */
   hasInput: boolean;
   hasOutput: boolean;
+  /** Icon chip background + text color, Tailwind classes — gives each kind
+   * a distinct identity on the canvas and in the add-node panel, same idea
+   * as n8n's per-integration colored icon chips. */
+  accent: string;
 }
 
 export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
@@ -29,6 +35,7 @@ export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
     icon: Type,
     hasInput: false,
     hasOutput: true,
+    accent: "bg-sky-500/15 text-sky-500",
   },
   image_upload: {
     kind: "image_upload",
@@ -37,6 +44,7 @@ export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
     icon: ImagePlus,
     hasInput: false,
     hasOutput: true,
+    accent: "bg-violet-500/15 text-violet-500",
   },
   video_upload: {
     kind: "video_upload",
@@ -45,6 +53,7 @@ export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
     icon: FileVideo,
     hasInput: false,
     hasOutput: true,
+    accent: "bg-violet-500/15 text-violet-500",
   },
   generate_image: {
     kind: "generate_image",
@@ -53,6 +62,7 @@ export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
     icon: Sparkles,
     hasInput: true,
     hasOutput: true,
+    accent: "bg-amber-500/15 text-amber-500",
   },
   generate_video: {
     kind: "generate_video",
@@ -61,6 +71,7 @@ export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
     icon: Clapperboard,
     hasInput: true,
     hasOutput: true,
+    accent: "bg-amber-500/15 text-amber-500",
   },
   edit_video: {
     kind: "edit_video",
@@ -69,6 +80,16 @@ export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
     icon: Scissors,
     hasInput: true,
     hasOutput: true,
+    accent: "bg-rose-500/15 text-rose-500",
+  },
+  agent: {
+    kind: "agent",
+    label: "Agent",
+    description: "Hand this step off to one of the workspace's agents and use its reply.",
+    icon: Bot,
+    hasInput: true,
+    hasOutput: true,
+    accent: "bg-indigo-500/15 text-indigo-500",
   },
   output: {
     kind: "output",
@@ -77,6 +98,7 @@ export const NODE_KIND_META: Record<WorkflowNodeKind, NodeKindMeta> = {
     icon: CheckCircle2,
     hasInput: true,
     hasOutput: false,
+    accent: "bg-emerald-500/15 text-emerald-500",
   },
 };
 
@@ -87,6 +109,7 @@ export const NODE_KIND_ORDER: WorkflowNodeKind[] = [
   "generate_image",
   "generate_video",
   "edit_video",
+  "agent",
   "output",
 ];
 
@@ -106,6 +129,8 @@ export function defaultNodeData(kind: WorkflowNodeKind): Record<string, unknown>
       return { prompt: "", model: undefined, size: undefined, seconds: undefined };
     case "edit_video":
       return { operation: "trim" };
+    case "agent":
+      return { agentId: null, instruction: "" };
     case "output":
       return { label: "" };
   }

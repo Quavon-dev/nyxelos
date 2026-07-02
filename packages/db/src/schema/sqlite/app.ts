@@ -134,6 +134,7 @@ export type ToolKind =
 	| "transcribe_audio";
 
 export type AutomationTriggerType = "cron" | "file_watch";
+export type AutomationTargetKind = "agent" | "workflow";
 export type AutomationRunStatus = "success" | "error" | "pending_approval";
 
 /** See ../pg/app.ts. */
@@ -157,6 +158,7 @@ export type WorkflowNodeKind =
 	| "generate_image"
 	| "generate_video"
 	| "edit_video"
+	| "agent"
 	| "output";
 
 /** The graph a workflow's canvas builds and the runner executes — plain
@@ -479,9 +481,16 @@ export const automation = sqliteTable("automation", {
 	workspaceId: text("workspace_id")
 		.notNull()
 		.references(() => workspace.id, { onDelete: "cascade" }),
-	agentId: text("agent_id")
+	// Exactly one of agentId/workflowId is set, matching targetKind — see
+	// ADR-0016. Nullable rather than a discriminated pair of tables because
+	// every other column (triggerType, schedule fields, enabled, run
+	// tracking) is identical between the two targets.
+	agentId: text("agent_id").references(() => agent.id, { onDelete: "cascade" }),
+	workflowId: text("workflow_id").references(() => workflow.id, { onDelete: "cascade" }),
+	targetKind: text("target_kind")
 		.notNull()
-		.references(() => agent.id, { onDelete: "cascade" }),
+		.default("agent")
+		.$type<AutomationTargetKind>(),
 	name: text("name").notNull(),
 	// "cron" (default, existing behavior) or "file_watch". See ADR-0013.
 	triggerType: text("trigger_type")
@@ -496,7 +505,8 @@ export const automation = sqliteTable("automation", {
 	watchPath: text("watch_path"),
 	watchGlob: text("watch_glob"),
 	lastWatchCheckAt: integer("last_watch_check_at", { mode: "timestamp" }),
-	prompt: text("prompt").notNull(),
+	// Empty for targetKind "workflow" (a workflow graph has no single prompt).
+	prompt: text("prompt").notNull().default(""),
 	enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
 	lastRunAt: integer("last_run_at", { mode: "timestamp" }),
 	nextRunAt: integer("next_run_at", { mode: "timestamp" }),

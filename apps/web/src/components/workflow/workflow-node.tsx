@@ -27,6 +27,8 @@ function summarize(kind: WorkflowNodeKind, data: Record<string, unknown>): strin
       return (data.prompt as string) || "Uses connected input";
     case "edit_video":
       return EDIT_OPERATION_LABELS[data.operation as string] ?? "Trim";
+    case "agent":
+      return (data.instruction as string) || "Uses connected input";
     case "output":
       return (data.label as string) || "Final result";
   }
@@ -53,29 +55,47 @@ function makeWorkflowNodeComponent(kind: WorkflowNodeKind) {
     return (
       <div
         className={cn(
-          "w-56 rounded-lg border bg-card shadow-sm transition-shadow",
-          selected && "border-primary",
+          "w-60 rounded-xl border bg-card shadow-sm transition-shadow",
+          selected && "border-primary ring-1 ring-primary",
           runStatus && STATUS_RING[runStatus],
         )}
       >
         {meta.hasInput && (
-          <Handle type="target" position={Position.Top} className="!bg-muted-foreground" />
+          <Handle
+            type="target"
+            position={Position.Top}
+            className="!size-2.5 !border-2 !border-background !bg-muted-foreground"
+          />
         )}
-        <div className="flex items-center gap-2 border-b px-3 py-2">
-          <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate text-xs font-medium">{meta.label}</span>
+        <div className="flex items-center gap-2.5 px-3 py-2.5">
+          <span
+            className={cn(
+              "flex size-7 shrink-0 items-center justify-center rounded-lg",
+              meta.accent,
+            )}
+          >
+            <Icon className="size-3.5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-medium leading-tight">{meta.label}</p>
+            <p className="truncate text-[11px] leading-tight text-muted-foreground">
+              {summarize(kind, nodeData)}
+            </p>
+          </div>
           {runStatus === "running" && (
-            <Loader2 className="ml-auto size-3.5 shrink-0 animate-spin text-primary" />
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
           )}
-          {runStatus === "failed" && (
-            <AlertCircle className="ml-auto size-3.5 shrink-0 text-destructive" />
+          {runStatus === "failed" && <AlertCircle className="size-3.5 shrink-0 text-destructive" />}
+          {runStatus === "completed" && (
+            <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
           )}
-        </div>
-        <div className="line-clamp-2 px-3 py-2 text-xs text-muted-foreground">
-          {summarize(kind, nodeData)}
         </div>
         {meta.hasOutput && (
-          <Handle type="source" position={Position.Bottom} className="!bg-muted-foreground" />
+          <Handle
+            type="source"
+            position={Position.Bottom}
+            className="!size-2.5 !border-2 !border-background !bg-muted-foreground"
+          />
         )}
       </div>
     );

@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   type AutomationSummary,
+  type AutomationTargetKind,
   type AutomationTriggerType,
   trpcClient,
 } from "@/lib/trpc";
@@ -49,6 +50,11 @@ import {
 const TRIGGER_TYPES: { value: AutomationTriggerType; label: string }[] = [
   { value: "cron", label: "Schedule (cron)" },
   { value: "file_watch", label: "File change" },
+];
+
+const TARGET_KINDS: { value: AutomationTargetKind; label: string }[] = [
+  { value: "agent", label: "Run an agent" },
+  { value: "workflow", label: "Run a workflow" },
 ];
 
 const CRON_PRESETS = [
@@ -76,14 +82,21 @@ export default function AutomationsPage() {
     queryKey: ["agents", workspaceId],
     queryFn: () => trpcClient.agents.list.query({ workspaceId }),
   });
+  const workflowsQuery = useQuery({
+    queryKey: ["workflows", workspaceId],
+    queryFn: () => trpcClient.workflows.list.query({ workspaceId }),
+  });
 
   // Only "autonomous" and "super_agent" agents can run unattended.
   const schedulableAgents = (agentsQuery.data ?? []).filter(
     (a) => a.autonomyLevel === "autonomous" || a.autonomyLevel === "super_agent",
   );
+  const workflows = workflowsQuery.data ?? [];
 
   const [name, setName] = useState("");
+  const [targetKind, setTargetKind] = useState<AutomationTargetKind>("agent");
   const [agentId, setAgentId] = useState("");
+  const [workflowId, setWorkflowId] = useState("");
   const [triggerType, setTriggerType] = useState<AutomationTriggerType>("cron");
   const [cronExpression, setCronExpression] = useState(CRON_PRESETS[1]?.value ?? "");
   const [watchPath, setWatchPath] = useState("");
@@ -97,13 +110,15 @@ export default function AutomationsPage() {
     mutationFn: () =>
       trpcClient.automations.create.mutate({
         workspaceId,
-        agentId,
+        targetKind,
+        agentId: targetKind === "agent" ? agentId : undefined,
+        workflowId: targetKind === "workflow" ? workflowId : undefined,
         name,
         triggerType,
         cronExpression: triggerType === "cron" ? cronExpression : undefined,
         watchPath: triggerType === "file_watch" ? watchPath : undefined,
         watchGlob: triggerType === "file_watch" && watchGlob ? watchGlob : undefined,
-        prompt,
+        prompt: targetKind === "agent" ? prompt : undefined,
       }),
     onSuccess: () => {
       invalidate();
@@ -138,13 +153,15 @@ export default function AutomationsPage() {
   const [editing, setEditing] = useState<AutomationSummary | null>(null);
   const [editName, setEditName] = useState("");
   const [editAgentId, setEditAgentId] = useState("");
+  const [editWorkflowId, setEditWorkflowId] = useState("");
   const [editSchedule, setEditSchedule] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
 
   const openEdit = (automation: AutomationSummary) => {
     setEditing(automation);
     setEditName(automation.name);
-    setEditAgentId(automation.agentId);
+    setEditAgentId(automation.agentId ?? "");
+    setEditWorkflowId(automation.workflowId ?? "");
     setEditSchedule(
       automation.triggerType === "file_watch"
         ? automation.watchPath ?? ""
@@ -159,8 +176,9 @@ export default function AutomationsPage() {
       return trpcClient.automations.update.mutate({
         id: editing.id,
         name: editName,
-        agentId: editAgentId,
-        prompt: editPrompt,
+        ...(editing.targetKind === "workflow"
+          ? { workflowId: editWorkflowId }
+          : { agentId: editAgentId, prompt: editPrompt }),
         ...(editing.triggerType === "file_watch"
           ? { watchPath: editSchedule }
           : { cronExpression: editSchedule }),
@@ -174,6 +192,16 @@ export default function AutomationsPage() {
 
   const automations = automationsQuery.data ?? [];
   const enabledCount = automations.filter((a) => a.enabled).length;
+  const workflowNameById = new Map(workflows.map((w) => [w.id, w.name]));
+
+  function targetSummary(automation: AutomationSummary): string {
+    if (automation.targetKind === "workflow") {
+      return `Workflow: ${
+        (automation.workflowId && workflowNameById.get(automation.workflowId)) ?? "unknown"
+      }`;
+    }
+    return automation.prompt;
+  }
 
   if (automationsQuery.isLoading) {
     return (
@@ -233,7 +261,7 @@ export default function AutomationsPage() {
                       <TableCell>
                         <div className="font-medium">{automation.name}</div>
                         <div className="max-w-[220px] truncate text-xs text-muted-foreground">
-                          {automation.prompt}
+                          {targetSummary(automation)}
                         </div>
                       </TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">
@@ -334,10 +362,11 @@ export default function AutomationsPage() {
           <CardTitle>Create automation</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {schedulableAgents.length === 0 ? (
+          {schedulableAgents.length === 0 && workflows.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No "autonomous" or "super_agent" agents in this workspace yet. Create one on the
-              Agents page first — "chat" and "assisted" agents can't be scheduled.
+              No "autonomous"/"super_agent" agents or saved workflows in this workspace yet.
+              Create one on the Agents or Workflows page first — "chat" and "assisted" agents
+              can't be scheduled.
             </p>
           ) : (
             <>
@@ -352,32 +381,16 @@ export default function AutomationsPage() {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="grid gap-2">
-                  <Label>Agent</Label>
-                  <Select value={agentId} onValueChange={setAgentId}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select an agent…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {schedulableAgents.map((a) => (
-                        <SelectItem key={a.id} value={a.id}>
-                          {a.name} ({a.autonomyLevel})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid gap-2">
-                  <Label>Trigger</Label>
+                  <Label>What to run</Label>
                   <Select
-                    value={triggerType}
-                    onValueChange={(v) => setTriggerType(v as AutomationTriggerType)}
+                    value={targetKind}
+                    onValueChange={(v) => setTargetKind(v as AutomationTargetKind)}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {TRIGGER_TYPES.map((t) => (
+                      {TARGET_KINDS.map((t) => (
                         <SelectItem key={t.value} value={t.value}>
                           {t.label}
                         </SelectItem>
@@ -385,6 +398,59 @@ export default function AutomationsPage() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {targetKind === "agent" ? (
+                  <div className="grid gap-2">
+                    <Label>Agent</Label>
+                    <Select value={agentId} onValueChange={setAgentId}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select an agent…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {schedulableAgents.map((a) => (
+                          <SelectItem key={a.id} value={a.id}>
+                            {a.name} ({a.autonomyLevel})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    <Label>Workflow</Label>
+                    <Select value={workflowId} onValueChange={setWorkflowId}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select a workflow…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {workflows.map((w) => (
+                          <SelectItem key={w.id} value={w.id}>
+                            {w.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Trigger</Label>
+                <Select
+                  value={triggerType}
+                  onValueChange={(v) => setTriggerType(v as AutomationTriggerType)}
+                >
+                  <SelectTrigger className="w-full sm:w-1/2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TRIGGER_TYPES.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        {t.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {triggerType === "cron" ? (
@@ -446,16 +512,18 @@ export default function AutomationsPage() {
                 </>
               )}
 
-              <div className="grid gap-2">
-                <Label htmlFor="automation-prompt">Prompt</Label>
-                <Textarea
-                  id="automation-prompt"
-                  placeholder="The task to run each time, e.g. Summarize today's calendar and flag anything urgent."
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  rows={3}
-                />
-              </div>
+              {targetKind === "agent" && (
+                <div className="grid gap-2">
+                  <Label htmlFor="automation-prompt">Prompt</Label>
+                  <Textarea
+                    id="automation-prompt"
+                    placeholder="The task to run each time, e.g. Summarize today's calendar and flag anything urgent."
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    rows={3}
+                  />
+                </div>
+              )}
 
               <div className="flex items-center gap-3 border-t pt-4">
                 <Button
@@ -463,8 +531,7 @@ export default function AutomationsPage() {
                   disabled={
                     createAutomation.isPending ||
                     !name ||
-                    !agentId ||
-                    !prompt ||
+                    (targetKind === "agent" ? !agentId || !prompt : !workflowId) ||
                     (triggerType === "cron" ? !cronExpression : !watchPath)
                   }
                 >
@@ -497,21 +564,39 @@ export default function AutomationsPage() {
                 />
               </div>
 
-              <div className="grid gap-2">
-                <Label>Agent</Label>
-                <Select value={editAgentId} onValueChange={setEditAgentId}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select an agent…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {schedulableAgents.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.name} ({a.autonomyLevel})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {editing.targetKind === "workflow" ? (
+                <div className="grid gap-2">
+                  <Label>Workflow</Label>
+                  <Select value={editWorkflowId} onValueChange={setEditWorkflowId}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select a workflow…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {workflows.map((w) => (
+                        <SelectItem key={w.id} value={w.id}>
+                          {w.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  <Label>Agent</Label>
+                  <Select value={editAgentId} onValueChange={setEditAgentId}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select an agent…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {schedulableAgents.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.name} ({a.autonomyLevel})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <div className="grid gap-2">
                 <Label htmlFor="edit-automation-schedule">
@@ -527,15 +612,17 @@ export default function AutomationsPage() {
                 />
               </div>
 
-              <div className="grid gap-2">
-                <Label htmlFor="edit-automation-prompt">Prompt</Label>
-                <Textarea
-                  id="edit-automation-prompt"
-                  value={editPrompt}
-                  onChange={(e) => setEditPrompt(e.target.value)}
-                  rows={3}
-                />
-              </div>
+              {editing.targetKind !== "workflow" && (
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-automation-prompt">Prompt</Label>
+                  <Textarea
+                    id="edit-automation-prompt"
+                    value={editPrompt}
+                    onChange={(e) => setEditPrompt(e.target.value)}
+                    rows={3}
+                  />
+                </div>
+              )}
 
               {updateAutomation.isError && (
                 <p className="text-sm text-destructive">
@@ -551,7 +638,12 @@ export default function AutomationsPage() {
             <Button
               onClick={() => updateAutomation.mutate()}
               disabled={
-                updateAutomation.isPending || !editName || !editAgentId || !editPrompt || !editSchedule
+                updateAutomation.isPending ||
+                !editName ||
+                !editSchedule ||
+                (editing?.targetKind === "workflow"
+                  ? !editWorkflowId
+                  : !editAgentId || !editPrompt)
               }
             >
               {updateAutomation.isPending ? "Saving…" : "Save changes"}

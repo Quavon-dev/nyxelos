@@ -1283,6 +1283,8 @@ export function createPgRepository(connectionString: string): DbRepository {
 		async createAutomation({
 			workspaceId,
 			agentId,
+			workflowId,
+			targetKind,
 			name,
 			triggerType,
 			cronExpression,
@@ -1297,13 +1299,15 @@ export function createPgRepository(connectionString: string): DbRepository {
 				.values({
 					id: randomUUID(),
 					workspaceId,
-					agentId,
+					agentId: agentId ?? null,
+					workflowId: workflowId ?? null,
+					targetKind: targetKind ?? "agent",
 					name,
 					triggerType: triggerType ?? "cron",
 					cronExpression: cronExpression ?? "",
 					watchPath: watchPath ?? null,
 					watchGlob: watchGlob ?? null,
-					prompt,
+					prompt: prompt ?? "",
 					enabled: enabled ?? true,
 					nextRunAt: nextRunAt ?? null,
 				})

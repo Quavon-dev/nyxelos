@@ -22,6 +22,7 @@ import { ensureMcpServerConnected, mcpManager } from "./mcp-runtime";
 import { notifyWorkspaceOwner } from "./push";
 import { resolveSkillDefinition } from "./skills-resolve";
 import { resolveToolDefinition } from "./tools-resolve";
+import { buildRunWorkflowTool } from "./workflow-tool";
 
 /**
  * Unattended task/automation runs have no human present to act on an
@@ -645,6 +646,9 @@ export async function buildToolsForAgent(
 		const delegateTool = await buildDelegateToAgentTool(agent, ctx);
 		if (delegateTool) tools.delegate_to_agent = delegateTool;
 	}
+
+	const runWorkflowTool = await buildRunWorkflowTool(agent, ctx);
+	if (runWorkflowTool) tools.run_workflow = runWorkflowTool;
 
 	if (agent.autonomyLevel === "super_agent" || isAutoAssistant(agent)) {
 		Object.assign(

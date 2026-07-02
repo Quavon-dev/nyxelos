@@ -19,6 +19,7 @@ export type {
 	AuditStatus,
 	AutomationRecord,
 	AutomationRunStatus,
+	AutomationTargetKind,
 	AutomationTriggerType,
 	ChatRecord,
 	ChatToolMode,

@@ -56,6 +56,11 @@ export function NodeInspector({
     queryFn: () => trpcClient.video.models.query(),
     enabled: kind === "generate_video",
   });
+  const agentsQuery = useQuery({
+    queryKey: ["agents", "list", workspaceId],
+    queryFn: () => trpcClient.agents.list.query({ workspaceId }),
+    enabled: kind === "agent",
+  });
 
   function set(patch: Record<string, unknown>) {
     onChange({ ...data, ...patch });
@@ -256,6 +261,38 @@ export function NodeInspector({
                 />
               </div>
             )}
+          </>
+        )}
+
+        {kind === "agent" && (
+          <>
+            <div className="space-y-1.5">
+              <Label>Agent</Label>
+              <Select
+                value={(data.agentId as string) ?? ""}
+                onValueChange={(v) => set({ agentId: v })}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choose an agent" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(agentsQuery.data ?? []).map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Instruction</Label>
+              <Textarea
+                value={(data.instruction as string) ?? ""}
+                onChange={(e) => set({ instruction: e.target.value })}
+                rows={4}
+                placeholder="Leave blank to use whatever text is connected as input."
+              />
+            </div>
           </>
         )}
 
