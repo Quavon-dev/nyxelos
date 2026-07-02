@@ -4,7 +4,7 @@ import { getModelCapabilities, streamChat } from "@nyxel/model-providers";
 import { getKnowledgeBaseContextForPrompt } from "./knowledge-base";
 import { getInstalledProvidersForWorkspace } from "./models";
 import { notifyWorkspaceOwner } from "./push";
-import { buildToolsForAgent } from "./tools";
+import { buildToolsForAgent, toolPolicyForAutonomyLevel } from "./tools";
 import { composeSystemPrompt } from "./workspace-prompt";
 
 export interface ExecutionPlan {
@@ -274,6 +274,7 @@ async function runDirectExecution(
     ? await buildToolsForAgent(agent, {
         taskId: task.id,
         agentRunId: run.id,
+        chatToolPolicy: toolPolicyForAutonomyLevel(agent.autonomyLevel),
       })
     : undefined;
   return streamWithLiveUpdates(

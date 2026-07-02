@@ -23,6 +23,23 @@ import { notifyWorkspaceOwner } from "./push";
 import { resolveSkillDefinition } from "./skills-resolve";
 import { resolveToolDefinition } from "./tools-resolve";
 
+/**
+ * Unattended task/automation runs have no human present to act on an
+ * approval request, so an agent whose autonomy level says it should run
+ * unattended ("autonomous"/"super_agent" — see ADR-0011, the same set
+ * `AUTOMATABLE_LEVELS` in trpc/router.ts allows to be scheduled) must not
+ * have its tool calls silently deferred. Lower autonomy levels keep the
+ * default human-in-the-loop approval gate.
+ */
+export function toolPolicyForAutonomyLevel(
+	autonomyLevel: AgentRecord["autonomyLevel"],
+): ChatToolPolicy {
+	if (autonomyLevel === "autonomous" || autonomyLevel === "super_agent") {
+		return { ...DEFAULT_CHAT_TOOL_POLICY, mode: "auto" };
+	}
+	return DEFAULT_CHAT_TOOL_POLICY;
+}
+
 export interface AgentRunContext {
 	/** Set when this run is a live chat turn. */
 	chatId?: string;
