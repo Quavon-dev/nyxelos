@@ -25,6 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   getExistingPushSubscription,
   pushSupported,
@@ -50,23 +51,59 @@ import { cn } from "@/lib/utils";
  * OpenRouter's `/models` catalog), not guessed from the model id. */
 function CapabilityBadges({ capabilities }: { capabilities?: ModelCapabilities }) {
   if (!capabilities) return null;
-  const flags: { key: string; label: string; icon: typeof Eye; active: boolean }[] = [
-    { key: "vision", label: "Vision", icon: Eye, active: capabilities.nativeImageInput },
-    { key: "tools", label: "Tool use", icon: Wrench, active: capabilities.toolCalling },
-    { key: "reasoning", label: "Reasoning", icon: Sparkles, active: capabilities.reasoning },
-    { key: "image-out", label: "Image gen", icon: ImageIcon, active: capabilities.imageOutput },
+  const flags: {
+    key: string;
+    label: string;
+    icon: typeof Eye;
+    active: boolean;
+    className: string;
+  }[] = [
+    {
+      key: "vision",
+      label: "Vision — reads images natively",
+      icon: Eye,
+      active: capabilities.nativeImageInput,
+      className: "border-sky-500/30 bg-sky-500/10 text-sky-500",
+    },
+    {
+      key: "tools",
+      label: "Tool use — can call functions",
+      icon: Wrench,
+      active: capabilities.toolCalling,
+      className: "border-amber-500/30 bg-amber-500/10 text-amber-500",
+    },
+    {
+      key: "reasoning",
+      label: "Reasoning — supports extended thinking",
+      icon: Sparkles,
+      active: capabilities.reasoning,
+      className: "border-violet-500/30 bg-violet-500/10 text-violet-500",
+    },
+    {
+      key: "image-out",
+      label: "Image generation — can output images",
+      icon: ImageIcon,
+      active: capabilities.imageOutput,
+      className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-500",
+    },
   ].filter((flag) => flag.active);
   if (flags.length === 0) return null;
   return (
     <span className="flex items-center gap-1">
-      {flags.map(({ key, label, icon: Icon }) => (
-        <span
-          key={key}
-          title={label}
-          className="flex size-5 items-center justify-center rounded border text-muted-foreground"
-        >
-          <Icon className="size-3" />
-        </span>
+      {flags.map(({ key, label, icon: Icon, className }) => (
+        <Tooltip key={key}>
+          <TooltipTrigger asChild>
+            <span
+              className={cn(
+                "flex size-5 items-center justify-center rounded border",
+                className,
+              )}
+            >
+              <Icon className="size-3" />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{label}</TooltipContent>
+        </Tooltip>
       ))}
     </span>
   );
