@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { allowedWebOrigins, auth } from "./auth";
 import { startKnowledgeBaseSyncLoop } from "./knowledge-base";
+import { rateLimitMiddleware } from "./rate-limit";
 import { registerChatStreamRoute } from "./routes/chat-stream";
 import { registerLibraryRoutes } from "./routes/library";
 import { startScheduler } from "./scheduler";
@@ -21,17 +22,30 @@ const app = new Hono();
 app.use(
   "*",
   cors({
-    // Reflects any origin in the allowlist instead of a single fixed one —
-    // lets the same web build be reached from a LAN IP, a Tailscale/ngrok
-    // tunnel, or a custom domain, all pointed at this one server (see
-    // WEB_ORIGIN in .env, comma-separated).
-    origin: (origin) => (allowedWebOrigins.includes(origin) ? origin : allowedWebOrigins[0]),
+    // Reflects an origin only if it's in the allowlist; any other origin
+    // gets no Access-Control-Allow-Origin header at all (hono's cors()
+    // omits the header when this callback returns undefined) instead of
+    // the previous fail-open behavior of reflecting allowedWebOrigins[0]
+    // for every unrecognized origin, which paired badly with
+    // credentials: true. See WEB_ORIGIN in .env (comma-separated) to add
+    // a LAN IP, tunnel, or custom domain to the allowlist.
+    origin: (origin) => (allowedWebOrigins.includes(origin) ? origin : undefined),
     credentials: true,
   }),
 );
 
+// Auth endpoints are the brute-force/credential-stuffing surface — tighter
+// budget than general API traffic.
+app.use(
+  "/api/auth/*",
+  rateLimitMiddleware({ windowMs: 60_000, max: 20, keyPrefix: "auth" }),
+);
 app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
+app.use(
+  "/trpc/*",
+  rateLimitMiddleware({ windowMs: 60_000, max: 300, keyPrefix: "trpc" }),
+);
 app.use(
   "/trpc/*",
   trpcServer({

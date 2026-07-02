@@ -109,10 +109,44 @@ export default function ApprovalsPage() {
               <ul className="space-y-2">
                 {pending.map((approval) => (
                   <li key={approval.id} className="space-y-2 rounded-lg border p-3 text-sm">
-                    <div className="font-medium">{approval.toolLabel}</div>
-                    <pre className="overflow-x-auto rounded bg-muted p-2 text-xs">
-                      {JSON.stringify(approval.input, null, 2)}
-                    </pre>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{approval.title ?? approval.toolLabel}</span>
+                      {approval.riskLevel && (
+                        <Badge
+                          variant="outline"
+                          className={
+                            approval.riskLevel === "high"
+                              ? "border-0 bg-rose-500/15 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400"
+                              : approval.riskLevel === "medium"
+                                ? "border-0 bg-amber-500/15 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
+                                : "border-0 bg-muted text-muted-foreground"
+                          }
+                        >
+                          {approval.riskLevel} risk
+                        </Badge>
+                      )}
+                    </div>
+                    {approval.description && (
+                      <p className="text-muted-foreground">{approval.description}</p>
+                    )}
+                    {approval.affectedResources && approval.affectedResources.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {approval.affectedResources.map((resource) => (
+                          <Badge key={resource} variant="outline" className="font-mono text-xs">
+                            {resource}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    {approval.diffPreview ? (
+                      <pre className="overflow-x-auto rounded bg-muted p-2 text-xs whitespace-pre-wrap">
+                        {approval.diffPreview}
+                      </pre>
+                    ) : (
+                      <pre className="overflow-x-auto rounded bg-muted p-2 text-xs">
+                        {JSON.stringify(approval.input, null, 2)}
+                      </pre>
+                    )}
                     <div className="flex gap-2">
                       <Button
                         size="sm"

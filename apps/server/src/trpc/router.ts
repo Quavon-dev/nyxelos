@@ -19,10 +19,12 @@ import {
 	OPENROUTER_BASE_URL,
 	probeOpenAiCompatibleEndpoint,
 } from "@nyxel/model-providers";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { resolveApprovalDecision } from "../approvals";
 import { auth } from "../auth";
 import { logAudit } from "../audit";
+import { getGitDiff, getGitStatus, getRepoInfo, listDirectory } from "../coding";
 import {
 	checkCliAuthStatus,
 	type CliProviderKind,
@@ -106,7 +108,8 @@ import {
 	listWorkflowRunsForWorkflow,
 	startWorkflowRun,
 } from "../workflow-runner";
-import { publicProcedure, router } from "./trpc";
+import { protectedProcedure, publicProcedure, router, workspaceProcedure } from "./trpc";
+import { requireEntityWorkspaceOwner, requireWorkspaceOwner } from "./workspace-guard";
 
 const autonomyLevelSchema = z.enum([
 	"chat",
@@ -115,6 +118,17 @@ const autonomyLevelSchema = z.enum([
 	"super_agent",
 ]);
 const mcpTransportSchema = z.enum(["stdio", "http"]);
+const memoryTypeSchema = z.enum([
+	"user_preference",
+	"workspace_fact",
+	"project_decision",
+	"agent_observation",
+	"task_summary",
+	"file_summary",
+	"repo_summary",
+	"long_term_note",
+]);
+const memorySourceSchema = z.enum(["user", "agent", "automation", "system"]);
 const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);
 const installationModeSchema = z.enum(["pc", "server"]);
 const modelProviderKindSchema = z.enum([
@@ -401,9 +415,14 @@ export const appRouter = router({
 	users: router({
 		// Looks up a real account by id (e.g. installation.ownerUserId) — unlike
 		// demoUser, which is a stubbed-in fallback for local development.
-		get: publicProcedure
+		get: protectedProcedure
 			.input(z.object({ userId: z.string() }))
-			.query(({ input }) => getDb().getUser(input.userId)),
+			.query(({ input, ctx }) => {
+				if (input.userId !== ctx.user.id) {
+					throw new TRPCError({ code: "FORBIDDEN" });
+				}
+				return getDb().getUser(input.userId);
+			}),
 	}),
 
 	installation: router({
@@ -467,9 +486,12 @@ export const appRouter = router({
 	}),
 
 	models: router({
-		list: publicProcedure
+		list: protectedProcedure
 			.input(z.object({ workspaceId: z.string().optional() }).optional())
-			.query(async ({ input }) => {
+			.query(async ({ input, ctx }) => {
+				if (input?.workspaceId) {
+					await requireWorkspaceOwner(ctx.user.id, input.workspaceId);
+				}
 				const providers = input?.workspaceId
 					? await getInstalledProvidersForWorkspace(input.workspaceId)
 					: [];
@@ -485,7 +507,7 @@ export const appRouter = router({
 			speech: OPENAI_SPEECH_MODELS,
 			transcription: OPENAI_TRANSCRIPTION_MODELS,
 		})),
-		installations: publicProcedure
+		installations: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) =>
 				getDb().listModelInstallationsByWorkspace(input.workspaceId),
@@ -493,7 +515,7 @@ export const appRouter = router({
 		// Lets the composer show whether an attachment will be sent natively
 		// (image/PDF passed through to the model) or via server-side text
 		// extraction fallback — see attachment-processing.ts.
-		capabilities: publicProcedure
+		capabilities: workspaceProcedure
 			.input(z.object({ workspaceId: z.string(), modelId: z.string() }))
 			.query(async ({ input }) => {
 				const providers = await getInstalledProvidersForWorkspace(
@@ -522,7 +544,7 @@ export const appRouter = router({
 				}
 				return detected;
 			}),
-		installCustom: publicProcedure
+		installCustom: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -567,7 +589,7 @@ export const appRouter = router({
 		listOpenRouterModels: publicProcedure
 			.input(z.object({ apiKey: z.string().min(1).optional() }))
 			.query(({ input }) => fetchOpenRouterModels(input.apiKey)),
-		installOpenRouter: publicProcedure
+		installOpenRouter: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -600,18 +622,26 @@ export const appRouter = router({
 					enabled: true,
 				});
 			}),
-		deleteInstallation: publicProcedure
+		deleteInstallation: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(({ input }) => getDb().deleteModelInstallation(input.id)),
+			.mutation(async ({ input, ctx }) => {
+				const db = getDb();
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getModelInstallation(input.id),
+					"Model installation not found",
+				);
+				return db.deleteModelInstallation(input.id);
+			}),
 		// Per-(workspace, model) generation overrides — how a specific model
 		// should behave by default. `getParameters` returns null when the model
 		// has never been configured (UI shows provider defaults/placeholders).
-		getParameters: publicProcedure
+		getParameters: workspaceProcedure
 			.input(z.object({ workspaceId: z.string(), modelId: z.string() }))
 			.query(({ input }) =>
 				getDb().getModelParameter(input.workspaceId, input.modelId),
 			),
-		saveParameters: publicProcedure
+		saveParameters: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -628,7 +658,7 @@ export const appRouter = router({
 				}),
 			)
 			.mutation(({ input }) => getDb().upsertModelParameter(input)),
-		resetParameters: publicProcedure
+		resetParameters: workspaceProcedure
 			.input(z.object({ workspaceId: z.string(), modelId: z.string() }))
 			.mutation(({ input }) =>
 				getDb().deleteModelParameter(input.workspaceId, input.modelId),
@@ -637,12 +667,15 @@ export const appRouter = router({
 		// provider kind (LM Studio, Claude CLI, Codex CLI, ...) — lets a user
 		// hide/show or permanently drop one model without touching the
 		// installation's connection/auth itself.
-		setModelEnabled: publicProcedure
+		setModelEnabled: protectedProcedure
 			.input(z.object({ id: z.string(), modelId: z.string(), enabled: z.boolean() }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
 				const db = getDb();
-				const installation = await db.getModelInstallation(input.id);
-				if (!installation) throw new Error(`Model installation not found: ${input.id}`);
+				const installation = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getModelInstallation(input.id),
+					"Model installation not found",
+				);
 				const disabledModelIds = input.enabled
 					? installation.disabledModelIds.filter((id) => id !== input.modelId)
 					: Array.from(new Set([...installation.disabledModelIds, input.modelId]));
@@ -654,11 +687,14 @@ export const appRouter = router({
 		// before the user commits to typing one. Empty array (not an error)
 		// when the provider kind has no catalog endpoint (CLI providers,
 		// arbitrary openai_compatible runtimes without a key).
-		listCatalogForInstallation: publicProcedure
+		listCatalogForInstallation: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.query(async ({ input }) => {
-				const installation = await getDb().getModelInstallation(input.id);
-				if (!installation) throw new Error(`Model installation not found: ${input.id}`);
+			.query(async ({ input, ctx }) => {
+				const installation = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getModelInstallation(input.id),
+					"Model installation not found",
+				);
 				const ids = await fetchLiveModelIdsForProviderKind(
 					installation.providerKind,
 					installation.apiKey,
@@ -666,12 +702,15 @@ export const appRouter = router({
 				);
 				return ids ?? [];
 			}),
-		addModelToInstallation: publicProcedure
+		addModelToInstallation: protectedProcedure
 			.input(z.object({ id: z.string(), modelId: z.string().min(1) }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
 				const db = getDb();
-				const installation = await db.getModelInstallation(input.id);
-				if (!installation) throw new Error(`Model installation not found: ${input.id}`);
+				const installation = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getModelInstallation(input.id),
+					"Model installation not found",
+				);
 				if (installation.modelIds.includes(input.modelId)) return installation;
 
 				// Verify against the provider's real catalog when one is
@@ -691,12 +730,15 @@ export const appRouter = router({
 				const modelIds = [...installation.modelIds, input.modelId];
 				return db.updateModelInstallation({ id: input.id, modelIds });
 			}),
-		removeModelFromInstallation: publicProcedure
+		removeModelFromInstallation: protectedProcedure
 			.input(z.object({ id: z.string(), modelId: z.string() }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
 				const db = getDb();
-				const installation = await db.getModelInstallation(input.id);
-				if (!installation) throw new Error(`Model installation not found: ${input.id}`);
+				const installation = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getModelInstallation(input.id),
+					"Model installation not found",
+				);
 				const modelIds = installation.modelIds.filter((id) => id !== input.modelId);
 				const disabledModelIds = installation.disabledModelIds.filter(
 					(id) => id !== input.modelId,
@@ -711,11 +753,16 @@ export const appRouter = router({
 			}),
 		// Local CLI providers (claude_cli/codex_cli) — see
 		// apps/server/src/cli-providers.ts. Auth state is host-wide, not
-		// per-workspace, so these three take no workspaceId.
-		cliStatus: publicProcedure
+		// per-workspace, so these three take no workspaceId. No natural
+		// workspace/entity to check ownership against (host-level CLI auth,
+		// not workspace-scoped data) — gated to signed-in users only.
+		// TODO(ADR-0017): needs auth review — host-wide CLI login state has no
+		// owning workspace/user to check beyond "is signed in"; consider
+		// whether this should be admin-only once roles exist.
+		cliStatus: protectedProcedure
 			.input(z.object({ providerKind: cliProviderKindSchema }))
 			.query(({ input }) => checkCliAuthStatus(input.providerKind)),
-		cliLoginStart: publicProcedure
+		cliLoginStart: protectedProcedure
 			.input(
 				z.object({
 					providerKind: cliProviderKindSchema,
@@ -723,10 +770,10 @@ export const appRouter = router({
 				}),
 			)
 			.mutation(({ input }) => startCliLogin(input.providerKind, input.apiKey)),
-		cliLoginOutput: publicProcedure
+		cliLoginOutput: protectedProcedure
 			.input(z.object({ execId: z.string() }))
 			.query(({ input }) => getCliLoginOutput(input.execId)),
-		installCli: publicProcedure
+		installCli: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -767,8 +814,14 @@ export const appRouter = router({
 					enabled: true,
 				});
 			}),
+		// TODO(ADR-0017): needs auth review — scans host-local paths for
+		// importable provider configs (e.g. existing CLI credential files);
+		// no workspace/entity to check ownership against, but the host-wide
+		// filesystem scan is sensitive enough that it likely deserves at
+		// least a signed-in session. Left public to match the exemption list's
+		// treatment of other host-wide, pre-workspace endpoints.
 		scanImportSources: publicProcedure.query(() => listProviderImportSources()),
-		importSource: publicProcedure
+		importSource: workspaceProcedure
 			.input(z.object({ workspaceId: z.string(), sourceId: z.string() }))
 			.mutation(({ input }) => importProviderSourceToWorkspace(input)),
 	}),
@@ -777,10 +830,10 @@ export const appRouter = router({
 		// Merges the process-wide hand-written skills (packages/skills-sdk)
 		// with this workspace's own real, file-based skills (.md files under
 		// NYXEL_SKILLS_DIR/<workspaceId>/ — see skills-resolve.ts).
-		list: publicProcedure
+		list: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => listSkillCatalog(input.workspaceId)),
-		create: publicProcedure
+		create: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -790,7 +843,7 @@ export const appRouter = router({
 				}),
 			)
 			.mutation(({ input }) => createFileSkill(input)),
-		update: publicProcedure
+		update: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -801,13 +854,15 @@ export const appRouter = router({
 				}),
 			)
 			.mutation(({ input }) => updateFileSkill(input)),
-		delete: publicProcedure
+		delete: workspaceProcedure
 			.input(z.object({ workspaceId: z.string(), slug: z.string() }))
 			.mutation(({ input }) => deleteFileSkill(input)),
+		// Public skill-library search — no workspace data touched, just a
+		// catalog lookup (mirrors models.listOpenRouterModels).
 		searchLibrary: publicProcedure
 			.input(z.object({ query: z.string() }))
 			.query(({ input }) => searchSkillLibrary(input.query)),
-		importFromUrl: publicProcedure
+		importFromUrl: workspaceProcedure
 			.input(z.object({ workspaceId: z.string(), url: z.string().url() }))
 			.mutation(({ input }) => importSkillFromUrl(input)),
 	}),
@@ -817,13 +872,19 @@ export const appRouter = router({
 	// agents/ + arbitrary supporting files) rather than the single-file
 	// skills above. See apps/server/src/plugins.ts.
 	plugins: router({
-		list: publicProcedure
+		list: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => listPlugins(input.workspaceId)),
-		get: publicProcedure
+		get: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.query(({ input }) => getPlugin(input.id)),
-		install: publicProcedure
+			.query(async ({ input, ctx }) =>
+				requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getPlugin(input.id),
+					"Plugin not found",
+				),
+			),
+		install: workspaceProcedure
 			.input(z.object({ workspaceId: z.string(), repoUrl: z.string().min(1) }))
 			.mutation(async ({ input }) => {
 				const result = await installPluginFromGithub(input);
@@ -840,23 +901,32 @@ export const appRouter = router({
 				});
 				return result;
 			}),
-		setEnabled: publicProcedure
+		setEnabled: protectedProcedure
 			.input(z.object({ id: z.string(), enabled: z.boolean() }))
-			.mutation(({ input }) => setPluginEnabled(input.id, input.enabled)),
-		uninstall: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getPlugin(input.id),
+					"Plugin not found",
+				);
+				return setPluginEnabled(input.id, input.enabled);
+			}),
+		uninstall: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(async ({ input }) => {
-				const existing = await getPlugin(input.id);
+			.mutation(async ({ input, ctx }) => {
+				const existing = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getPlugin(input.id),
+					"Plugin not found",
+				);
 				await uninstallPlugin(input.id);
-				if (existing) {
-					await logAudit({
-						workspaceId: existing.workspaceId,
-						actor: "extension",
-						toolLabel: "plugins.uninstall",
-						input: { slug: existing.slug },
-						status: "success",
-					});
-				}
+				await logAudit({
+					workspaceId: existing.workspaceId,
+					actor: "extension",
+					toolLabel: "plugins.uninstall",
+					input: { slug: existing.slug },
+					status: "success",
+				});
 				return { ok: true };
 			}),
 	}),
@@ -867,10 +937,10 @@ export const appRouter = router({
 	// GET /api/library/files/:id/content) since multipart upload and file
 	// streaming don't fit tRPC's JSON shape well.
 	library: router({
-		list: publicProcedure
+		list: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => listLibrary(input.workspaceId)),
-		createFolder: publicProcedure
+		createFolder: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -879,27 +949,65 @@ export const appRouter = router({
 				}),
 			)
 			.mutation(({ input }) => createLibraryFolder(input)),
-		renameFolder: publicProcedure
+		renameFolder: protectedProcedure
 			.input(z.object({ id: z.string(), name: z.string().min(1) }))
-			.mutation(({ input }) => renameLibraryFolder(input.id, input.name)),
-		moveFolder: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getLibraryFolder(input.id),
+					"Folder not found",
+				);
+				return renameLibraryFolder(input.id, input.name);
+			}),
+		moveFolder: protectedProcedure
 			.input(z.object({ id: z.string(), parentId: z.string().nullable() }))
-			.mutation(({ input }) => moveLibraryFolder(input.id, input.parentId)),
-		deleteFolder: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getLibraryFolder(input.id),
+					"Folder not found",
+				);
+				return moveLibraryFolder(input.id, input.parentId);
+			}),
+		deleteFolder: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getLibraryFolder(input.id),
+					"Folder not found",
+				);
 				await deleteLibraryFolder(input.id);
 				return { ok: true };
 			}),
-		renameFile: publicProcedure
+		renameFile: protectedProcedure
 			.input(z.object({ id: z.string(), name: z.string().min(1) }))
-			.mutation(({ input }) => renameLibraryFile(input.id, input.name)),
-		moveFile: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getLibraryFile(input.id),
+					"File not found",
+				);
+				return renameLibraryFile(input.id, input.name);
+			}),
+		moveFile: protectedProcedure
 			.input(z.object({ id: z.string(), folderId: z.string().nullable() }))
-			.mutation(({ input }) => moveLibraryFile(input.id, input.folderId)),
-		deleteFile: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getLibraryFile(input.id),
+					"File not found",
+				);
+				return moveLibraryFile(input.id, input.folderId);
+			}),
+		deleteFile: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getLibraryFile(input.id),
+					"File not found",
+				);
 				await deleteLibraryFile(input.id);
 				return { ok: true };
 			}),
@@ -918,7 +1026,7 @@ export const appRouter = router({
 		// with the same list the "auto" heuristic picks from, like models.list
 		// does for chat, instead of duplicating it as a frontend constant.
 		models: publicProcedure.query(() => OPENAI_VIDEO_MODELS),
-		generate: publicProcedure
+		generate: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -930,13 +1038,19 @@ export const appRouter = router({
 				}),
 			)
 			.mutation(({ input }) => queueVideoGeneration(input)),
-		list: publicProcedure
+		list: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => listVideoGenerationJobsForWorkspace(input.workspaceId)),
-		get: publicProcedure
+		get: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.query(({ input }) => getVideoGenerationJobById(input.id)),
-		edit: publicProcedure
+			.query(({ input, ctx }) =>
+				requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getVideoGenerationJobById(input.id),
+					"Video generation job not found",
+				),
+			),
+		edit: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -961,13 +1075,19 @@ export const appRouter = router({
 	// workflow-runner.ts the same way video generation is delegated to
 	// ../video.ts.
 	workflows: router({
-		list: publicProcedure
+		list: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => getDb().listWorkflowsByWorkspace(input.workspaceId)),
-		get: publicProcedure
+		get: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.query(({ input }) => getDb().getWorkflow(input.id)),
-		create: publicProcedure
+			.query(({ input, ctx }) =>
+				requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getWorkflow(input.id),
+					"Workflow not found",
+				),
+			),
+		create: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -982,7 +1102,7 @@ export const appRouter = router({
 					definition: input.definition ?? EMPTY_WORKFLOW_DEFINITION,
 				}),
 			),
-		update: publicProcedure
+		update: protectedProcedure
 			.input(
 				z.object({
 					id: z.string(),
@@ -991,12 +1111,22 @@ export const appRouter = router({
 					definition: workflowDefinitionSchema.optional(),
 				}),
 			)
-			.mutation(({ input: { id, ...patch } }) => getDb().updateWorkflow(id, patch)),
-		duplicate: publicProcedure
+			.mutation(async ({ input: { id, ...patch }, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getWorkflow(id),
+					"Workflow not found",
+				);
+				return getDb().updateWorkflow(id, patch);
+			}),
+		duplicate: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(async ({ input }) => {
-				const original = await getDb().getWorkflow(input.id);
-				if (!original) throw new Error(`Workflow not found: ${input.id}`);
+			.mutation(async ({ input, ctx }) => {
+				const original = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getWorkflow(input.id),
+					"Workflow not found",
+				);
 				return getDb().createWorkflow({
 					workspaceId: original.workspaceId,
 					name: `${original.name} (copy)`,
@@ -1004,9 +1134,14 @@ export const appRouter = router({
 					definition: original.definition,
 				});
 			}),
-		delete: publicProcedure
+		delete: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getWorkflow(input.id),
+					"Workflow not found",
+				);
 				await getDb().deleteWorkflow(input.id);
 				return { ok: true };
 			}),
@@ -1016,30 +1151,45 @@ export const appRouter = router({
 		// and the builder page polls `get` (run + all its nodes together, one
 		// call) to paint live per-node status on the canvas.
 		runs: router({
-			start: publicProcedure
+			start: protectedProcedure
 				.input(z.object({ workflowId: z.string() }))
-				.mutation(({ input }) => startWorkflowRun(input.workflowId)),
-			get: publicProcedure
+				.mutation(async ({ input, ctx }) => {
+					await requireEntityWorkspaceOwner(
+						ctx.user.id,
+						() => getDb().getWorkflow(input.workflowId),
+						"Workflow not found",
+					);
+					return startWorkflowRun(input.workflowId);
+				}),
+			get: protectedProcedure
 				.input(z.object({ id: z.string() }))
-				.query(async ({ input }) => {
+				.query(async ({ input, ctx }) => {
 					const run = await getWorkflowRun(input.id);
 					if (!run) return null;
+					await requireWorkspaceOwner(ctx.user.id, run.workspaceId);
 					const nodes = await listWorkflowRunNodes(input.id);
 					return { run, nodes };
 				}),
-			listForWorkflow: publicProcedure
+			listForWorkflow: protectedProcedure
 				.input(z.object({ workflowId: z.string() }))
-				.query(({ input }) => listWorkflowRunsForWorkflow(input.workflowId)),
+				.query(async ({ input, ctx }) => {
+					await requireEntityWorkspaceOwner(
+						ctx.user.id,
+						() => getDb().getWorkflow(input.workflowId),
+						"Workflow not found",
+					);
+					return listWorkflowRunsForWorkflow(input.workflowId);
+				}),
 		}),
 	}),
 
 	tools: router({
 		// Workspace tools are DB-backed and user-configurable. This is the
 		// Old Skills tab concept, renamed because it was not a real skill.
-		list: publicProcedure
+		list: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => listToolCatalogForWorkspace(input.workspaceId)),
-		create: publicProcedure
+		create: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -1065,31 +1215,51 @@ export const appRouter = router({
 					sensitive: input.sensitive ?? defaultSensitive,
 				});
 			}),
-		setEnabled: publicProcedure
+		setEnabled: protectedProcedure
 			.input(z.object({ id: z.string(), enabled: z.boolean() }))
-			.mutation(({ input }) =>
-				getDb().setToolEnabled(input.id, input.enabled),
-			),
-		delete: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getTool(input.id),
+					"Tool not found",
+				);
+				return getDb().setToolEnabled(input.id, input.enabled);
+			}),
+		delete: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(({ input }) => getDb().deleteTool(input.id)),
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getTool(input.id),
+					"Tool not found",
+				);
+				return getDb().deleteTool(input.id);
+			}),
 	}),
 
 	workspaces: router({
-		list: publicProcedure
+		list: protectedProcedure
 			.input(z.object({ userId: z.string() }))
-			.query(({ input }) => getDb().listWorkspacesByUser(input.userId)),
-		create: publicProcedure
+			.query(({ input, ctx }) => {
+				if (input.userId !== ctx.user.id) {
+					throw new TRPCError({ code: "FORBIDDEN" });
+				}
+				return getDb().listWorkspacesByUser(input.userId);
+			}),
+		create: protectedProcedure
 			.input(z.object({ userId: z.string(), name: z.string().min(1) }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
+				if (input.userId !== ctx.user.id) {
+					throw new TRPCError({ code: "FORBIDDEN" });
+				}
 				const workspace = await getDb().createWorkspace(input);
 				await seedBuiltinToolsForWorkspace(workspace.id);
 				return workspace;
 			}),
-		get: publicProcedure
+		get: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => getDb().getWorkspace(input.workspaceId)),
-		updateSettings: publicProcedure
+		updateSettings: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -1106,18 +1276,25 @@ export const appRouter = router({
 	}),
 
 	chats: router({
-		list: publicProcedure
+		list: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => getDb().listChatsByWorkspace(input.workspaceId)),
-		listArchived: publicProcedure
+		listArchived: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) =>
 				getDb().listArchivedChatsByWorkspace(input.workspaceId),
 			),
-		listByProject: publicProcedure
+		listByProject: protectedProcedure
 			.input(z.object({ projectId: z.string() }))
-			.query(({ input }) => getDb().listChatsByProject(input.projectId)),
-		create: publicProcedure
+			.query(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getProject(input.projectId),
+					"Project not found",
+				);
+				return getDb().listChatsByProject(input.projectId);
+			}),
+		create: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -1164,39 +1341,83 @@ export const appRouter = router({
 					toolPolicy,
 				});
 			}),
-		rename: publicProcedure
+		rename: protectedProcedure
 			.input(
 				z.object({ chatId: z.string(), title: z.string().min(1).max(120) }),
 			)
-			.mutation(({ input }) =>
-				getDb().renameChat(input.chatId, input.title.trim()),
-			),
-		setArchived: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getChat(input.chatId),
+					"Chat not found",
+				);
+				return getDb().renameChat(input.chatId, input.title.trim());
+			}),
+		setArchived: protectedProcedure
 			.input(z.object({ chatId: z.string(), archived: z.boolean() }))
-			.mutation(({ input }) =>
-				getDb().setChatArchived(input.chatId, input.archived),
-			),
-		setPinned: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getChat(input.chatId),
+					"Chat not found",
+				);
+				return getDb().setChatArchived(input.chatId, input.archived);
+			}),
+		setPinned: protectedProcedure
 			.input(z.object({ chatId: z.string(), pinned: z.boolean() }))
-			.mutation(({ input }) =>
-				getDb().setChatPinned(input.chatId, input.pinned),
-			),
-		setProject: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getChat(input.chatId),
+					"Chat not found",
+				);
+				return getDb().setChatPinned(input.chatId, input.pinned);
+			}),
+		setProject: protectedProcedure
 			.input(z.object({ chatId: z.string(), projectId: z.string().nullable() }))
-			.mutation(({ input }) =>
-				getDb().setChatProject(input.chatId, input.projectId),
-			),
-		duplicate: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getChat(input.chatId),
+					"Chat not found",
+				);
+				return getDb().setChatProject(input.chatId, input.projectId);
+			}),
+		duplicate: protectedProcedure
 			.input(z.object({ chatId: z.string() }))
-			.mutation(({ input }) => getDb().duplicateChat(input.chatId)),
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getChat(input.chatId),
+					"Chat not found",
+				);
+				return getDb().duplicateChat(input.chatId);
+			}),
 		// Turns public read-only sharing on/off for a chat. See chats.getShared
 		// for the unauthenticated lookup used by the /share/{shareId} page.
-		share: publicProcedure
+		share: protectedProcedure
 			.input(z.object({ chatId: z.string() }))
-			.mutation(({ input }) => getDb().setChatShared(input.chatId, true)),
-		unshare: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getChat(input.chatId),
+					"Chat not found",
+				);
+				return getDb().setChatShared(input.chatId, true);
+			}),
+		unshare: protectedProcedure
 			.input(z.object({ chatId: z.string() }))
-			.mutation(({ input }) => getDb().setChatShared(input.chatId, false)),
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getChat(input.chatId),
+					"Chat not found",
+				);
+				return getDb().setChatShared(input.chatId, false);
+			}),
+		// Deliberately public — this is the unauthenticated /share/{shareId}
+		// viewer link lookup, keyed by an unguessable shareId rather than the
+		// chat's real id.
 		getShared: publicProcedure
 			.input(z.object({ shareId: z.string() }))
 			.query(async ({ input }) => {
@@ -1206,20 +1427,39 @@ export const appRouter = router({
 				const messages = await db.listMessages(chat.id);
 				return { chat, messages };
 			}),
-		delete: publicProcedure
+		delete: protectedProcedure
 			.input(z.object({ chatId: z.string() }))
-			.mutation(({ input }) => getDb().deleteChat(input.chatId)),
-		messages: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getChat(input.chatId),
+					"Chat not found",
+				);
+				return getDb().deleteChat(input.chatId);
+			}),
+		messages: protectedProcedure
 			.input(z.object({ chatId: z.string() }))
-			.query(({ input }) => getDb().listMessages(input.chatId)),
+			.query(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getChat(input.chatId),
+					"Chat not found",
+				);
+				return getDb().listMessages(input.chatId);
+			}),
 		// Re-points a chat at a different (usually freshly forked) agent — see
 		// updateChatAgent's doc comment in packages/db/src/repo/types.ts.
-		setAgent: publicProcedure
+		setAgent: protectedProcedure
 			.input(z.object({ chatId: z.string(), agentId: z.string().nullable() }))
-			.mutation(({ input }) =>
-				getDb().updateChatAgent(input.chatId, input.agentId),
-			),
-		setToolPolicy: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getChat(input.chatId),
+					"Chat not found",
+				);
+				return getDb().updateChatAgent(input.chatId, input.agentId);
+			}),
+		setToolPolicy: protectedProcedure
 			.input(
 				z.object({
 					chatId: z.string(),
@@ -1227,23 +1467,34 @@ export const appRouter = router({
 					toolPolicy: chatToolPolicySchema,
 				}),
 			)
-			.mutation(({ input }) =>
-				getDb().updateChatToolPolicy({
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getChat(input.chatId),
+					"Chat not found",
+				);
+				return getDb().updateChatToolPolicy({
 					chatId: input.chatId,
 					toolMode: input.toolMode,
 					toolPolicy: resolveChatToolPolicy(input),
-				}),
-			),
+				});
+			}),
 	}),
 
 	projects: router({
-		list: publicProcedure
+		list: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => getDb().listProjectsByWorkspace(input.workspaceId)),
-		get: publicProcedure
+		get: protectedProcedure
 			.input(z.object({ projectId: z.string() }))
-			.query(({ input }) => getDb().getProject(input.projectId)),
-		create: publicProcedure
+			.query(({ input, ctx }) =>
+				requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getProject(input.projectId),
+					"Project not found",
+				),
+			),
+		create: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -1255,14 +1506,19 @@ export const appRouter = router({
 			.mutation(({ input }) =>
 				getDb().createProject({ ...input, name: input.name.trim() }),
 			),
-		rename: publicProcedure
+		rename: protectedProcedure
 			.input(
 				z.object({ projectId: z.string(), name: z.string().min(1).max(120) }),
 			)
-			.mutation(({ input }) =>
-				getDb().renameProject(input.projectId, input.name.trim()),
-			),
-		setAppearance: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getProject(input.projectId),
+					"Project not found",
+				);
+				return getDb().renameProject(input.projectId, input.name.trim());
+			}),
+		setAppearance: protectedProcedure
 			.input(
 				z.object({
 					projectId: z.string(),
@@ -1270,28 +1526,53 @@ export const appRouter = router({
 					icon: z.string().max(40),
 				}),
 			)
-			.mutation(({ input }) =>
-				getDb().setProjectAppearance(input.projectId, {
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getProject(input.projectId),
+					"Project not found",
+				);
+				return getDb().setProjectAppearance(input.projectId, {
 					color: input.color,
 					icon: input.icon,
-				}),
-			),
-		duplicate: publicProcedure
+				});
+			}),
+		duplicate: protectedProcedure
 			.input(z.object({ projectId: z.string() }))
-			.mutation(({ input }) => getDb().duplicateProject(input.projectId)),
-		delete: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getProject(input.projectId),
+					"Project not found",
+				);
+				return getDb().duplicateProject(input.projectId);
+			}),
+		delete: protectedProcedure
 			.input(z.object({ projectId: z.string() }))
-			.mutation(({ input }) => getDb().deleteProject(input.projectId)),
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getProject(input.projectId),
+					"Project not found",
+				);
+				return getDb().deleteProject(input.projectId);
+			}),
 	}),
 
 	agents: router({
-		list: publicProcedure
+		list: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => getDb().listAgentsByWorkspace(input.workspaceId)),
-		get: publicProcedure
+		get: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.query(({ input }) => getDb().getAgent(input.id)),
-		create: publicProcedure
+			.query(({ input, ctx }) =>
+				requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getAgent(input.id),
+					"Agent not found",
+				),
+			),
+		create: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -1330,7 +1611,7 @@ export const appRouter = router({
 					mcpToolFilter: input.mcpToolFilter ?? null,
 				});
 			}),
-		update: publicProcedure
+		update: protectedProcedure
 			.input(
 				z.object({
 					id: z.string(),
@@ -1347,23 +1628,40 @@ export const appRouter = router({
 					delegateAgentIds: z.array(z.string()).optional(),
 				}),
 			)
-			.mutation(({ input: { id, ...input } }) => getDb().updateAgent(id, input)),
-		delete: publicProcedure
+			.mutation(async ({ input: { id, ...input }, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getAgent(id),
+					"Agent not found",
+				);
+				return getDb().updateAgent(id, input);
+			}),
+		delete: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getAgent(input.id),
+					"Agent not found",
+				);
 				await deleteAgentGuarded(getDb(), input.id);
 				return { ok: true };
 			}),
 		// Deletes each id independently — one agent still in use by an
 		// automation/active run doesn't block the rest of the selection.
-		deleteMany: publicProcedure
+		deleteMany: protectedProcedure
 			.input(z.object({ ids: z.array(z.string()).min(1) }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
 				const db = getDb();
 				const errors: { id: string; name: string; message: string }[] = [];
 				let deletedCount = 0;
 				for (const id of input.ids) {
 					try {
+						await requireEntityWorkspaceOwner(
+							ctx.user.id,
+							() => db.getAgent(id),
+							"Agent not found",
+						);
 						await deleteAgentGuarded(db, id);
 						deletedCount++;
 					} catch (err) {
@@ -1379,19 +1677,19 @@ export const appRouter = router({
 			}),
 		// Read-only version of cleanupUnusedChatAgents' filter — lets the UI show
 		// an accurate "N unused" count before the user commits to deleting.
-		listUnusedChatAgentIds: publicProcedure
+		listUnusedChatAgentIds: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => getDb().listUnusedChatAgentIds(input.workspaceId)),
 		// Bulk-cleans the "Chat — custom tools" one-off agents that pile up from
 		// repeatedly changing a chat's tool/model selection (see chat/[chatId]
 		// page.tsx's forkAgent) — only removes ones no chat currently points at.
-		cleanupUnusedChatAgents: publicProcedure
+		cleanupUnusedChatAgents: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.mutation(({ input }) => getDb().deleteUnusedChatAgents(input.workspaceId)),
 	}),
 
 	tasks: router({
-		list: publicProcedure
+		list: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -1405,18 +1703,23 @@ export const appRouter = router({
 					assignedAgentId: input.assignedAgentId,
 				}),
 			),
-		get: publicProcedure
+		get: protectedProcedure
 			.input(z.object({ taskId: z.string() }))
-			.query(async ({ input }) => {
+			.query(async ({ input, ctx }) => {
 				const db = getDb();
+				const task = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getTask(input.taskId),
+					"Task not found",
+				);
 				return {
-					task: await db.getTask(input.taskId),
+					task,
 					children: await db.listTaskTree(input.taskId),
 					events: await db.listTaskEvents(input.taskId),
 					runs: await db.listAgentRunsByTask(input.taskId),
 				};
 			}),
-		create: publicProcedure
+		create: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -1469,14 +1772,19 @@ export const appRouter = router({
 				}
 				return task;
 			}),
-		assign: publicProcedure
+		assign: protectedProcedure
 			.input(
 				z.object({
 					taskId: z.string(),
 					assignedAgentId: z.string().nullable(),
 				}),
 			)
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getTask(input.taskId),
+					"Task not found",
+				);
 				const task = await getDb().updateTask(input.taskId, {
 					assignedAgentId: input.assignedAgentId,
 					status: input.assignedAgentId ? "ready" : "pending",
@@ -1499,14 +1807,19 @@ export const appRouter = router({
 				}
 				return task;
 			}),
-		setModel: publicProcedure
+		setModel: protectedProcedure
 			.input(
 				z.object({
 					taskId: z.string(),
 					modelId: z.string().nullable(),
 				}),
 			)
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getTask(input.taskId),
+					"Task not found",
+				);
 				const task = await getDb().updateTask(input.taskId, {
 					modelId: input.modelId,
 				});
@@ -1521,14 +1834,19 @@ export const appRouter = router({
 				});
 				return task;
 			}),
-		complete: publicProcedure
+		complete: protectedProcedure
 			.input(
 				z.object({
 					taskId: z.string(),
 					resultSummary: z.string().min(1),
 				}),
 			)
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getTask(input.taskId),
+					"Task not found",
+				);
 				const task = await getDb().updateTask(input.taskId, {
 					status: "completed",
 					resultSummary: input.resultSummary,
@@ -1543,10 +1861,15 @@ export const appRouter = router({
 				});
 				return task;
 			}),
-		cancel: publicProcedure
+		cancel: protectedProcedure
 			.input(z.object({ taskId: z.string() }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
 				const db = getDb();
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getTask(input.taskId),
+					"Task not found",
+				);
 				// If an agent run is still live, abort its in-flight model call
 				// (cancelAgentRun) instead of just flipping the task's status —
 				// otherwise the run keeps streaming in the background and can
@@ -1572,9 +1895,14 @@ export const appRouter = router({
 				});
 				return task;
 			}),
-		start: publicProcedure
+		start: protectedProcedure
 			.input(z.object({ taskId: z.string() }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getTask(input.taskId),
+					"Task not found",
+				);
 				const started = await startTaskExecutionIfIdle({
 					taskId: input.taskId,
 					trigger: "task",
@@ -1584,17 +1912,20 @@ export const appRouter = router({
 				if (!task) throw new Error(`Unknown task: ${input.taskId}`);
 				return task;
 			}),
-		reply: publicProcedure
+		reply: protectedProcedure
 			.input(
 				z.object({
 					taskId: z.string(),
 					instruction: z.string().min(1),
 				}),
 			)
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
 				const db = getDb();
-				const task = await db.getTask(input.taskId);
-				if (!task) throw new Error(`Unknown task: ${input.taskId}`);
+				const task = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getTask(input.taskId),
+					"Task not found",
+				);
 				const agentId = task.assignedAgentId ?? task.createdByAgentId;
 				if (!agentId) {
 					throw new Error("This task has no agent to continue with.");
@@ -1649,34 +1980,62 @@ export const appRouter = router({
 				});
 				return result.task;
 			}),
-		events: publicProcedure
+		events: protectedProcedure
 			.input(z.object({ taskId: z.string() }))
-			.query(({ input }) => getDb().listTaskEvents(input.taskId)),
+			.query(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getTask(input.taskId),
+					"Task not found",
+				);
+				return getDb().listTaskEvents(input.taskId);
+			}),
 	}),
 
 	agentRuns: router({
-		listByTask: publicProcedure
+		listByTask: protectedProcedure
 			.input(z.object({ taskId: z.string() }))
-			.query(({ input }) => getDb().listAgentRunsByTask(input.taskId)),
-		listByAgent: publicProcedure
+			.query(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getTask(input.taskId),
+					"Task not found",
+				);
+				return getDb().listAgentRunsByTask(input.taskId);
+			}),
+		listByAgent: protectedProcedure
 			.input(z.object({ agentId: z.string() }))
-			.query(({ input }) => getDb().listAgentRunsByAgent(input.agentId)),
-		listActive: publicProcedure
+			.query(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getAgent(input.agentId),
+					"Agent not found",
+				);
+				return getDb().listAgentRunsByAgent(input.agentId);
+			}),
+		listActive: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => getDb().listActiveAgentRunsByWorkspace(input.workspaceId)),
-		cancel: publicProcedure
+		cancel: protectedProcedure
 			.input(z.object({ runId: z.string() }))
-			.mutation(({ input }) => cancelAgentRun(input.runId)),
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getAgentRun(input.runId),
+					"Agent run not found",
+				);
+				return cancelAgentRun(input.runId);
+			}),
 	}),
 
 	mcpServers: router({
 		catalog: publicProcedure.query(() => MCP_CONNECTOR_CATALOG),
-		list: publicProcedure
+		list: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) =>
 				getDb().listMcpServersByWorkspace(input.workspaceId),
 			),
-		create: publicProcedure.input(mcpServerCreateSchema).mutation(({ input }) =>
+		create: workspaceProcedure.input(mcpServerCreateSchema).mutation(({ input }) =>
 			getDb().createMcpServer({
 				...input,
 				command: input.command?.trim(),
@@ -1687,7 +2046,7 @@ export const appRouter = router({
 		// to a local file and builds the stdio server's env from the result,
 		// since those commands only accept a credentials *path*, not the secret
 		// itself as an argument.
-		connectWithConfig: publicProcedure
+		connectWithConfig: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -1723,17 +2082,27 @@ export const appRouter = router({
 					env,
 				});
 			}),
-		delete: publicProcedure
+		delete: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(({ input }) => getDb().deleteMcpServer(input.id)),
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getMcpServer(input.id),
+					"MCP server not found",
+				);
+				return getDb().deleteMcpServer(input.id);
+			}),
 		// Connects on demand and lists the server's tools — lets the UI offer a
 		// "test connection" action without keeping every configured server
 		// connected all the time.
-		listTools: publicProcedure
+		listTools: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.query(async ({ input }) => {
-				const server = await getDb().getMcpServer(input.id);
-				if (!server) throw new Error(`Unknown MCP server: ${input.id}`);
+			.query(async ({ input, ctx }) => {
+				const server = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getMcpServer(input.id),
+					"MCP server not found",
+				);
 				try {
 					await ensureMcpServerConnected(server);
 					return {
@@ -1750,11 +2119,14 @@ export const appRouter = router({
 					throw err;
 				}
 			}),
-		finishAuth: publicProcedure
+		finishAuth: protectedProcedure
 			.input(z.object({ id: z.string(), code: z.string().min(1) }))
-			.mutation(async ({ input }) => {
-				const server = await getDb().getMcpServer(input.id);
-				if (!server) throw new Error(`Unknown MCP server: ${input.id}`);
+			.mutation(async ({ input, ctx }) => {
+				const server = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getMcpServer(input.id),
+					"MCP server not found",
+				);
 				await completeMcpServerAuthorization(server, input.code);
 				return { ok: true };
 			}),
@@ -1762,12 +2134,12 @@ export const appRouter = router({
 
 	extensions: router({
 		catalog: publicProcedure.query(() => EXTENSION_CATALOG),
-		list: publicProcedure
+		list: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) =>
 				getDb().listExtensionsByWorkspace(input.workspaceId),
 			),
-		install: publicProcedure
+		install: workspaceProcedure
 			.input(z.object({ workspaceId: z.string(), key: z.string() }))
 			.mutation(async ({ input }) => {
 				const catalogEntry = getExtensionCatalogEntry(input.key);
@@ -1811,41 +2183,53 @@ export const appRouter = router({
 
 				return { extension: record, pluginInstall };
 			}),
-		setEnabled: publicProcedure
+		setEnabled: protectedProcedure
 			.input(z.object({ id: z.string(), enabled: z.boolean() }))
-			.mutation(({ input }) =>
-				getDb().setExtensionEnabled(input.id, input.enabled),
-			),
-		updateConfig: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getExtension(input.id),
+					"Extension not found",
+				);
+				return getDb().setExtensionEnabled(input.id, input.enabled);
+			}),
+		updateConfig: protectedProcedure
 			.input(
 				z.object({ id: z.string(), config: z.record(z.string(), z.unknown()) }),
 			)
-			.mutation(({ input }) =>
-				getDb().updateExtensionConfig(input.id, input.config),
-			),
-		uninstall: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getExtension(input.id),
+					"Extension not found",
+				);
+				return getDb().updateExtensionConfig(input.id, input.config);
+			}),
+		uninstall: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
 				const db = getDb();
-				const existing = await db.getExtension(input.id);
+				const existing = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getExtension(input.id),
+					"Extension not found",
+				);
 				await db.uninstallExtension(input.id);
-				if (existing) {
-					await logAudit({
-						workspaceId: existing.workspaceId,
-						actor: "extension",
-						toolLabel: "extensions.uninstall",
-						input: { key: existing.key },
-						status: "success",
-					});
-				}
+				await logAudit({
+					workspaceId: existing.workspaceId,
+					actor: "extension",
+					toolLabel: "extensions.uninstall",
+					input: { key: existing.key },
+					status: "success",
+				});
 			}),
 	}),
 
 	seoAnalyzer: router({
-		listProjects: publicProcedure
+		listProjects: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => getDb().listSeoProjectsByWorkspace(input.workspaceId)),
-		createProject: publicProcedure
+		createProject: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -1869,7 +2253,7 @@ export const appRouter = router({
 					repoPath: input.repoPath.trim(),
 				});
 			}),
-		updateProject: publicProcedure
+		updateProject: protectedProcedure
 			.input(
 				z.object({
 					id: z.string(),
@@ -1877,26 +2261,43 @@ export const appRouter = router({
 					repoPath: z.string().min(1).optional(),
 				}),
 			)
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getSeoProject(input.id),
+					"SEO project not found",
+				);
 				if (input.repoPath) await validateRepoPath(input.repoPath);
 				return getDb().updateSeoProject(input.id, {
 					domain: input.domain,
 					repoPath: input.repoPath,
 				});
 			}),
-		deleteProject: publicProcedure
+		deleteProject: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(({ input }) => getDb().deleteSeoProject(input.id)),
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getSeoProject(input.id),
+					"SEO project not found",
+				);
+				return getDb().deleteSeoProject(input.id);
+			}),
 		// Lets the user pick which agent runs fix-dispatch/blog-generation for a
 		// project instead of always auto-provisioning a dedicated repo-scoped
 		// one (see configureSeoFixerAgent in seo-analyzer.ts, which respects
 		// project.fixerAgentId as-is when it's a non-auto-provisioned agent —
 		// this is the only place that sets it to a user-chosen agent).
 		// Passing null clears the pin, reverting to auto-provisioning.
-		setFixerAgent: publicProcedure
+		setFixerAgent: protectedProcedure
 			.input(z.object({ id: z.string(), agentId: z.string().nullable() }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
 				const db = getDb();
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getSeoProject(input.id),
+					"SEO project not found",
+				);
 				if (input.agentId) {
 					const agent = await db.getAgent(input.agentId);
 					if (!agent) throw new Error(`Unknown agent: ${input.agentId}`);
@@ -1908,9 +2309,14 @@ export const appRouter = router({
 				}
 				return db.updateSeoProject(input.id, { fixerAgentId: input.agentId });
 			}),
-		setSchedule: publicProcedure
+		setSchedule: protectedProcedure
 			.input(z.object({ id: z.string(), cronExpression: z.string().nullable() }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getSeoProject(input.id),
+					"SEO project not found",
+				);
 				if (input.cronExpression === null) {
 					return getDb().updateSeoProject(input.id, {
 						reanalyzeCronExpression: null,
@@ -1926,49 +2332,103 @@ export const appRouter = router({
 					nextReanalyzeAt,
 				});
 			}),
-		listRuns: publicProcedure
+		listRuns: protectedProcedure
 			.input(z.object({ seoProjectId: z.string() }))
-			.query(({ input }) => getDb().listSeoAnalysisRunsByProject(input.seoProjectId)),
-		listFindings: publicProcedure
+			.query(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getSeoProject(input.seoProjectId),
+					"SEO project not found",
+				);
+				return getDb().listSeoAnalysisRunsByProject(input.seoProjectId);
+			}),
+		listFindings: protectedProcedure
 			.input(z.object({ runId: z.string() }))
-			.query(({ input }) => getDb().listSeoFindingsByRun(input.runId)),
-		listOpenFindings: publicProcedure
+			.query(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getSeoAnalysisRun(input.runId),
+					"SEO analysis run not found",
+				);
+				return getDb().listSeoFindingsByRun(input.runId);
+			}),
+		listOpenFindings: protectedProcedure
 			.input(z.object({ seoProjectId: z.string() }))
-			.query(({ input }) => getDb().listOpenSeoFindingsByProject(input.seoProjectId)),
+			.query(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getSeoProject(input.seoProjectId),
+					"SEO project not found",
+				);
+				return getDb().listOpenSeoFindingsByProject(input.seoProjectId);
+			}),
 		// Every finding ever detected (resolved + open) — powers the stats/KPI
 		// breakdowns on the overview tab, as opposed to listOpenFindings which
 		// only covers what still needs attention.
-		listAllFindings: publicProcedure
+		listAllFindings: protectedProcedure
 			.input(z.object({ seoProjectId: z.string() }))
-			.query(({ input }) => getDb().listSeoFindingsByProject(input.seoProjectId)),
-		listBlogPosts: publicProcedure
+			.query(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getSeoProject(input.seoProjectId),
+					"SEO project not found",
+				);
+				return getDb().listSeoFindingsByProject(input.seoProjectId);
+			}),
+		listBlogPosts: protectedProcedure
 			.input(z.object({ seoProjectId: z.string() }))
-			.query(({ input }) => getDb().listSeoBlogPostsByProject(input.seoProjectId)),
-		runAnalysis: publicProcedure
+			.query(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getSeoProject(input.seoProjectId),
+					"SEO project not found",
+				);
+				return getDb().listSeoBlogPostsByProject(input.seoProjectId);
+			}),
+		runAnalysis: protectedProcedure
 			.input(z.object({ seoProjectId: z.string() }))
-			.mutation(({ input }) => runSeoAnalysis(input.seoProjectId)),
-		dispatchFix: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getSeoProject(input.seoProjectId),
+					"SEO project not found",
+				);
+				return runSeoAnalysis(input.seoProjectId);
+			}),
+		dispatchFix: protectedProcedure
 			.input(
 				z.object({
 					seoProjectId: z.string(),
 					findingIds: z.array(z.string()).min(1),
 				}),
 			)
-			.mutation(({ input }) => dispatchSeoFix(input.seoProjectId, input.findingIds)),
-		generateBlogPost: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getSeoProject(input.seoProjectId),
+					"SEO project not found",
+				);
+				return dispatchSeoFix(input.seoProjectId, input.findingIds);
+			}),
+		generateBlogPost: protectedProcedure
 			.input(z.object({ seoProjectId: z.string(), keyword: z.string().min(1) }))
-			.mutation(({ input }) =>
-				generateSeoBlogPost(input.seoProjectId, input.keyword),
-			),
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getSeoProject(input.seoProjectId),
+					"SEO project not found",
+				);
+				return generateSeoBlogPost(input.seoProjectId, input.keyword);
+			}),
 	}),
 
 	automations: router({
-		list: publicProcedure
+		list: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) =>
 				getDb().listAutomationsByWorkspace(input.workspaceId),
 			),
-		create: publicProcedure
+		create: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -2033,10 +2493,15 @@ export const appRouter = router({
 					);
 				return db.createAutomation({ ...input, nextRunAt });
 			}),
-		setEnabled: publicProcedure
+		setEnabled: protectedProcedure
 			.input(z.object({ id: z.string(), enabled: z.boolean() }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
 				const db = getDb();
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getAutomation(input.id),
+					"Automation not found",
+				);
 				if (input.enabled) {
 					// Re-enabling: recompute nextRunAt from "now" rather than resuming
 					// whatever stale schedule was in place before it was disabled.
@@ -2054,7 +2519,7 @@ export const appRouter = router({
 				}
 				return db.setAutomationEnabled(input.id, input.enabled);
 			}),
-		update: publicProcedure
+		update: protectedProcedure
 			.input(
 				z.object({
 					id: z.string(),
@@ -2067,11 +2532,14 @@ export const appRouter = router({
 					prompt: z.string().min(1).optional(),
 				}),
 			)
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
 				const db = getDb();
 				const { id, ...patch } = input;
-				const automation = await db.getAutomation(id);
-				if (!automation) throw new Error(`Unknown automation: ${id}`);
+				const automation = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getAutomation(id),
+					"Automation not found",
+				);
 
 				if (patch.agentId) {
 					const agent = await db.getAgent(patch.agentId);
@@ -2101,15 +2569,25 @@ export const appRouter = router({
 
 				return db.updateAutomation(id, { ...patch, ...recomputedNextRun });
 			}),
-		delete: publicProcedure
+		delete: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(({ input }) => getDb().deleteAutomation(input.id)),
-		runNow: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getAutomation(input.id),
+					"Automation not found",
+				);
+				return getDb().deleteAutomation(input.id);
+			}),
+		runNow: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(async ({ input }) => {
+			.mutation(async ({ input, ctx }) => {
 				const db = getDb();
-				const automation = await db.getAutomation(input.id);
-				if (!automation) throw new Error(`Unknown automation: ${input.id}`);
+				const automation = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getAutomation(input.id),
+					"Automation not found",
+				);
 				const summary = await runAutomation(automation);
 				const updated = await db.getAutomation(input.id);
 				return { automation: updated, ...summary };
@@ -2117,7 +2595,7 @@ export const appRouter = router({
 	}),
 
 	approvals: router({
-		list: publicProcedure
+		list: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -2127,16 +2605,30 @@ export const appRouter = router({
 			.query(({ input }) =>
 				getDb().listApprovalsByWorkspace(input.workspaceId, input.status),
 			),
-		approve: publicProcedure
+		approve: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(({ input }) => resolveApprovalDecision(input.id, "approved")),
-		reject: publicProcedure
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getApprovalRequest(input.id),
+					"Approval request not found",
+				);
+				return resolveApprovalDecision(input.id, "approved");
+			}),
+		reject: protectedProcedure
 			.input(z.object({ id: z.string() }))
-			.mutation(({ input }) => resolveApprovalDecision(input.id, "rejected")),
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getApprovalRequest(input.id),
+					"Approval request not found",
+				);
+				return resolveApprovalDecision(input.id, "rejected");
+			}),
 	}),
 
 	auditLog: router({
-		list: publicProcedure
+		list: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -2151,7 +2643,7 @@ export const appRouter = router({
 	stats: router({
 		/** Powers the "Detailed statistics" section of the Overview dashboard —
 		 * see apps/server/src/stats.ts for the aggregation. */
-		overview: publicProcedure
+		overview: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -2162,10 +2654,10 @@ export const appRouter = router({
 	}),
 
 	knowledgeBase: router({
-		overview: publicProcedure
+		overview: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => getKnowledgeBaseOverview(input.workspaceId)),
-		updateConfig: publicProcedure
+		updateConfig: workspaceProcedure
 			.input(
 				z.object({
 					workspaceId: z.string(),
@@ -2186,16 +2678,16 @@ export const appRouter = router({
 					injectIntoPrompts: input.injectIntoPrompts,
 				}),
 			),
-		documents: publicProcedure
+		documents: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) => listKnowledgeBaseDocuments(input.workspaceId)),
-		graph: publicProcedure
+		graph: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(async ({ input }) => {
 				const documents = await listKnowledgeBaseDocuments(input.workspaceId);
 				return buildKnowledgeBaseGraph(documents);
 			}),
-		runDocsAgent: publicProcedure
+		runDocsAgent: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.mutation(({ input }) =>
 				runDocsAgentForWorkspace(input.workspaceId, "manual"),
@@ -2204,7 +2696,12 @@ export const appRouter = router({
 
 	notifications: router({
 		vapidPublicKey: publicProcedure.query(() => getVapidPublicKey()),
-		subscribe: publicProcedure
+		// TODO(ADR-0017): needs auth review — PushSubscriptionRecord is keyed by
+		// userId, not workspaceId, so it doesn't fit requireEntityWorkspaceOwner;
+		// no getPushSubscription*-by-id getter exists to check the subscription
+		// belongs to ctx.user before create/delete. Gated to signed-in users for
+		// now; add a per-user ownership check once a suitable getter exists.
+		subscribe: protectedProcedure
 			.input(
 				z.object({
 					userId: z.string(),
@@ -2213,18 +2710,136 @@ export const appRouter = router({
 					userAgent: z.string().optional(),
 				}),
 			)
-			.mutation(({ input }) =>
-				getDb().createPushSubscription({
+			.mutation(({ input, ctx }) => {
+				if (input.userId !== ctx.user.id) {
+					throw new TRPCError({ code: "FORBIDDEN" });
+				}
+				return getDb().createPushSubscription({
 					userId: input.userId,
 					endpoint: input.endpoint,
 					p256dh: input.keys.p256dh,
 					auth: input.keys.auth,
 					userAgent: input.userAgent,
-				}),
-			),
-		unsubscribe: publicProcedure
+				});
+			}),
+		// TODO(ADR-0017): needs auth review — deletes by endpoint string with no
+		// stored link back to ctx.user checked here (see subscribe's note above).
+		unsubscribe: protectedProcedure
 			.input(z.object({ endpoint: z.string() }))
 			.mutation(({ input }) => getDb().deletePushSubscriptionByEndpoint(input.endpoint)),
+	}),
+
+	memory: router({
+		list: workspaceProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					type: memoryTypeSchema.optional(),
+				}),
+			)
+			.query(({ input }) => getDb().listMemoryEntriesByWorkspace(input.workspaceId, input.type)),
+		create: workspaceProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					type: memoryTypeSchema,
+					content: z.string().min(1),
+					source: memorySourceSchema.default("user"),
+					confidence: z.number().min(0).max(1).optional(),
+					expiresAt: z.date().nullable().optional(),
+				}),
+			)
+			.mutation(({ input }) => getDb().createMemoryEntry(input)),
+		update: protectedProcedure
+			.input(
+				z.object({
+					id: z.string(),
+					content: z.string().min(1).optional(),
+					confidence: z.number().min(0).max(1).optional(),
+					expiresAt: z.date().nullable().optional(),
+				}),
+			)
+			.mutation(async ({ input, ctx }) => {
+				const db = getDb();
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getMemoryEntry(input.id),
+					"Memory entry not found",
+				);
+				return db.updateMemoryEntry(input.id, {
+					content: input.content,
+					confidence: input.confidence,
+					expiresAt: input.expiresAt,
+				});
+			}),
+		delete: protectedProcedure
+			.input(z.object({ id: z.string() }))
+			.mutation(async ({ input, ctx }) => {
+				const db = getDb();
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getMemoryEntry(input.id),
+					"Memory entry not found",
+				);
+				return db.deleteMemoryEntry(input.id);
+			}),
+	}),
+
+	artifacts: router({
+		list: workspaceProcedure
+			.input(z.object({ workspaceId: z.string() }))
+			.query(({ input }) => getDb().listArtifactsByWorkspace(input.workspaceId)),
+		listByTask: protectedProcedure
+			.input(z.object({ taskId: z.string() }))
+			.query(async ({ input, ctx }) => {
+				const db = getDb();
+				await requireEntityWorkspaceOwner(ctx.user.id, () => db.getTask(input.taskId), "Task not found");
+				return db.listArtifactsByTask(input.taskId);
+			}),
+		get: protectedProcedure
+			.input(z.object({ id: z.string() }))
+			.query(async ({ input, ctx }) => {
+				const db = getDb();
+				return requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getArtifact(input.id),
+					"Artifact not found",
+				);
+			}),
+	}),
+
+	// Read-only Coding-workspace groundwork (ADR-0017, ARCHITECTURE.md
+	// section 11) — file tree, git status, git diff. `rootDir` is a free
+	// local path like chat.workingDirectory (see working-directory-picker.tsx),
+	// not a stored/validated workspace field; workspaceProcedure's ownership
+	// check still applies to `workspaceId` so only the workspace's owner can
+	// call these. Actual writes stay on the existing approval-gated file
+	// tools — nothing here mutates anything.
+	coding: router({
+		repoInfo: workspaceProcedure
+			.input(z.object({ workspaceId: z.string(), rootDir: z.string().min(1) }))
+			.query(({ input }) => getRepoInfo(input.rootDir)),
+		status: workspaceProcedure
+			.input(z.object({ workspaceId: z.string(), rootDir: z.string().min(1) }))
+			.query(({ input }) => getGitStatus(input.rootDir)),
+		diff: workspaceProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					rootDir: z.string().min(1),
+					filePath: z.string().optional(),
+				}),
+			)
+			.query(({ input }) => getGitDiff(input.rootDir, input.filePath)),
+		listDirectory: workspaceProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					rootDir: z.string().min(1),
+					relativePath: z.string().default(""),
+				}),
+			)
+			.query(({ input }) => listDirectory(input.rootDir, input.relativePath)),
 	}),
 });
 

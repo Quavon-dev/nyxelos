@@ -1,3 +1,9 @@
+import {
+  buildPermissionSnapshot,
+  hashToolInput,
+  permissionForSource,
+  permissionForToolKind,
+} from "@nyxel/core-agent-engine";
 import type { ApprovalRequestRecord } from "@nyxel/db";
 import { getDb } from "@nyxel/db";
 import { createSkillContext } from "@nyxel/skills-sdk";
@@ -5,6 +11,35 @@ import { logAudit } from "./audit";
 import { ensureMcpServerConnected, mcpManager } from "./mcp-runtime";
 import { resolveSkillDefinition } from "./skills-resolve";
 import { resolveToolDefinition } from "./tools-resolve";
+
+/** Same permission-snapshot enrichment tools.ts applies at defer time
+ * (ADR-0017), computed here for the resolution side of the same
+ * approval — a human decision, not a policy evaluation, hence the fixed
+ * "human_approval" policyMode rather than the chat's actual policy. */
+async function approvalPermissionFields(approval: ApprovalRequestRecord) {
+  const db = getDb();
+  const [agent, toolRecord] = await Promise.all([
+    db.getAgent(approval.agentId),
+    approval.kind === "tool" && approval.toolId ? db.getTool(approval.toolId) : null,
+  ]);
+  const category =
+    approval.kind === "mcp"
+      ? permissionForSource("mcp")
+      : approval.kind === "tool"
+        ? toolRecord
+          ? permissionForToolKind(toolRecord.kind)
+          : permissionForSource("skill")
+        : permissionForSource("skill");
+  return {
+    inputHash: await hashToolInput(approval.input),
+    permissionSnapshot: buildPermissionSnapshot({
+      category,
+      autonomyLevel: agent?.autonomyLevel ?? "unknown",
+      policyMode: "human_approval",
+      requiredApproval: true,
+    }),
+  };
+}
 
 /**
  * Runs the real action behind a pending approval once a human decides on it.
@@ -57,6 +92,7 @@ export async function resolveApprovalDecision(
       toolLabel: approval.toolLabel,
       input: approval.input,
       status: "rejected",
+      ...(await approvalPermissionFields(approval)),
     });
     return updated;
   }
@@ -128,6 +164,7 @@ export async function resolveApprovalDecision(
       input: approval.input,
       output,
       status: "success",
+      ...(await approvalPermissionFields(approval)),
     });
     return updated;
   } catch (err) {
@@ -169,6 +206,7 @@ export async function resolveApprovalDecision(
       input: approval.input,
       output: { error: message },
       status: "error",
+      ...(await approvalPermissionFields(approval)),
     });
     return updated;
   }

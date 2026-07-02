@@ -17,6 +17,8 @@ export async function logAudit(input: {
   input?: unknown;
   output?: unknown;
   status: AuditStatus;
+  inputHash?: string | null;
+  permissionSnapshot?: Record<string, unknown> | null;
 }): Promise<void> {
   try {
     await getDb().createAuditLog(input);

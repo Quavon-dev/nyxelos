@@ -49,6 +49,7 @@ import { BrandMark } from "@/components/brand-mark";
 import { CardListSkeleton, Spinner, StatCardsSkeleton } from "@/components/loading";
 import { PageHeader, StatCard } from "@/components/page-header";
 import { SystemScreen } from "@/components/system-screen";
+import { authClient } from "@/lib/auth-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -396,6 +397,11 @@ export default function HomePage() {
   const install = useMutation({
     mutationFn: () => trpcClient.installation.complete.mutate(form),
     onSuccess: async () => {
+      // installation.complete creates the account server-side (a plain DB
+      // write via auth.api.signUpEmail), which does not hand the browser a
+      // session cookie — sign in for real over HTTP so the cookie the rest
+      // of the app depends on (AppShell's session gate) actually gets set.
+      await authClient.signIn.email({ email: form.ownerEmail, password: form.ownerPassword });
       await installationQuery.refetch();
       router.refresh();
     },

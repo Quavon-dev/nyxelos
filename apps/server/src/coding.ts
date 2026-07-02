@@ -1,0 +1,115 @@
+import { createSkillContext } from "@nyxel/skills-sdk";
+
+/**
+ * Read-only groundwork for the Coding workspace mode (ARCHITECTURE.md
+ * section 11 / ADR-0017): file tree, git status, git diff. Deliberately
+ * read-only — actual file writes still go through the existing
+ * approval-gated file tools (tools.ts), matching the "diff-first" principle
+ * (the agent prepares a patch, the user reviews it here, approval executes
+ * it) rather than this module writing anything itself.
+ *
+ * git commands run via `Bun.spawn` with an argv array (never a shell
+ * string), so there's no shell-injection surface from a repo path or file
+ * path containing special characters — unlike tools-builtin/terminal.ts,
+ * which deliberately runs an arbitrary shell string and is gated
+ * accordingly.
+ */
+
+async function runGit(rootDir: string, args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+	const proc = Bun.spawn(["git", ...args], {
+		cwd: rootDir,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [stdout, stderr, exitCode] = await Promise.all([
+		new Response(proc.stdout).text(),
+		new Response(proc.stderr).text(),
+		proc.exited,
+	]);
+	return { stdout, stderr, exitCode };
+}
+
+export interface RepoInfo {
+	isGitRepo: boolean;
+	branch: string | null;
+	error: string | null;
+}
+
+export async function getRepoInfo(rootDir: string): Promise<RepoInfo> {
+	const check = await runGit(rootDir, ["rev-parse", "--is-inside-work-tree"]);
+	if (check.exitCode !== 0) {
+		return { isGitRepo: false, branch: null, error: check.stderr.trim() || "Not a git repository." };
+	}
+	const branch = await runGit(rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+	return { isGitRepo: true, branch: branch.stdout.trim() || null, error: null };
+}
+
+export type GitFileStatus =
+	| "modified"
+	| "added"
+	| "deleted"
+	| "renamed"
+	| "untracked"
+	| "unknown";
+
+export interface GitStatusEntry {
+	path: string;
+	status: GitFileStatus;
+	staged: boolean;
+}
+
+function classifyPorcelainCode(code: string): GitFileStatus {
+	if (code.includes("?")) return "untracked";
+	if (code.includes("A")) return "added";
+	if (code.includes("D")) return "deleted";
+	if (code.includes("R")) return "renamed";
+	if (code.includes("M")) return "modified";
+	return "unknown";
+}
+
+export async function getGitStatus(rootDir: string): Promise<GitStatusEntry[]> {
+	const result = await runGit(rootDir, ["status", "--porcelain=v1"]);
+	if (result.exitCode !== 0) return [];
+	return result.stdout
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => {
+			const stagedCode = line.slice(0, 1);
+			const worktreeCode = line.slice(1, 2);
+			const path = line.slice(3);
+			const staged = stagedCode !== " " && stagedCode !== "?";
+			return {
+				path,
+				status: classifyPorcelainCode(stagedCode + worktreeCode),
+				staged,
+			};
+		});
+}
+
+/** Unified diff for the whole working tree, or one file when `filePath` is
+ * given. `filePath` is passed as its own argv element (after `--`), never
+ * concatenated into a command string. */
+export async function getGitDiff(rootDir: string, filePath?: string): Promise<string> {
+	const args = ["diff", "HEAD"];
+	if (filePath) args.push("--", filePath);
+	const result = await runGit(rootDir, args);
+	return result.stdout;
+}
+
+export interface DirectoryEntry {
+	name: string;
+	isDirectory: boolean;
+}
+
+/** Lists one directory's immediate children, confined to `rootDir` via the
+ * same permission-scoped filesystem context every skill uses
+ * (packages/skills-sdk) — `relativePath` can't escape `rootDir` regardless
+ * of `..` segments (see skills-sdk/runtime.ts's assertPathAllowed). */
+export async function listDirectory(
+	rootDir: string,
+	relativePath: string,
+): Promise<DirectoryEntry[]> {
+	const ctx = createSkillContext({ network: [], filesystem: [rootDir] });
+	const target = relativePath ? `${rootDir}/${relativePath}` : rootDir;
+	return ctx.readDir(target);
+}

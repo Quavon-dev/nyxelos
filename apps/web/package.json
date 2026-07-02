@@ -21,6 +21,7 @@
     "@tanstack/react-query": "latest",
     "@trpc/client": "latest",
     "@xyflow/react": "^12.11.1",
+    "better-auth": "latest",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "highlight.js": "^11.11.1",

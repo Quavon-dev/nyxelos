@@ -16,11 +16,13 @@ import {
   stripAgentActivity,
 } from "../chat-agent-activity";
 import { summarizeChatMessageForModel } from "../chat-message";
+import { getSessionUser } from "../hono-auth";
 import { getKnowledgeBaseContextForPrompt, runDocsAgentForWorkspace } from "../knowledge-base";
 import { computeMessageGenerationMetrics } from "../message-generation-metrics";
 import { getInstalledProvidersForWorkspace } from "../models";
 import { notifyWorkspaceOwner } from "../push";
 import { buildToolsForAgent } from "../tools";
+import { requireWorkspaceOwner } from "../trpc/workspace-guard";
 import { composeSystemPrompt } from "../workspace-prompt";
 import { buildStreamFailureResponse, ensureVisibleAssistantResponse } from "./chat-stream-response";
 import { encodeSseEvent, SSE_HEADERS } from "./chat-stream-sse";
@@ -135,6 +137,9 @@ function isClosedStreamControllerError(err: unknown): boolean {
  */
 export function registerChatStreamRoute(app: Hono) {
   app.post("/api/chat/stream", async (c) => {
+    const user = await getSessionUser(c);
+    if (!user) return c.json({ error: "Sign in required." }, 401);
+
     const json = await c.req.json().catch(() => null);
     const parsed = bodySchema.safeParse(json);
     if (!parsed.success) {
@@ -149,6 +154,11 @@ export function registerChatStreamRoute(app: Hono) {
 
     const chat = await db.getChat(chatId);
     if (!chat) return c.json({ error: `Unknown chat: ${chatId}` }, 404);
+    try {
+      await requireWorkspaceOwner(user.id, chat.workspaceId);
+    } catch {
+      return c.json({ error: "Not authorized for this chat." }, 403);
+    }
 
     const [workspace, storedAgent] = await Promise.all([
       db.getWorkspace(chat.workspaceId),

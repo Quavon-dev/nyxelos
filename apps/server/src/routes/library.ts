@@ -1,5 +1,7 @@
 import type { Hono } from "hono";
+import { getSessionUser } from "../hono-auth";
 import { getLibraryFileForDownload, saveLibraryUpload } from "../library";
+import { requireWorkspaceOwner } from "../trpc/workspace-guard";
 
 /** Builds a Content-Disposition header value that degrades gracefully for
  * non-ASCII file names — `filename` is an ASCII-safe fallback for older
@@ -20,12 +22,20 @@ function contentDisposition(disposition: "inline" | "attachment", fileName: stri
  */
 export function registerLibraryRoutes(app: Hono) {
 	app.post("/api/library/upload", async (c) => {
+		const user = await getSessionUser(c);
+		if (!user) return c.json({ error: "Sign in required." }, 401);
+
 		const body = await c.req.parseBody({ all: true }).catch(() => null);
 		if (!body) return c.json({ error: "Invalid upload payload." }, 400);
 
 		const workspaceId = body.workspaceId;
 		if (typeof workspaceId !== "string" || !workspaceId) {
 			return c.json({ error: "workspaceId is required." }, 400);
+		}
+		try {
+			await requireWorkspaceOwner(user.id, workspaceId);
+		} catch {
+			return c.json({ error: "Not authorized for this workspace." }, 403);
 		}
 		const folderIdRaw = body.folderId;
 		const folderId = typeof folderIdRaw === "string" && folderIdRaw ? folderIdRaw : null;
@@ -62,9 +72,17 @@ export function registerLibraryRoutes(app: Hono) {
 	});
 
 	app.get("/api/library/files/:id/content", async (c) => {
+		const user = await getSessionUser(c);
+		if (!user) return c.json({ error: "Sign in required." }, 401);
+
 		const id = c.req.param("id");
 		const result = await getLibraryFileForDownload(id);
 		if (!result) return c.json({ error: `Unknown file: ${id}` }, 404);
+		try {
+			await requireWorkspaceOwner(user.id, result.file.workspaceId);
+		} catch {
+			return c.json({ error: "Not authorized for this file." }, 403);
+		}
 
 		const bunFile = Bun.file(result.diskPath);
 		if (!(await bunFile.exists())) {

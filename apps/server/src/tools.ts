@@ -1,4 +1,10 @@
-import type { AgentRecord, ChatToolPolicy, ToolKind } from "@nyxel/db";
+import {
+	buildPermissionSnapshot,
+	hashToolInput,
+	permissionForSource,
+	permissionForToolKind,
+} from "@nyxel/core-agent-engine";
+import type { AgentRecord, AuditStatus, ChatToolPolicy, ToolKind } from "@nyxel/db";
 import { DEFAULT_CHAT_TOOL_POLICY, getDb } from "@nyxel/db";
 import {
 	createSkillContext,
@@ -65,6 +71,53 @@ export interface AgentRunContext {
 
 function actorFor(ctx: AgentRunContext): "chat" | "automation" {
 	return ctx.automationId ? "automation" : "chat";
+}
+
+/**
+ * Every tool-call audit entry goes through here rather than calling
+ * logAudit directly, so `inputHash`/`permissionSnapshot` (ADR-0017) are
+ * computed consistently for all three tool sources (skill/workspace
+ * tool/MCP) instead of being recomputed ad hoc at each of the nine call
+ * sites below.
+ */
+async function logToolAudit(input: {
+	workspaceId: string;
+	agentId: string;
+	chatId?: string;
+	automationId?: string;
+	actor: "chat" | "automation";
+	toolLabel: string;
+	input: unknown;
+	output?: unknown;
+	status: AuditStatus;
+	autonomyLevel: AgentRecord["autonomyLevel"];
+	policyMode: ChatToolPolicy["mode"];
+	category: ReturnType<typeof permissionForSource>;
+}) {
+	const [inputHash, permissionSnapshot] = await Promise.all([
+		hashToolInput(input.input),
+		Promise.resolve(
+			buildPermissionSnapshot({
+				category: input.category,
+				autonomyLevel: input.autonomyLevel,
+				policyMode: input.policyMode,
+				requiredApproval: input.status === "pending_approval",
+			}),
+		),
+	]);
+	await logAudit({
+		workspaceId: input.workspaceId,
+		agentId: input.agentId,
+		chatId: input.chatId,
+		automationId: input.automationId,
+		actor: input.actor,
+		toolLabel: input.toolLabel,
+		input: input.input,
+		output: input.output,
+		status: input.status,
+		inputHash,
+		permissionSnapshot,
+	});
 }
 
 /**
@@ -149,6 +202,26 @@ export function buildChatScopedBuiltinSkill(
 	}
 }
 
+/**
+ * Tool kinds that stay gated behind human approval even for
+ * "autonomous"/"super_agent" agents whose policy.mode is "auto" (see
+ * toolPolicyForAutonomyLevel above). Full autonomy must never mean
+ * unbounded shell execution or destructive file operations — these are
+ * the categories with the least reversibility and the largest blast
+ * radius, so "auto" mode is not allowed to waive approval for them the
+ * way it does for everything else. See ADR-0017.
+ */
+const ALWAYS_REQUIRES_APPROVAL_KINDS = new Set<ToolKind>([
+	"terminal_run",
+	"terminal_send_input",
+	"terminal_kill",
+	"task_run",
+	"test_run",
+	"custom_code",
+	"file_delete",
+	"browser_run_playwright_code",
+]);
+
 export function shouldDeferToolForApproval(
 	target:
 		| { kind: "mcp" }
@@ -161,8 +234,17 @@ export function shouldDeferToolForApproval(
 ): boolean {
 	const effectivePolicy = normalizeChatToolPolicy(policy);
 
-	// AUTO mode: the agent runs fully autonomously — never defer anything.
-	// Individual guardrail switches are only meaningful in "automatic" mode.
+	if (
+		target.kind !== "mcp" &&
+		target.toolKind &&
+		ALWAYS_REQUIRES_APPROVAL_KINDS.has(target.toolKind)
+	) {
+		return true;
+	}
+
+	// AUTO mode: the agent runs fully autonomously — never defer anything
+	// else. Individual guardrail switches are only meaningful in "automatic"
+	// mode.
 	if (effectivePolicy.mode === "auto") return false;
 
 	if (target.kind === "mcp") {
@@ -243,7 +325,7 @@ export async function buildToolsForAgent(
 						toolLabel: skill.id,
 						input: input as Record<string, unknown>,
 					});
-					await logAudit({
+					await logToolAudit({
 						workspaceId: agent.workspaceId,
 						agentId: agent.id,
 						chatId: ctx.chatId,
@@ -252,6 +334,9 @@ export async function buildToolsForAgent(
 						toolLabel: skill.id,
 						input,
 						status: "pending_approval",
+						autonomyLevel: agent.autonomyLevel,
+						policyMode: normalizeChatToolPolicy(ctx.chatToolPolicy).mode,
+						category: skillKind ? permissionForToolKind(skillKind) : permissionForSource("skill"),
 					});
 					await notifyWorkspaceOwner(agent.workspaceId, {
 						title: "Approval needed",
@@ -277,7 +362,7 @@ export async function buildToolsForAgent(
 					const parsedInput = skill.inputSchema.parse(input);
 					const skillCtx = createSkillContext(skill.permissions);
 					const output = await skill.run(parsedInput, skillCtx);
-					await logAudit({
+					await logToolAudit({
 						workspaceId: agent.workspaceId,
 						agentId: agent.id,
 						chatId: ctx.chatId,
@@ -287,6 +372,9 @@ export async function buildToolsForAgent(
 						input,
 						output,
 						status: "success",
+						autonomyLevel: agent.autonomyLevel,
+						policyMode: normalizeChatToolPolicy(ctx.chatToolPolicy).mode,
+						category: skillKind ? permissionForToolKind(skillKind) : permissionForSource("skill"),
 					});
 					if (ctx.taskId) {
 						await db.createTaskEvent({
@@ -304,7 +392,7 @@ export async function buildToolsForAgent(
 					return output;
 				} catch (err) {
 					const message = err instanceof Error ? err.message : String(err);
-					await logAudit({
+					await logToolAudit({
 						workspaceId: agent.workspaceId,
 						agentId: agent.id,
 						chatId: ctx.chatId,
@@ -314,6 +402,9 @@ export async function buildToolsForAgent(
 						input,
 						output: { error: message },
 						status: "error",
+						autonomyLevel: agent.autonomyLevel,
+						policyMode: normalizeChatToolPolicy(ctx.chatToolPolicy).mode,
+						category: skillKind ? permissionForToolKind(skillKind) : permissionForSource("skill"),
 					});
 					if (ctx.taskId) {
 						await db.createTaskEvent({
@@ -364,7 +455,7 @@ export async function buildToolsForAgent(
 						toolLabel: workspaceTool.id,
 						input: input as Record<string, unknown>,
 					});
-					await logAudit({
+					await logToolAudit({
 						workspaceId: agent.workspaceId,
 						agentId: agent.id,
 						chatId: ctx.chatId,
@@ -373,6 +464,9 @@ export async function buildToolsForAgent(
 						toolLabel: workspaceTool.id,
 						input,
 						status: "pending_approval",
+						autonomyLevel: agent.autonomyLevel,
+						policyMode: normalizeChatToolPolicy(ctx.chatToolPolicy).mode,
+						category: toolKind ? permissionForToolKind(toolKind) : permissionForSource("skill"),
 					});
 					await notifyWorkspaceOwner(agent.workspaceId, {
 						title: "Approval needed",
@@ -398,7 +492,7 @@ export async function buildToolsForAgent(
 					const parsedInput = workspaceTool.inputSchema.parse(input);
 					const toolCtx = createSkillContext(workspaceTool.permissions);
 					const output = await workspaceTool.run(parsedInput, toolCtx);
-					await logAudit({
+					await logToolAudit({
 						workspaceId: agent.workspaceId,
 						agentId: agent.id,
 						chatId: ctx.chatId,
@@ -408,6 +502,9 @@ export async function buildToolsForAgent(
 						input,
 						output,
 						status: "success",
+						autonomyLevel: agent.autonomyLevel,
+						policyMode: normalizeChatToolPolicy(ctx.chatToolPolicy).mode,
+						category: toolKind ? permissionForToolKind(toolKind) : permissionForSource("skill"),
 					});
 					if (ctx.taskId) {
 						await db.createTaskEvent({
@@ -425,7 +522,7 @@ export async function buildToolsForAgent(
 					return output;
 				} catch (err) {
 					const message = err instanceof Error ? err.message : String(err);
-					await logAudit({
+					await logToolAudit({
 						workspaceId: agent.workspaceId,
 						agentId: agent.id,
 						chatId: ctx.chatId,
@@ -435,6 +532,9 @@ export async function buildToolsForAgent(
 						input,
 						output: { error: message },
 						status: "error",
+						autonomyLevel: agent.autonomyLevel,
+						policyMode: normalizeChatToolPolicy(ctx.chatToolPolicy).mode,
+						category: toolKind ? permissionForToolKind(toolKind) : permissionForSource("skill"),
 					});
 					if (ctx.taskId) {
 						await db.createTaskEvent({
@@ -511,7 +611,7 @@ export async function buildToolsForAgent(
 							toolLabel: toolKey,
 							input: input as Record<string, unknown>,
 						});
-						await logAudit({
+						await logToolAudit({
 							workspaceId: agent.workspaceId,
 							agentId: agent.id,
 							chatId: ctx.chatId,
@@ -520,6 +620,9 @@ export async function buildToolsForAgent(
 							toolLabel: toolKey,
 							input,
 							status: "pending_approval",
+							autonomyLevel: agent.autonomyLevel,
+							policyMode: normalizeChatToolPolicy(ctx.chatToolPolicy).mode,
+							category: permissionForSource("mcp"),
 						});
 						await notifyWorkspaceOwner(agent.workspaceId, {
 							title: "Approval needed",
@@ -547,7 +650,7 @@ export async function buildToolsForAgent(
 							mcpTool.name,
 							input as Record<string, unknown>,
 						);
-						await logAudit({
+						await logToolAudit({
 							workspaceId: agent.workspaceId,
 							agentId: agent.id,
 							chatId: ctx.chatId,
@@ -557,6 +660,9 @@ export async function buildToolsForAgent(
 							input,
 							output,
 							status: "success",
+							autonomyLevel: agent.autonomyLevel,
+							policyMode: normalizeChatToolPolicy(ctx.chatToolPolicy).mode,
+							category: permissionForSource("mcp"),
 						});
 						if (ctx.taskId) {
 							await db.createTaskEvent({
@@ -572,7 +678,7 @@ export async function buildToolsForAgent(
 						return output;
 					} catch (err) {
 						const message = err instanceof Error ? err.message : String(err);
-						await logAudit({
+						await logToolAudit({
 							workspaceId: agent.workspaceId,
 							agentId: agent.id,
 							chatId: ctx.chatId,
@@ -582,6 +688,9 @@ export async function buildToolsForAgent(
 							input,
 							output: { error: message },
 							status: "error",
+							autonomyLevel: agent.autonomyLevel,
+							policyMode: normalizeChatToolPolicy(ctx.chatToolPolicy).mode,
+							category: permissionForSource("mcp"),
 						});
 						if (ctx.taskId) {
 							await db.createTaskEvent({

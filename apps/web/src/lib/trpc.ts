@@ -643,6 +643,11 @@ export type ApprovalSummary = {
   errorMessage: string | null;
   createdAt: Date;
   resolvedAt: Date | null;
+  title: string | null;
+  description: string | null;
+  riskLevel: string | null;
+  affectedResources: string[] | null;
+  diffPreview: string | null;
 };
 
 export type AuditActor = "chat" | "automation" | "approval" | "delegate";
@@ -659,6 +664,56 @@ export type AuditLogSummary = {
   input: unknown;
   output: unknown;
   status: AuditStatus;
+  createdAt: Date;
+  inputHash: string | null;
+  permissionSnapshot: Record<string, unknown> | null;
+};
+
+export type MemoryType =
+  | "user_preference"
+  | "workspace_fact"
+  | "project_decision"
+  | "agent_observation"
+  | "task_summary"
+  | "file_summary"
+  | "repo_summary"
+  | "long_term_note";
+export type MemorySource = "user" | "agent" | "automation" | "system";
+
+export type MemoryEntrySummary = {
+  id: string;
+  workspaceId: string;
+  type: MemoryType;
+  content: string;
+  source: MemorySource;
+  confidence: number;
+  createdByAgentId: string | null;
+  expiresAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type ArtifactType =
+  | "text"
+  | "markdown"
+  | "code_patch"
+  | "diff"
+  | "file"
+  | "report"
+  | "json"
+  | "image_reference"
+  | "task_result"
+  | "command_output";
+
+export type ArtifactSummary = {
+  id: string;
+  workspaceId: string;
+  type: ArtifactType;
+  title: string;
+  content: string;
+  taskId: string | null;
+  agentRunId: string | null;
+  agentId: string | null;
   createdAt: Date;
 };
 
@@ -1769,7 +1824,71 @@ type NyxelTrpcClient = {
       mutate(input: { endpoint: string }): Promise<void>;
     };
   };
+  memory: {
+    list: {
+      query(input: { workspaceId: string; type?: MemoryType }): Promise<MemoryEntrySummary[]>;
+    };
+    create: {
+      mutate(input: {
+        workspaceId: string;
+        type: MemoryType;
+        content: string;
+        source?: MemorySource;
+        confidence?: number;
+        expiresAt?: Date | null;
+      }): Promise<MemoryEntrySummary>;
+    };
+    update: {
+      mutate(input: {
+        id: string;
+        content?: string;
+        confidence?: number;
+        expiresAt?: Date | null;
+      }): Promise<MemoryEntrySummary>;
+    };
+    delete: {
+      mutate(input: { id: string }): Promise<void>;
+    };
+  };
+  artifacts: {
+    list: {
+      query(input: { workspaceId: string }): Promise<ArtifactSummary[]>;
+    };
+    listByTask: {
+      query(input: { taskId: string }): Promise<ArtifactSummary[]>;
+    };
+    get: {
+      query(input: { id: string }): Promise<ArtifactSummary>;
+    };
+  };
+  coding: {
+    repoInfo: {
+      query(input: {
+        workspaceId: string;
+        rootDir: string;
+      }): Promise<{ isGitRepo: boolean; branch: string | null; error: string | null }>;
+    };
+    status: {
+      query(input: {
+        workspaceId: string;
+        rootDir: string;
+      }): Promise<GitStatusEntry[]>;
+    };
+    diff: {
+      query(input: { workspaceId: string; rootDir: string; filePath?: string }): Promise<string>;
+    };
+    listDirectory: {
+      query(input: {
+        workspaceId: string;
+        rootDir: string;
+        relativePath?: string;
+      }): Promise<{ name: string; isDirectory: boolean }[]>;
+    };
+  };
 };
+
+export type GitFileStatus = "modified" | "added" | "deleted" | "renamed" | "untracked" | "unknown";
+export type GitStatusEntry = { path: string; status: GitFileStatus; staged: boolean };
 
 /**
  * A vanilla tRPC client (not the TanStack Query proxy integration) called

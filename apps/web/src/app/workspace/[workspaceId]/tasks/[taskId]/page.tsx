@@ -91,9 +91,14 @@ export default function TaskDetailPage() {
     queryFn: () => trpcClient.approvals.list.query({ workspaceId }),
     refetchInterval: 8_000,
   });
+  const artifactsQuery = useQuery({
+    queryKey: ["artifacts", taskId],
+    queryFn: () => trpcClient.artifacts.listByTask.query({ taskId }),
+  });
 
   const agents = agentsQuery.data ?? [];
   const models = modelsQuery.data ?? [];
+  const artifacts = artifactsQuery.data ?? [];
   const agentName = (id: string | null) =>
     id ? (agents.find((a) => a.id === id)?.name ?? id) : "Unassigned";
 
@@ -532,6 +537,29 @@ export default function TaskDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {artifacts.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Artifacts</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {artifacts.map((artifact) => (
+              <div key={artifact.id} className="rounded-lg border p-3 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium">{artifact.title}</span>
+                  <Badge variant="outline" className="border-0 bg-muted text-muted-foreground">
+                    {artifact.type}
+                  </Badge>
+                </div>
+                <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted p-2 text-xs whitespace-pre-wrap">
+                  {artifact.content}
+                </pre>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

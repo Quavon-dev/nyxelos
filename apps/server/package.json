@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@hono/trpc-server": "latest",
+    "@nyxel/core-agent-engine": "workspace:*",
     "@nyxel/db": "workspace:*",
     "@nyxel/mcp-client": "workspace:*",
     "@nyxel/model-providers": "workspace:*",
