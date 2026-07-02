@@ -60,8 +60,7 @@ function generatedImageFromOutput(output: unknown): { mimeType: string; base64: 
 /** Library file ids are server-generated randomUUID()s — anything else in a
  * tool-output payload is malformed or attacker-shaped and must not reach a
  * media src URL. */
-const LIBRARY_FILE_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const LIBRARY_FILE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Matches the `{ mimeType, libraryFileId }` shape shared by generate_video
  * and edit_video's tool output — unlike generate_image, a video clip is
