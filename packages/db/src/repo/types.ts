@@ -191,7 +191,26 @@ export interface ProjectRecord {
 	createdAt: Date;
 }
 
-export interface MessageRecord {
+/** Usage/generation metrics captured for an assistant turn — see
+ * schema/pg/app.ts's message table for the column-level rationale. Every
+ * field is null for user/system/tool turns and for assistant turns
+ * generated before this tracking existed. */
+export interface MessageUsage {
+	modelId: string | null;
+	inputTokens: number | null;
+	outputTokens: number | null;
+	reasoningTokens: number | null;
+	cacheReadTokens: number | null;
+	totalTokens: number | null;
+	costMicros: number | null;
+	durationMs: number | null;
+	thinkingMs: number | null;
+	lineCount: number | null;
+	codeLineCount: number | null;
+	codeBlockCount: number | null;
+}
+
+export interface MessageRecord extends MessageUsage {
 	id: string;
 	chatId: string;
 	role: MessageRole;
@@ -645,10 +664,17 @@ export interface DbRepository {
 		chatId: string;
 		role: MessageRole;
 		content: string;
-	}): Promise<MessageRecord>;
+	} & Partial<MessageUsage>): Promise<MessageRecord>;
 	/** Ordered oldest-first by createdAt — callers (chat-stream.ts's history
 	 * replay, edit/regenerate truncation) depend on this order. */
 	listMessages(chatId: string): Promise<MessageRecord[]>;
+	/** Every message across every chat in the workspace (joins through chat),
+	 * newest first — powers the detailed statistics dashboard. `since` limits
+	 * to messages created on/after that instant. */
+	listMessagesByWorkspace(
+		workspaceId: string,
+		options?: { since?: Date },
+	): Promise<MessageRecord[]>;
 	/** Rewrites a message's content in place — used by the "edit" action on a
 	 * past user turn (see chat-stream.ts's editMessageId handling). */
 	updateMessage(id: string, content: string): Promise<MessageRecord>;
@@ -775,6 +801,13 @@ export interface DbRepository {
 		completedAt?: Date | null;
 	}): Promise<AgentRunRecord>;
 	getAgentRun(id: string): Promise<AgentRunRecord | null>;
+	/** Every run in the workspace regardless of status, newest first —
+	 * powers the detailed statistics dashboard's run-status breakdown.
+	 * `since` limits to runs created on/after that instant. */
+	listAgentRunsByWorkspace(
+		workspaceId: string,
+		options?: { since?: Date },
+	): Promise<AgentRunRecord[]>;
 	listAgentRunsByTask(taskId: string): Promise<AgentRunRecord[]>;
 	/** Most recent first — powers the agent detail page's run history. */
 	listAgentRunsByAgent(agentId: string): Promise<AgentRunRecord[]>;

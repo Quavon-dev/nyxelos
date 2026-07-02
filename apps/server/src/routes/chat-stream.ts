@@ -1,5 +1,5 @@
 import { getDb } from "@nyxel/db";
-import { streamChat } from "@nyxel/model-providers";
+import { type ChatStreamUsage, estimateCostMicros, streamChat } from "@nyxel/model-providers";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { prepareMessageContentForModel } from "../attachment-processing";
@@ -15,6 +15,7 @@ import {
 	getKnowledgeBaseContextForPrompt,
 	runDocsAgentForWorkspace,
 } from "../knowledge-base";
+import { computeMessageGenerationMetrics } from "../message-generation-metrics";
 import { getInstalledProvidersForWorkspace } from "../models";
 import { buildToolsForAgent } from "../tools";
 import { composeSystemPrompt } from "../workspace-prompt";
@@ -23,6 +24,17 @@ import {
 	ensureVisibleAssistantResponse,
 } from "./chat-stream-response";
 import { encodeSseEvent, SSE_HEADERS } from "./chat-stream-sse";
+
+/** Everything persist-worthy about how one assistant turn was generated —
+ * gathered over the life of the SSE loop, then flattened onto the message
+ * row in persistAssistantMessage(). Powers the detailed statistics
+ * dashboard (stats.overview). */
+interface GenerationTelemetry {
+	modelId: string;
+	usage?: ChatStreamUsage;
+	durationMs: number;
+	thinkingMs: number | null;
+}
 
 const bodySchema = z.object({
 	chatId: z.string(),
@@ -51,13 +63,31 @@ const CHAT_MODE_GUIDANCE = {
 	auto: "Operate as a fully autonomous agent. Never ask the user clarifying or scoping questions — if the request is underspecified, pick the most reasonable interpretation, use tools to gather whatever context you need, and proceed immediately with the full task. Only surface a blocker to the user when an approval policy hard-stops a specific tool call; in that case name the blocked action and continue all unblocked work. Do not ask for confirmation, permission, or clarification under any circumstances.",
 } as const;
 
-async function persistAssistantMessage(chatId: string, content: string) {
+async function persistAssistantMessage(
+	chatId: string,
+	content: string,
+	telemetry?: GenerationTelemetry,
+) {
 	const db = getDb();
 	try {
+		const metrics = computeMessageGenerationMetrics(content);
+		const usage = telemetry?.usage;
 		await db.addMessage({
 			chatId,
 			role: "assistant",
 			content,
+			modelId: telemetry?.modelId ?? null,
+			inputTokens: usage?.inputTokens ?? null,
+			outputTokens: usage?.outputTokens ?? null,
+			reasoningTokens: usage?.reasoningTokens ?? null,
+			cacheReadTokens: usage?.cacheReadTokens ?? null,
+			totalTokens: usage?.totalTokens ?? null,
+			costMicros: telemetry ? estimateCostMicros(telemetry.modelId, usage ?? {}) : null,
+			durationMs: telemetry?.durationMs ?? null,
+			thinkingMs: telemetry?.thinkingMs ?? null,
+			lineCount: metrics.lineCount,
+			codeLineCount: metrics.codeLineCount,
+			codeBlockCount: metrics.codeBlockCount,
 		});
 	} catch (err) {
 		console.error(
@@ -177,6 +207,7 @@ export function registerChatStreamRoute(app: Hono) {
 		// would escape as an opaque, stack-trace-dumping 500 instead of a clean
 		// JSON error the UI can display.
 		let finalizedText = "";
+		let finalizedUsage: ChatStreamUsage | undefined;
 		let result: ReturnType<typeof streamChat>;
 		try {
 			result = streamChat({
@@ -187,8 +218,9 @@ export function registerChatStreamRoute(app: Hono) {
 				cwd: chat.workingDirectory ?? undefined,
 				toolMode: chat.toolMode,
 				messages: modelMessages,
-				onFinish: ({ text }) => {
+				onFinish: ({ text, usage }) => {
 					finalizedText = text;
+					finalizedUsage = usage;
 				},
 				onError: ({ error }) => {
 					console.error(
@@ -207,6 +239,9 @@ export function registerChatStreamRoute(app: Hono) {
 		let clientDisconnected = false;
 		const stream = new ReadableStream<Uint8Array>({
 			async start(controller) {
+				const streamStartedAt = Date.now();
+				let reasoningStartedAt: number | null = null;
+				let reasoningEndedAt: number | null = null;
 				let streamedText = "";
 				let reasoningText = "";
 				const steps: AgentActivityStep[] = [];
@@ -224,14 +259,30 @@ export function registerChatStreamRoute(app: Hono) {
 						: assistantText;
 				}
 
+				function telemetry(): GenerationTelemetry {
+					return {
+						modelId,
+						usage: finalizedUsage,
+						durationMs: Date.now() - streamStartedAt,
+						thinkingMs:
+							reasoningStartedAt !== null
+								? (reasoningEndedAt ?? Date.now()) - reasoningStartedAt
+								: null,
+					};
+				}
+
 				try {
 					for await (const part of result.fullStream) {
 						switch (part.type) {
 							case "text-delta":
+								if (reasoningStartedAt !== null && reasoningEndedAt === null) {
+									reasoningEndedAt = Date.now();
+								}
 								streamedText += part.text;
 								emit({ type: "text", text: part.text });
 								break;
 							case "reasoning-delta":
+								if (reasoningStartedAt === null) reasoningStartedAt = Date.now();
 								reasoningText += part.text;
 								emit({ type: "reasoning", text: part.text });
 								break;
@@ -293,7 +344,7 @@ export function registerChatStreamRoute(app: Hono) {
 						if (missingSuffix) emit({ type: "text", text: missingSuffix });
 					}
 
-					await persistAssistantMessage(chatId, finalize(assistantText));
+					await persistAssistantMessage(chatId, finalize(assistantText), telemetry());
 					triggerKnowledgeBaseSync(chat.workspaceId);
 					if (!clientDisconnected) {
 						controller.close();
@@ -315,7 +366,7 @@ export function registerChatStreamRoute(app: Hono) {
 						`Model stream failed mid-response for chat ${chatId}:`,
 						err,
 					);
-					await persistAssistantMessage(chatId, finalize(assistantText));
+					await persistAssistantMessage(chatId, finalize(assistantText), telemetry());
 					triggerKnowledgeBaseSync(chat.workspaceId);
 					const missingSuffix = assistantText.startsWith(streamedText)
 						? assistantText.slice(streamedText.length)

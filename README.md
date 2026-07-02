@@ -79,6 +79,17 @@ Access at `https://NYXEL_DOMAIN`. Caddy handles TLS certificates, health checks 
 | --- | --- |
 | ![Document & Image Library](docs/screenshots/library-overview.png) | ![Library folder navigation](docs/screenshots/library-folder.png) |
 
+#### 📊 Detailed statistics
+
+The Overview dashboard tracks token usage, spend, and generation activity per workspace — tokens
+and estimated cost over time, per-model and per-tool breakdowns, code/lines generated, thinking
+time, cache savings, tool success rate, and agent-run outcomes — rendered with `shadcn/ui` charts
+(area, donut, stacked bar, radar, and radial gauge) over a selectable 7/30/90-day window.
+
+![Detailed statistics — token usage, cost, and generation KPIs](docs/screenshots/detailed-stats.png)
+
+![Detailed statistics — model usage, tool usage, and content-generation charts](docs/screenshots/detailed-stats-charts.png)
+
 ---
 ### 📂 Project Structure Deep Dive
 ```
