@@ -122,44 +122,73 @@ export function AppSidebar() {
     : [];
   const extensionsGroupItems = [...workflowsNavItem, ...extensionNavItems];
 
-  const navItems = workspaceId
+  const navGroups = workspaceId
     ? [
-        { href: "/", label: "Overview", icon: LayoutDashboard },
-        { href: "/chat", label: "Chat", icon: MessageSquare, dot: chatUnseen > 0 },
         {
-          href: `/workspace/${workspaceId}/settings`,
-          label: "Settings",
-          icon: Settings,
-        },
-        { href: `/workspace/${workspaceId}/agents`, label: "Agents", icon: Bot },
-        { href: `/workspace/${workspaceId}/tasks`, label: "Tasks", icon: CheckSquare },
-        { href: `/workspace/${workspaceId}/coding`, label: "Coding", icon: Code2 },
-        { href: `/workspace/${workspaceId}/skills`, label: "Skills", icon: Blocks },
-        { href: `/workspace/${workspaceId}/plugins`, label: "Plugins", icon: Package },
-        { href: `/workspace/${workspaceId}/tools`, label: "Tools", icon: Wrench },
-        { href: `/workspace/${workspaceId}/mcp-servers`, label: "Connectors", icon: Plug },
-        { href: `/workspace/${workspaceId}/automations`, label: "Automations", icon: Clock },
-        {
-          href: `/workspace/${workspaceId}/approvals`,
-          label: "Approvals",
-          icon: ClipboardCheck,
-          badge: pendingCount > 0 ? pendingCount : undefined,
-        },
-        { href: `/workspace/${workspaceId}/audit-log`, label: "Audit Log", icon: ScrollText },
-        { href: `/workspace/${workspaceId}/memory`, label: "Memory", icon: BrainCircuit },
-        { href: `/workspace/${workspaceId}/archive`, label: "Archive", icon: Archive },
-        {
-          href: `/workspace/${workspaceId}/knowledge-base`,
-          label: "Knowledge Base",
-          icon: Library,
+          label: "General",
+          items: [
+            { href: "/", label: "Overview", icon: LayoutDashboard },
+            { href: "/chat", label: "Chat", icon: MessageSquare, dot: chatUnseen > 0 },
+            {
+              href: `/workspace/${workspaceId}/settings`,
+              label: "Settings",
+              icon: Settings,
+            },
+          ],
         },
         {
-          href: `/workspace/${workspaceId}/library`,
-          label: "Library",
-          icon: Images,
+          label: "Build",
+          items: [
+            { href: `/workspace/${workspaceId}/agents`, label: "Agents", icon: Bot },
+            { href: `/workspace/${workspaceId}/coding`, label: "Coding", icon: Code2 },
+            { href: `/workspace/${workspaceId}/skills`, label: "Skills", icon: Blocks },
+            { href: `/workspace/${workspaceId}/plugins`, label: "Plugins", icon: Package },
+            { href: `/workspace/${workspaceId}/tools`, label: "Tools", icon: Wrench },
+            { href: `/workspace/${workspaceId}/mcp-servers`, label: "Connectors", icon: Plug },
+          ],
+        },
+        {
+          label: "Automate",
+          items: [
+            { href: `/workspace/${workspaceId}/tasks`, label: "Tasks", icon: CheckSquare },
+            { href: `/workspace/${workspaceId}/automations`, label: "Automations", icon: Clock },
+            {
+              href: `/workspace/${workspaceId}/approvals`,
+              label: "Approvals",
+              icon: ClipboardCheck,
+              badge: pendingCount > 0 ? pendingCount : undefined,
+            },
+            {
+              href: `/workspace/${workspaceId}/audit-log`,
+              label: "Audit Log",
+              icon: ScrollText,
+            },
+          ],
+        },
+        {
+          label: "Records",
+          items: [
+            { href: `/workspace/${workspaceId}/memory`, label: "Memory", icon: BrainCircuit },
+            { href: `/workspace/${workspaceId}/archive`, label: "Archive", icon: Archive },
+            {
+              href: `/workspace/${workspaceId}/knowledge-base`,
+              label: "Knowledge Base",
+              icon: Library,
+            },
+            {
+              href: `/workspace/${workspaceId}/library`,
+              label: "Library",
+              icon: Images,
+            },
+          ],
         },
       ]
-    : [{ href: "/", label: "Overview", icon: LayoutDashboard }];
+    : [
+        {
+          label: "General",
+          items: [{ href: "/", label: "Overview", icon: LayoutDashboard }],
+        },
+      ];
 
   return (
     <Sidebar collapsible="icon">
@@ -180,34 +209,40 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Workspace</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navItems.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild isActive={pathname === item.href} tooltip={item.label}>
-                    <Link href={item.href}>
-                      <span className="relative flex">
-                        <item.icon />
-                        {"dot" in item && item.dot && (
-                          <span
-                            aria-hidden="true"
-                            className="-top-0.5 -right-0.5 absolute size-1.5 animate-pulse rounded-full bg-primary"
-                          />
-                        )}
-                      </span>
-                      <span>{item.label}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                  {"badge" in item && item.badge !== undefined && (
-                    <SidebarMenuBadge>{item.badge}</SidebarMenuBadge>
-                  )}
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {navGroups.map((group) => (
+          <SidebarGroup key={group.label}>
+            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map((item) => (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname === item.href}
+                      tooltip={item.label}
+                    >
+                      <Link href={item.href}>
+                        <span className="relative flex">
+                          <item.icon />
+                          {"dot" in item && item.dot && (
+                            <span
+                              aria-hidden="true"
+                              className="-top-0.5 -right-0.5 absolute size-1.5 animate-pulse rounded-full bg-primary"
+                            />
+                          )}
+                        </span>
+                        <span>{item.label}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                    {"badge" in item && item.badge !== undefined && (
+                      <SidebarMenuBadge>{item.badge}</SidebarMenuBadge>
+                    )}
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
 
         {extensionsGroupItems.length > 0 && (
           <SidebarGroup>
