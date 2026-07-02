@@ -53,34 +53,13 @@ Once `TESTING_STRATEGY.md`'s `BL-12`/`BL-13` land (dead test files removed, `seo
 
 Matches the existing `lint`/`typecheck`/`build` job shape exactly (same checkout/setup-bun/install pattern) — no new conventions introduced. Add it to `ci.yml` as a fourth parallel job alongside the existing three.
 
-## Proposed secret-scan job (new workflow, `secret-scan.yml`)
+## Secret-scan job — added this session (`.github/workflows/secret-scan.yml`)
 
-```yaml
-name: Secret scan
+`BL-14` is now implemented, with one deliberate difference from the originally-proposed YAML: `continue-on-error: true` is set on the job. `SECURITY_AUDIT.md` SEC-06 was verified clean this session (`nyxel.sqlite*` is gitignored and was never committed), so the specific risk that motivated this job isn't a known live finding — but gitleaks' full-history scan against this repo hasn't actually been run yet, so it may still surface something unrelated (an old API key pasted into a commit message, a test fixture that looks like a secret, etc.). Non-blocking on first rollout, matching the same pattern already used for `dependency-review.yml`. **Once the first run's findings (if any) have been triaged, remove `continue-on-error: true` to make it a required check** — that's the one remaining step for this item.
 
-on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+## `bun test` in CI — still blocked on `BL-12`/`BL-13`
 
-permissions:
-  contents: read
-
-jobs:
-  gitleaks:
-    name: Gitleaks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
-
-Not added directly in this session — new workflow files are exactly the kind of change worth a real trial run (gitleaks against this repo's actual history could surface findings, e.g. around the `nyxel.sqlite*` files noted in `SECURITY_AUDIT.md` SEC-06, that need triage before the job can be made blocking) rather than merging blind. Recorded as backlog `BL-14` with the exact YAML above ready to use.
+Not added this session. `bun test` at the repo root still reports the same shape of failure the original audit found (134 pass / 7 fail / 5 errors as of this session — the 5 dead-file import errors under `/tests/` and 2 non-hermetic `seo-analyzer.test.ts` failures are unchanged, see `TESTING_STRATEGY.md`). Adding the `test` job before those land would turn every PR red on pre-existing, unrelated failures — `BL-15`'s hard dependency on `BL-12`/`BL-13` still holds. This session added meaningfully more test coverage (crypto, secret validation, env validation, rate limiting, body limits, feature flags, approval auth, builtin-tool sensitivity — see `SECURITY_AUDIT.md`'s "Remediation session" section) but did not touch the 5 dead files (deletion wasn't authorized) or `seo-analyzer.ts` (same reasoning as the original audit: isolating the correct fallback-logic fix without full context on the surrounding SEO-ranking logic risks a wrong fix).
 
 ## Commands to run locally before every PR
 

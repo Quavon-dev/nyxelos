@@ -4,18 +4,19 @@ Companion to [`SECURITY_AUDIT.md`](SECURITY_AUDIT.md) and [`docs/INSTALL.md`](IN
 
 ## Before you run either compose file
 
-- [ ] **Generate a real `BETTER_AUTH_SECRET`.** `openssl rand -base64 32`, put it in your root `.env`. Do not leave it unset. See "PC mode's silent default" below — this is more urgent for PC mode than the code's own guard suggests.
-- [ ] **Generate `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`** if you want push notifications to survive a server restart. Without them, `apps/server/src/push.ts` generates a fresh throwaway pair every boot and logs it to stdout — every existing push subscription silently breaks on restart. `openssl` doesn't generate VAPID keys directly; the simplest path is running `bunx web-push generate-vapid-keys` once and saving the output. Both `.env.example` files were updated in this audit to mention this (see below).
+- [ ] **Generate a real `BETTER_AUTH_SECRET` and `NYXEL_ENCRYPTION_KEY`.** `openssl rand -base64 32` for each (two *different* values — never reuse one for the other, different rotation lifecycles), put them in your root `.env`. Both compose files now refuse to start without them — see "PC mode's fixed default" below.
+- [ ] **Generate `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`** if you want push notifications to survive a server restart. Without them, `apps/server/src/push.ts` generates a fresh throwaway pair every boot and logs it to stdout — every existing push subscription silently breaks on restart. `openssl` doesn't generate VAPID keys directly; the simplest path is running `bunx web-push generate-vapid-keys` once and saving the output.
 - [ ] **Server mode only:** set a real `POSTGRES_PASSWORD` and `NYXEL_DOMAIN`. `docker-compose.server.yml` already fails loudly (`${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}`) if you forget — good, keep relying on that pattern.
-- [ ] **Confirm `nyxel.sqlite*` isn't tracked in git** if you're deploying from a fork/clone that's had local dev runs against it: `git check-ignore -v nyxel.sqlite`. See `SECURITY_AUDIT.md` SEC-06.
+- [ ] **Confirm `nyxel.sqlite*` isn't tracked in git** if you're deploying from a fork/clone that's had local dev runs against it: `git check-ignore -v nyxel.sqlite`. See `SECURITY_AUDIT.md` SEC-06 (verified clean as of this session).
+- [ ] **If you need remote plugin installation or custom-code skills in production**, read `docs/PLUGIN_SECURITY.md` first, then explicitly set `ENABLE_REMOTE_PLUGIN_INSTALL=true` / `ENABLE_CUSTOM_CODE_SKILLS=true` — both default to disabled in production (`NODE_ENV=production`) because they run unsandboxed code in the main server process.
 
-## PC mode's silent default — read this even if you "just want to try it locally"
+## PC mode's fixed default — read this even if you "just want to try it locally"
 
-`docker-compose.pc.yml` sets `BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-me}`. The server image bakes in `NODE_ENV=production` (`apps/server/Dockerfile:12`) regardless of which compose file starts it, and `apps/server/src/auth.ts`'s production guard only throws when the variable is **completely unset** — not when it's set to a known public default. Combining these three facts: **running `docker compose -f docker-compose.pc.yml up --build` without first creating a `.env` with a real `BETTER_AUTH_SECRET` gives you a "production" container whose session-signing secret is the literal string `dev-secret-change-me`, published in this open-source repo.** Anyone who knows this (now including anyone reading this doc, or the repo itself) can forge a valid session cookie for that instance.
+`docker-compose.pc.yml` used to set `BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-me}` — a silent fallback to a known-public value. **Fixed in this session**: both `BETTER_AUTH_SECRET` and `NYXEL_ENCRYPTION_KEY` now use the fail-loud `${VAR:?message}` pattern (matching `docker-compose.server.yml`'s existing, correct pattern for its own secrets) — `docker compose -f docker-compose.pc.yml up` now refuses to start at all without a real `.env`, in *either* mode, rather than silently booting with a public value.
 
-This matters most if PC mode is ever reachable beyond `localhost` — the README explicitly documents this as a supported use case ("optional password protection in case the UI needs to be reachable on the home network," `ARCHITECTURE.md` section 11). **If your PC-mode instance is reachable from anywhere other than `127.0.0.1`, treat a real `BETTER_AUTH_SECRET` as mandatory, not optional**, regardless of what the compose file's fallback lets you skip.
+This closes the gap even if PC mode is later exposed beyond `localhost` (LAN, Tailscale, port-forward — the README documents this as a supported use case, `ARCHITECTURE.md` section 11): there is no longer a "silent" path to a forgeable session secret. The one-time cost is that the previously-zero-config `docker compose -f docker-compose.pc.yml up --build` one-liner now requires `cp .env.example .env` plus setting two real values first — the README's quickstart was updated to say so explicitly.
 
-The compose file itself was intentionally *not* changed in this audit (see `SECURITY_AUDIT.md` SEC-07) — `docker-compose.server.yml` already shows the right fix pattern (`${VAR:?message}` instead of `${VAR:-default}`), and applying the same pattern to `docker-compose.pc.yml`'s `BETTER_AUTH_SECRET` is tracked as backlog `BL-07` for whoever owns Docker/deployment files next.
+Also fixed this session: `apps/server/src/auth.ts`'s production guard (previously: throws only when the variable is **completely unset**) now also rejects known-weak placeholder values (`dev-secret`, `change-me`, `example`, `test`, `password`, case-insensitive substring match) and enforces a minimum length — see `packages/db/src/secret-guard.ts`'s `assertProductionSecret`, shared by `auth.ts` and the new `NYXEL_ENCRYPTION_KEY` guard in `packages/db/src/crypto.ts`.
 
 ## Network exposure by mode
 
@@ -54,21 +55,21 @@ Recommended, not applied in this audit (Docker/deployment files are explicitly i
 
 Backlog `BL-11`.
 
-## `.env.example` changes made in this audit
+## `.env.example` changes
 
-Small, isolated, non-functional doc-only edits (see repo diff for `apps/server/.env.example` and root `.env.example`):
-- Added `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_CONTACT_EMAIL` with an explanatory comment (previously undocumented — see push notes above).
-- Strengthened the `BETTER_AUTH_SECRET` comment in `apps/server/.env.example` to explicitly call out that the shipped default is publicly known and must not reach any deployment reachable beyond localhost.
-- No functional/behavioral changes — these are comments and new optional variable placeholders only.
+Original audit session: added `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_CONTACT_EMAIL` with an explanatory comment; strengthened the `BETTER_AUTH_SECRET` comment.
+
+This session: added `NYXEL_ENCRYPTION_KEY` to both `apps/server/.env.example` and the root `.env.example` (required in production — see `packages/db/src/crypto.ts`), and added `ENABLE_REMOTE_PLUGIN_INSTALL`/`ENABLE_CUSTOM_CODE_SKILLS` (commented out, opt-in) to `apps/server/.env.example`.
 
 ## Quick pre-deploy checklist
 
 ```
 [ ] BETTER_AUTH_SECRET is a real generated value (not "dev-secret-change-me" / "change-me...")
+[ ] NYXEL_ENCRYPTION_KEY is a real generated value, different from BETTER_AUTH_SECRET
 [ ] POSTGRES_PASSWORD is a real generated value (server mode)
 [ ] VAPID keys are set if push notifications matter to you
 [ ] WEB_ORIGIN matches exactly the origin(s) you'll access the app from
 [ ] NYXEL_DOMAIN's DNS already points at this host before first Caddy start (ACME needs it)
 [ ] nyxel.sqlite* is not committed to your fork's git history
-[ ] If PC mode is reachable beyond localhost, you've read the "PC mode's silent default" section above
+[ ] ENABLE_REMOTE_PLUGIN_INSTALL / ENABLE_CUSTOM_CODE_SKILLS are left unset (disabled) unless you specifically need them and have read docs/PLUGIN_SECURITY.md
 ```

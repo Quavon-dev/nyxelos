@@ -168,15 +168,31 @@ These were reviewed and found to already meet or exceed what's typically expecte
 
 | ID | Title | Severity | Status |
 |----|-------|----------|--------|
-| SEC-00 | `approvals.approve`/`reject`/`list` required no auth | P0 | **Fixed** (by parallel work, during this session) |
-| SEC-01 | Plaintext secrets at rest (DB) | P0 | Documented → `BL-01` |
-| SEC-02 | API keys returned to browser unfiltered | P0 | Documented → `BL-02` |
-| SEC-03 | Sandbox isolation weaker than docs claim | P1 | Documented → `BL-03` |
-| SEC-04 | No global request body limit | P1 | Documented → `BL-04` |
-| SEC-05 | Library/chat-stream routes skip rate limiting | P1 | Documented → `BL-05` |
-| SEC-06 | Live SQLite file at repo root | P1 | Documented → `BL-06` |
-| SEC-07 | PC-mode compose defeats prod secret guard | P0 | Docs hardened this session → `BL-07` for compose fix |
-| SEC-08 | Unsigned plugin code execution | P1 | Documented (known upstream) → `BL-08` |
-| SEC-09 | `terminal_run` inherits full env | P2 | Documented, approval-gated → `BL-09` |
+| SEC-00 | `approvals.approve`/`reject`/`list` required no auth | P0 | **Fixed** (by parallel work) — regression test added this session (`apps/server/src/trpc/approvals.test.ts`) |
+| SEC-01 | Plaintext secrets at rest (DB) | P0 | **Fixed this session** for `modelInstallation.apiKey` / `knowledgeBaseConfig.obsidianApiKey` — see `packages/db/src/crypto.ts`. `mcpServer.oauthState` remains plaintext (jsonb-typed column, would need a schema change — see "Remaining risks" below). |
+| SEC-02 | API keys returned to browser unfiltered | P0 | **Fixed this session** — `models.installations` now returns `toClientSafeInstallation()`'d rows (`hasApiKey: boolean`, no raw key). See `apps/server/src/trpc/router.ts` + `router.test.ts`. |
+| SEC-03 | Sandbox isolation weaker than docs claim | P1 | **Fixed this session** (docs correction) — `docs/ARCHITECTURE.md` section 12 rewritten to state the actual in-process/`ctx.*`-only guarantee and link ADR-0007 as planned, not shipped. |
+| SEC-04 | No global request body limit | P1 | **Fixed this session** — `hono/body-limit` applied globally (60MB) and tightened for `/trpc/*` (2MB) in `apps/server/src/index.ts`. See `body-limit.test.ts`. |
+| SEC-05 | Library/chat-stream routes skip rate limiting | P1 | **Fixed this session** — `rateLimitMiddleware` applied to `/api/library/*` and `/api/chat/stream` in `index.ts`. |
+| SEC-06 | Live SQLite file at repo root | P1 | Verified this session — `git check-ignore -v nyxel.sqlite*` confirms it's ignored; `git log --all --full-history` shows no historical commits tracked it. No remediation needed. |
+| SEC-07 | PC-mode compose defeats prod secret guard | P0 | **Fixed this session** — `docker-compose.pc.yml`'s `BETTER_AUTH_SECRET` now uses the fail-loud `${VAR:?message}` pattern matching `docker-compose.server.yml`; `NYXEL_ENCRYPTION_KEY` (new, see SEC-01) added the same way to both compose files. README and `.env.example` updated to match. |
+| SEC-08 | Unsigned plugin code execution | P1 | Partially mitigated this session — remote plugin install is now disabled by default in production (`ENABLE_REMOTE_PLUGIN_INSTALL`, see `apps/server/src/feature-flags.ts`). Signing/vetting itself remains unimplemented — documented (known upstream) → `BL-08`. |
+| SEC-09 | `terminal_run` inherits full env | P2 | Documented, approval-gated (unchanged design). Added a static regression test (`tools-builtin-seed.test.ts`) confirming `terminal_run` and other dangerous builtin kinds stay seeded `sensitive: true`; the full Agent-Runtime-level approval-gate test `BL-09` asks for is still open — explicitly out of this session's scope (Agent Runtime). |
+| SEC-10 *(new)* | `custom_code` tool runs `new Function()` in the main server process | P0 | **Fixed this session** — disabled by default in production (`ENABLE_CUSTOM_CODE_SKILLS`, see `apps/server/src/feature-flags.ts`), matching the same treatment as SEC-08. Not in the original audit's numbered findings but the same category of risk; added here for traceability. |
 
-Full acceptance criteria, affected files, effort, and conflict-risk-with-core-refactor notes for each `BL-*` item are in [`AGENTIC_OS_BACKLOG.md`](AGENTIC_OS_BACKLOG.md).
+Full acceptance criteria, affected files, effort, and conflict-risk-with-core-refactor notes for each `BL-*` item are in [`AGENTIC_OS_BACKLOG.md`](AGENTIC_OS_BACKLOG.md). See the new "Remediation session" section below for what changed and what's still open.
+
+---
+
+## Remediation session (this pass)
+
+Fixed: SEC-00 (regression test), SEC-01 (partial — `apiKey`/`obsidianApiKey`), SEC-02, SEC-03 (docs), SEC-04, SEC-05, SEC-07, SEC-08 (partial — feature flag), plus a new SEC-10 (custom-code feature flag). Verified: SEC-06.
+
+**Remaining risks, not fixed this session:**
+- **`mcpServer.oauthState` is still plaintext at rest.** It's a `jsonb`/`json`-mode column, not `text()`, so encrypting it needs a schema-level type change (store as encrypted text, parse JSON after decrypt) rather than the drop-in repo-layer wrapper used for `apiKey`/`obsidianApiKey`. Needs its own scoped change with a migration.
+- **Plugin/skill process isolation (ADR-0007)** is unchanged — the feature flag added this session (`ENABLE_REMOTE_PLUGIN_INSTALL`) reduces exposure by defaulting off in production, but the underlying in-process trust model (SEC-03/`PLUGIN_SECURITY.md`) is not fixed, only gated.
+- **Plugin signing/vetting** (SEC-08's original ask) is still not implemented — the feature flag is a coarser mitigation (all-or-nothing per server), not per-plugin trust.
+- **`terminal_run`'s end-to-end approval-gate test** (BL-09) — a test proving the `sensitive: true` flag is honored across every Agent Runtime call path (chat, autonomous, scheduled) — was not added; this session added only the cheaper, narrower static-seed-data check described above.
+- **CI test job / `BL-12`/`BL-13`/`BL-15`** — the pre-existing 5 dead test files under `/tests/` and the 2 non-hermetic `seo-analyzer.test.ts` failures are unchanged; `bun test` is still not wired into CI. See `docs/CI_QUALITY_GATES.md`.
+- **`apps/web/src/components/chat/chat-top-bar.tsx`** has a pre-existing (unrelated to this session) TypeScript build error that fails `bun run build --filter=@nyxel/web` and `bun run typecheck --filter=@nyxel/web`. Not a security finding — flagged here only because it means "the build is green" can't be claimed for the web app until it's fixed separately.
+- **`packages/create-nyxel`** has a pre-existing (unrelated) typecheck/build failure (missing `@types/node` in its tsconfig) — same caveat as above.
