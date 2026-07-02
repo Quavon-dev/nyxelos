@@ -235,10 +235,8 @@ function ChatLandingPageContent() {
                   attachedFile={attachedFile}
                   onAttachedFileChange={setAttachedFile}
                   onVoiceResult={(text) => {
-                    const combined = message ? `${message} ${text}` : text;
-                    setMessage(combined);
-                    if (!modelId || createChat.isPending) return;
-                    createChat.mutate({ text: combined, file: attachedFile });
+                    // Insert for review — dictation shouldn't skip the send button.
+                    setMessage((current) => (current ? `${current} ${text}` : text));
                   }}
                   showContextWindow={false}
                 />

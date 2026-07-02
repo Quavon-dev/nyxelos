@@ -3,9 +3,9 @@
 import { ArrowUp, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
-	type AttachedFile,
-	ChatComposerToolbar,
-	type ChatToolSelection,
+  type AttachedFile,
+  ChatComposerToolbar,
+  type ChatToolSelection,
 } from "@/components/chat/chat-composer-toolbar";
 import { Textarea } from "@/components/ui/textarea";
 import { serializeChatMessageContent } from "@/lib/chat-message";
@@ -14,149 +14,152 @@ import type { ChatToolMode } from "@/lib/trpc";
 import { MultiSelectPromptCard } from "./multi-select-prompt";
 
 interface MessageLike {
-	role: string;
-	content: string;
+  role: string;
+  content: string;
 }
 
 export function ChatInput({
-	onSend,
-	disabled,
-	workspaceId,
-	modelId,
-	toolSelection,
-	onToolSelectionChange,
-	toolMode,
-	onToolModeChange,
-	attachedFile,
-	onAttachedFileChange,
-	messages,
-	assistantQuestion,
-	assistantPrompt,
+  onSend,
+  disabled,
+  workspaceId,
+  modelId,
+  toolSelection,
+  onToolSelectionChange,
+  toolMode,
+  onToolModeChange,
+  attachedFile,
+  onAttachedFileChange,
+  messages,
+  assistantQuestion,
+  assistantPrompt,
+  reasoningEnabled,
+  onReasoningChange,
 }: {
-	onSend: (message: string) => void;
-	disabled?: boolean;
-	workspaceId: string | undefined;
-	modelId?: string;
-	toolSelection: ChatToolSelection | null;
-	onToolSelectionChange: (next: ChatToolSelection | null) => void;
-	toolMode: ChatToolMode;
-	onToolModeChange: (next: ChatToolMode) => void;
-	attachedFile: AttachedFile | null;
-	onAttachedFileChange: (file: AttachedFile | null) => void;
-	messages: MessageLike[];
-	assistantQuestion: string | null;
-	assistantPrompt: MultiSelectPrompt | null;
+  onSend: (message: string) => void;
+  disabled?: boolean;
+  workspaceId: string | undefined;
+  modelId?: string;
+  toolSelection: ChatToolSelection | null;
+  onToolSelectionChange: (next: ChatToolSelection | null) => void;
+  toolMode: ChatToolMode;
+  onToolModeChange: (next: ChatToolMode) => void;
+  attachedFile: AttachedFile | null;
+  onAttachedFileChange: (file: AttachedFile | null) => void;
+  messages: MessageLike[];
+  assistantQuestion: string | null;
+  assistantPrompt: MultiSelectPrompt | null;
+  reasoningEnabled?: boolean;
+  onReasoningChange?: (enabled: boolean) => void;
 }) {
-	const [value, setValue] = useState("");
-	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-	const promptKey = assistantPrompt
-		? `${assistantPrompt.question}:${assistantPrompt.options.map((option) => option.id).join(",")}`
-		: "none";
+  const [value, setValue] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const promptKey = assistantPrompt
+    ? `${assistantPrompt.question}:${assistantPrompt.options.map((option) => option.id).join(",")}`
+    : "none";
 
-	useEffect(() => {
-		if (promptKey !== "none") setValue("");
-	}, [promptKey]);
+  useEffect(() => {
+    if (promptKey !== "none") setValue("");
+  }, [promptKey]);
 
-	// Attachments are stored inline as a structured envelope so the chat can
-	// render them later without needing a separate upload backend yet.
-	function submitMessage(rawText: string) {
-		if (disabled) return;
-		const answerText = rawText.trim();
-		if (!answerText && !attachedFile) return;
+  // Attachments are stored inline as a structured envelope so the chat can
+  // render them later without needing a separate upload backend yet.
+  function submitMessage(rawText: string) {
+    if (disabled) return;
+    const answerText = rawText.trim();
+    if (!answerText && !attachedFile) return;
 
-		const outgoing = attachedFile
-			? serializeChatMessageContent(answerText, [attachedFile])
-			: answerText;
+    const outgoing = attachedFile
+      ? serializeChatMessageContent(answerText, [attachedFile])
+      : answerText;
 
-		onSend(outgoing);
-		setValue("");
-		onAttachedFileChange(null);
-	}
+    onSend(outgoing);
+    setValue("");
+    onAttachedFileChange(null);
+  }
 
-	function handleSubmit(e: React.FormEvent) {
-		e.preventDefault();
-		submitMessage(value);
-	}
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    submitMessage(value);
+  }
 
-	const placeholder = assistantPrompt
-		? "Eigene Antwort schreiben…"
-		: assistantQuestion
-			? "Answer the question…"
-			: "Message Nyxel…";
+  const placeholder = assistantPrompt
+    ? "Eigene Antwort schreiben…"
+    : assistantQuestion
+      ? "Answer the question…"
+      : "Message Nyxel…";
 
-	return (
-		<form onSubmit={handleSubmit} className="pt-4">
-			<div className="space-y-1 rounded-2xl border bg-card p-2 shadow-sm">
-				{assistantPrompt && (
-					<MultiSelectPromptCard
-						prompt={assistantPrompt}
-						mode="interactive"
-						onPickOption={(_, label) => {
-							setValue(label);
-							requestAnimationFrame(() => textareaRef.current?.focus());
-						}}
-						onChooseCustomAnswer={() =>
-							requestAnimationFrame(() => textareaRef.current?.focus())
-						}
-						note="Waehl einen Vorschlag oder tippe unten eine eigene Antwort."
-					/>
-				)}
-				{!assistantPrompt && assistantQuestion && (
-					<div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-						Nyxel asked:{" "}
-						<span className="text-foreground">{assistantQuestion}</span>
-					</div>
-				)}
-				<Textarea
-					ref={textareaRef}
-					value={value}
-					onChange={(e) => setValue(e.target.value)}
-					onKeyDown={(e) => {
-						if (e.key === "Enter" && !e.shiftKey) {
-							e.preventDefault();
-							handleSubmit(e);
-						}
-					}}
-					placeholder={placeholder}
-					disabled={disabled}
-					rows={assistantPrompt ? 3 : 1}
-					className="max-h-40 min-h-9 resize-none border-0 p-1.5 shadow-none focus-visible:ring-0"
-				/>
-				<div className="flex items-center gap-2 px-0.5">
-					<div className="min-w-0 flex-1">
-						<ChatComposerToolbar
-							mode="compact"
-							workspaceId={workspaceId}
-							modelId={modelId}
-							toolSelection={toolSelection}
-							onToolSelectionChange={onToolSelectionChange}
-							toolMode={toolMode}
-							onToolModeChange={onToolModeChange}
-							attachedFile={attachedFile}
-							onAttachedFileChange={onAttachedFileChange}
-							onVoiceResult={(text) =>
-								submitMessage(value ? `${value} ${text}` : text)
-							}
-							messages={messages}
-						/>
-					</div>
-					<button
-						type="submit"
-						disabled={
-							disabled ||
-							(!value.trim() && !attachedFile)
-						}
-						aria-label={disabled ? "Nyxel arbeitet…" : "Senden"}
-						className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
-					>
-						{disabled ? (
-							<Loader2 className="size-4 animate-spin" />
-						) : (
-							<ArrowUp className="size-4" />
-						)}
-					</button>
-				</div>
-			</div>
-		</form>
-	);
+  return (
+    <form onSubmit={handleSubmit} className="pt-4">
+      <div className="space-y-1 rounded-2xl border bg-card p-2 shadow-sm">
+        {assistantPrompt && (
+          <MultiSelectPromptCard
+            prompt={assistantPrompt}
+            mode="interactive"
+            onPickOption={(_, label) => {
+              setValue(label);
+              requestAnimationFrame(() => textareaRef.current?.focus());
+            }}
+            onChooseCustomAnswer={() => requestAnimationFrame(() => textareaRef.current?.focus())}
+            note="Waehl einen Vorschlag oder tippe unten eine eigene Antwort."
+          />
+        )}
+        {!assistantPrompt && assistantQuestion && (
+          <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+            Nyxel asked: <span className="text-foreground">{assistantQuestion}</span>
+          </div>
+        )}
+        <Textarea
+          ref={textareaRef}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmit(e);
+            }
+          }}
+          placeholder={placeholder}
+          disabled={disabled}
+          rows={assistantPrompt ? 3 : 1}
+          className="max-h-40 min-h-9 resize-none border-0 p-1.5 shadow-none focus-visible:ring-0"
+        />
+        <div className="flex items-center gap-2 px-0.5">
+          <div className="min-w-0 flex-1">
+            <ChatComposerToolbar
+              mode="compact"
+              workspaceId={workspaceId}
+              modelId={modelId}
+              toolSelection={toolSelection}
+              onToolSelectionChange={onToolSelectionChange}
+              toolMode={toolMode}
+              onToolModeChange={onToolModeChange}
+              attachedFile={attachedFile}
+              onAttachedFileChange={onAttachedFileChange}
+              reasoningEnabled={reasoningEnabled}
+              onReasoningChange={onReasoningChange}
+              onVoiceResult={(text) => {
+                // Insert the transcript for review instead of firing it off
+                // immediately — dictation shouldn't skip the send button.
+                setValue((current) => (current ? `${current} ${text}` : text));
+                requestAnimationFrame(() => textareaRef.current?.focus());
+              }}
+              messages={messages}
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={disabled || (!value.trim() && !attachedFile)}
+            aria-label={disabled ? "Nyxel arbeitet…" : "Senden"}
+            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity disabled:opacity-40"
+          >
+            {disabled ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <ArrowUp className="size-4" />
+            )}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
 }
