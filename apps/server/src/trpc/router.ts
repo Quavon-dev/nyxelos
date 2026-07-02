@@ -1388,12 +1388,24 @@ export const appRouter = router({
 					message: "Task reopened for follow-up execution.",
 					payload: { status: "ready" },
 				});
+				// Repo-scoped tasks (e.g. the SEO fixer) need the same working
+				// directory on every follow-up run that the original dispatch used
+				// (see dispatchSeoFix in seo-analyzer.ts) — claude_cli models fail
+				// outright without one. The task row doesn't persist workingDirectory
+				// directly, but SEO-dispatched tasks stash seoProjectId in `input`,
+				// so re-resolve the repo path from there.
+				const taskInput = task.input as { seoProjectId?: string } | null;
+				const seoProject = taskInput?.seoProjectId
+					? await db.getSeoProject(taskInput.seoProjectId)
+					: null;
+
 				const result = await executeManagedTask({
 					taskId: task.id,
 					agent,
 					trigger: "chat",
 					chatId: task.sourceChatId,
 					instructionOverride: input.instruction,
+					workingDirectory: seoProject?.repoPath,
 				});
 				return result.task;
 			}),

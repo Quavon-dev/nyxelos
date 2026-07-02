@@ -1,6 +1,7 @@
 export type { ChatStreamPart, ChatStreamResult, CliPermissionMode } from "./cli";
 export type {
   DetectedLocalModel,
+  DetectedModelCapabilities,
   OpenAiCompatibleProbeFailure,
   OpenAiCompatibleProbeResult,
   OpenRouterModel,
@@ -10,6 +11,8 @@ export {
   detectLocalModels,
   detectOllamaModels,
   detectOpenAiCompatibleModels,
+  fetchOllamaModelCapabilities,
+  fetchOpenAiCompatibleCapabilities,
   fetchOpenRouterModels,
   OPENROUTER_BASE_URL,
   probeOpenAiCompatibleEndpoint,

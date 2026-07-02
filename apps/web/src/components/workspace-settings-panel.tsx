@@ -3,6 +3,8 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
+  Eye,
+  Image as ImageIcon,
   NotebookPen,
   Plug,
   Puzzle,
@@ -11,6 +13,8 @@ import {
   Settings2,
   ShieldCheck,
   Smartphone,
+  Sparkles,
+  Wrench,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -34,11 +38,39 @@ import {
   type ChatToolPolicy,
   type CliProviderKind,
   DEFAULT_CHAT_TOOL_POLICY,
+  type ModelCapabilities,
   type OpenRouterModel,
   type ProbedModelProvider,
   trpcClient,
 } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+
+/** Small icon badges surfacing what a model can actually do — sourced live
+ * from the provider (LM Studio's `/api/v0/models`, Ollama's `/api/show`,
+ * OpenRouter's `/models` catalog), not guessed from the model id. */
+function CapabilityBadges({ capabilities }: { capabilities?: ModelCapabilities }) {
+  if (!capabilities) return null;
+  const flags: { key: string; label: string; icon: typeof Eye; active: boolean }[] = [
+    { key: "vision", label: "Vision", icon: Eye, active: capabilities.nativeImageInput },
+    { key: "tools", label: "Tool use", icon: Wrench, active: capabilities.toolCalling },
+    { key: "reasoning", label: "Reasoning", icon: Sparkles, active: capabilities.reasoning },
+    { key: "image-out", label: "Image gen", icon: ImageIcon, active: capabilities.imageOutput },
+  ].filter((flag) => flag.active);
+  if (flags.length === 0) return null;
+  return (
+    <span className="flex items-center gap-1">
+      {flags.map(({ key, label, icon: Icon }) => (
+        <span
+          key={key}
+          title={label}
+          className="flex size-5 items-center justify-center rounded border text-muted-foreground"
+        >
+          <Icon className="size-3" />
+        </span>
+      ))}
+    </span>
+  );
+}
 
 const CHAT_MODES: { value: ChatToolMode; title: string; description: string }[] = [
   {
@@ -518,6 +550,10 @@ export function WorkspaceSettingsPanel({
     queryKey: ["models", "list", workspaceId],
     queryFn: () => trpcClient.models.list.query({ workspaceId }),
   });
+  const modelCapabilitiesById = useMemo(
+    () => new Map(availableModelsQuery.data?.map((m) => [m.id, m.capabilities]) ?? []),
+    [availableModelsQuery.data],
+  );
   const extensionCatalogQuery = useQuery({
     queryKey: ["extensions", "catalog"],
     queryFn: () => trpcClient.extensions.catalog.query(),
@@ -1056,6 +1092,9 @@ export function WorkspaceSettingsPanel({
                       <div className="flex flex-col gap-1 pt-1">
                         {provider.modelIds.map((modelId) => {
                           const isEnabled = !provider.disabledModelIds.includes(modelId);
+                          const capabilities = modelCapabilitiesById.get(
+                            `custom:${provider.id}/${modelId}`,
+                          );
                           return (
                             <div
                               key={modelId}
@@ -1079,6 +1118,7 @@ export function WorkspaceSettingsPanel({
                               >
                                 {modelId}
                               </span>
+                              <CapabilityBadges capabilities={capabilities} />
                               <button
                                 type="button"
                                 className="ml-auto text-muted-foreground hover:text-destructive"

@@ -9,6 +9,7 @@ export type ModelSummary = {
 	kind: "local" | "cloud" | "custom";
 	provider: string;
 	providerLabel: string;
+	capabilities?: ModelCapabilities;
 };
 
 export type AutonomyLevel = "chat" | "assisted" | "autonomous" | "super_agent";
@@ -227,6 +228,9 @@ export type TaskDetail = {
 export type ModelCapabilities = {
 	nativeImageInput: boolean;
 	nativeDocumentInput: boolean;
+	toolCalling: boolean;
+	imageOutput: boolean;
+	reasoning: boolean;
 };
 
 export type UserSummary = {

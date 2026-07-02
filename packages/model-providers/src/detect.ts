@@ -12,6 +12,18 @@ export interface DetectedLocalModel {
   providerLabel: string;
   /** OpenAI-compatible base URL used to actually talk to this model. */
   baseUrl: string;
+  /** Live-probed capabilities, when the runtime exposes them. Undefined
+   * means the runtime has no capability-reporting endpoint we know about. */
+  capabilities?: DetectedModelCapabilities;
+}
+
+/** Capability flags sourced directly from a provider's own API — no
+ * hardcoded per-providerKind guesswork. */
+export interface DetectedModelCapabilities {
+  visionInput: boolean;
+  toolCalling: boolean;
+  reasoning: boolean;
+  imageOutput: boolean;
 }
 
 export interface OpenAiCompatibleProbeResult {
@@ -92,14 +104,32 @@ export interface OpenRouterModel {
   id: string;
   label: string;
   contextLength: number | null;
+  capabilities: DetectedModelCapabilities;
 }
+
+const OPENROUTER_CACHE_TTL_MS = 60_000;
+const openRouterModelsCache = new Map<string, { expires: number; value: OpenRouterModel[] }>();
 
 /** OpenRouter's `/models` catalog is public (no key required to list), so
  * this is used both for the settings-panel "fetch models" step (which may
- * run before the user has pasted a key) and for env-based auto-import. */
+ * run before the user has pasted a key) and for env-based auto-import.
+ * The catalog already reports per-model modalities and supported request
+ * parameters, so capabilities come straight from OpenRouter — no guessing
+ * from the model id. Cached briefly since this same catalog is re-fetched
+ * on every capability lookup for an installed OpenRouter model. */
 export async function fetchOpenRouterModels(apiKey?: string | null): Promise<OpenRouterModel[]> {
+  const cacheKey = apiKey ?? "";
+  const cached = openRouterModelsCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.value;
+
   const result = await safeFetchJson<{
-    data?: Array<{ id: string; name?: string; context_length?: number }>;
+    data?: Array<{
+      id: string;
+      name?: string;
+      context_length?: number;
+      architecture?: { input_modalities?: string[]; output_modalities?: string[] };
+      supported_parameters?: string[];
+    }>;
   }>(
     `${OPENROUTER_BASE_URL}/models`,
     apiKey
@@ -113,11 +143,22 @@ export async function fetchOpenRouterModels(apiKey?: string | null): Promise<Ope
   );
   if (!result.ok || !result.data?.data) return [];
 
-  return result.data.data.map((model) => ({
+  const models = result.data.data.map((model) => ({
     id: model.id,
     label: model.name?.trim() || model.id,
     contextLength: model.context_length ?? null,
+    capabilities: {
+      visionInput: model.architecture?.input_modalities?.includes("image") ?? false,
+      imageOutput: model.architecture?.output_modalities?.includes("image") ?? false,
+      toolCalling: model.supported_parameters?.includes("tools") ?? false,
+      reasoning: model.supported_parameters?.includes("reasoning") ?? false,
+    },
   }));
+
+  if (models.length > 0) {
+    openRouterModelsCache.set(cacheKey, { expires: Date.now() + OPENROUTER_CACHE_TTL_MS, value: models });
+  }
+  return models;
 }
 
 export function normalizeOpenAiCompatibleBaseUrl(baseUrl: string): string {
@@ -143,17 +184,132 @@ async function safeFetchJson<T>(
   }
 }
 
+/** Ollama's `/api/show` reports a `capabilities` array per model (e.g.
+ * `["completion", "vision", "tools"]`) — no key required, one call per
+ * model since Ollama has no bulk capability endpoint. */
+export async function fetchOllamaModelCapabilities(
+  baseUrl: string,
+  modelName: string,
+): Promise<DetectedModelCapabilities | null> {
+  const base = normalizeOpenAiCompatibleBaseUrl(baseUrl);
+  const result = await safeFetchJson<{ capabilities?: string[] }>(
+    `${base}/api/show`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelName }),
+    },
+    3000,
+  );
+  if (!result.ok || !result.data?.capabilities) return null;
+
+  const caps = result.data.capabilities;
+  return {
+    visionInput: caps.includes("vision"),
+    toolCalling: caps.includes("tools"),
+    reasoning: caps.includes("thinking") || caps.includes("reasoning"),
+    imageOutput: false,
+  };
+}
+
+/** LM Studio's native `/api/v0/models` (not the OpenAI-compatible `/v1/models`)
+ * reports `type` ("llm"/"vlm"/"embeddings") and, on newer builds, a richer
+ * `capabilities` object/array with vision, tool-use, and reasoning flags —
+ * one request covers every loaded/downloaded model. */
+async function fetchLmStudioNativeModels(
+  baseUrl: string,
+  apiKey?: string | null,
+): Promise<Map<string, DetectedModelCapabilities>> {
+  const base = normalizeOpenAiCompatibleBaseUrl(baseUrl);
+  const result = await safeFetchJson<{
+    data?: Array<{
+      id: string;
+      type?: string;
+      capabilities?: string[] | { vision?: boolean; trained_for_tool_use?: boolean; reasoning?: unknown };
+    }>;
+  }>(
+    `${base}/api/v0/models`,
+    apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : undefined,
+    3000,
+  );
+  if (!result.ok || !result.data?.data) return new Map();
+
+  const map = new Map<string, DetectedModelCapabilities>();
+  for (const model of result.data.data) {
+    const caps = model.capabilities;
+    const visionFromCaps = Array.isArray(caps)
+      ? caps.includes("vision")
+      : Boolean(caps?.vision);
+    const toolCalling = Array.isArray(caps)
+      ? caps.includes("tool_use")
+      : Boolean(caps?.trained_for_tool_use);
+    const reasoning = Array.isArray(caps) ? caps.includes("reasoning") : Boolean(caps?.reasoning);
+    map.set(model.id, {
+      visionInput: model.type === "vlm" || visionFromCaps,
+      toolCalling,
+      reasoning,
+      imageOutput: false,
+    });
+  }
+  return map;
+}
+
+const OPENAI_COMPATIBLE_CAPABILITY_CACHE_TTL_MS = 15_000;
+const openAiCompatibleCapabilityCache = new Map<
+  string,
+  { expires: number; value: Map<string, DetectedModelCapabilities> }
+>();
+
+/** Best-effort capability lookup for an OpenAI-compatible local runtime:
+ * tries LM Studio's native endpoint first (single bulk request), then
+ * falls back to Ollama's per-model `/api/show`. Runtimes with neither
+ * (vLLM, LocalAI, llama.cpp server, text-generation-webui, Jan) resolve to
+ * an empty map, and callers fall back to the previous hardcoded defaults.
+ * Cached per base URL since this runs on every attachment/message send. */
+export async function fetchOpenAiCompatibleCapabilities(
+  baseUrl: string,
+  apiKey: string | null | undefined,
+  modelIds: string[],
+): Promise<Map<string, DetectedModelCapabilities>> {
+  const cacheKey = normalizeOpenAiCompatibleBaseUrl(baseUrl);
+  const cached = openAiCompatibleCapabilityCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.value;
+
+  let value = await fetchLmStudioNativeModels(baseUrl, apiKey);
+  if (value.size === 0 && modelIds.length > 0) {
+    const entries = await Promise.all(
+      modelIds.map(async (modelId) => {
+        const caps = await fetchOllamaModelCapabilities(baseUrl, modelId).catch(() => null);
+        return caps ? ([modelId, caps] as const) : null;
+      }),
+    );
+    value = new Map(entries.filter((e): e is [string, DetectedModelCapabilities] => e !== null));
+  }
+
+  openAiCompatibleCapabilityCache.set(cacheKey, {
+    expires: Date.now() + OPENAI_COMPATIBLE_CAPABILITY_CACHE_TTL_MS,
+    value,
+  });
+  return value;
+}
+
 export async function detectOllamaModels(): Promise<DetectedLocalModel[]> {
   const base = normalizeOpenAiCompatibleBaseUrl(getOllamaBaseUrl());
   const result = await safeFetchJson<{ models?: Array<{ name: string }> }>(`${base}/api/tags`);
   if (!result.ok || !result.data?.models) return [];
 
-  return result.data.models.map((m) => ({
+  const models = result.data.models;
+  const capabilities = await Promise.all(
+    models.map((m) => fetchOllamaModelCapabilities(base, m.name).catch(() => null)),
+  );
+
+  return models.map((m, i) => ({
     id: `ollama/${m.name}`,
     label: m.name,
     provider: "ollama",
     providerLabel: "Ollama",
     baseUrl: `${base}/v1`,
+    capabilities: capabilities[i] ?? undefined,
   }));
 }
 
@@ -228,12 +384,19 @@ export async function detectLmStudioModels(): Promise<DetectedLocalModel[]> {
   });
   if (!detected) return [];
 
+  const capsMap = await fetchOpenAiCompatibleCapabilities(
+    detected.baseUrl,
+    getLmStudioApiKey(),
+    detected.modelIds,
+  ).catch(() => new Map<string, DetectedModelCapabilities>());
+
   return detected.modelIds.map((modelId) => ({
     id: `${detected.providerKey}/${modelId}`,
     label: modelId,
     provider: detected.providerKey,
     providerLabel: detected.providerLabel,
     baseUrl: `${detected.baseUrl}/v1`,
+    capabilities: capsMap.get(modelId),
   }));
 }
 
@@ -247,6 +410,12 @@ export async function detectOpenAiCompatibleModels(): Promise<DetectedLocalModel
     if (seenBaseUrls.has(result.baseUrl)) continue;
     seenBaseUrls.add(result.baseUrl);
 
+    const capsMap = await fetchOpenAiCompatibleCapabilities(
+      result.baseUrl,
+      probe.apiKey,
+      result.modelIds,
+    ).catch(() => new Map<string, DetectedModelCapabilities>());
+
     detected.push(
       ...result.modelIds.map((modelId) => ({
         id: `${result.providerKey}/${modelId}`,
@@ -254,6 +423,7 @@ export async function detectOpenAiCompatibleModels(): Promise<DetectedLocalModel
         provider: result.providerKey,
         providerLabel: result.providerLabel,
         baseUrl: `${result.baseUrl}/v1`,
+        capabilities: capsMap.get(modelId),
       })),
     );
   }

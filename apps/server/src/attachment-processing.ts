@@ -97,7 +97,7 @@ function prepareAttachmentParts(
 	return parts;
 }
 
-export function prepareMessageContentForModel(input: {
+export async function prepareMessageContentForModel(input: {
 	rawContent: string;
 	modelId: string;
 	installedProviders: InstalledModelProvider[];
@@ -105,7 +105,7 @@ export function prepareMessageContentForModel(input: {
 	const parsed = parseChatMessageContent(input.rawContent);
 	if (!parsed) return input.rawContent;
 
-	const capabilities = getModelCapabilities(input.modelId, input.installedProviders);
+	const capabilities = await getModelCapabilities(input.modelId, input.installedProviders);
 	const textPrefix = parsed.text.trim()
 		? [{ type: "text" as const, text: parsed.text.trim() }]
 		: [];
@@ -115,13 +115,13 @@ export function prepareMessageContentForModel(input: {
 	] satisfies ChatMessageContentPart[];
 }
 
-export function summarizeAttachmentCapabilities(input: {
+export async function summarizeAttachmentCapabilities(input: {
 	message: ChatMessageEnvelope | null;
 	modelId: string;
 	installedProviders: InstalledModelProvider[];
 }) {
 	if (!input.message) return null;
-	const capabilities = getModelCapabilities(input.modelId, input.installedProviders);
+	const capabilities = await getModelCapabilities(input.modelId, input.installedProviders);
 	return {
 		nativeImageInput: capabilities.nativeImageInput,
 		nativeDocumentInput: capabilities.nativeDocumentInput,

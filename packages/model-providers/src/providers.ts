@@ -5,7 +5,12 @@ import type { LanguageModel } from "ai";
 import { CLI_DEFAULT_MODEL_SENTINEL } from "./cli";
 import {
   detectLocalModels,
+  type DetectedModelCapabilities,
+  fetchOllamaModelCapabilities,
+  fetchOpenAiCompatibleCapabilities,
+  fetchOpenRouterModels,
   getLmStudioApiKey,
+  getOllamaBaseUrl,
   normalizeOpenAiCompatibleBaseUrl,
   OPENROUTER_BASE_URL,
 } from "./detect";
@@ -94,11 +99,43 @@ export interface ModelSummary {
   kind: "local" | "cloud" | "custom";
   provider: string;
   providerLabel: string;
+  /** Live-probed where the provider reports it (LM Studio, Ollama,
+   * OpenRouter); omitted when the runtime has no capability endpoint. */
+  capabilities?: ModelCapabilities;
 }
 
 export interface ModelCapabilities {
   nativeImageInput: boolean;
   nativeDocumentInput: boolean;
+  toolCalling: boolean;
+  imageOutput: boolean;
+  reasoning: boolean;
+}
+
+const DEFAULT_CAPABILITIES: ModelCapabilities = {
+  nativeImageInput: false,
+  nativeDocumentInput: false,
+  toolCalling: false,
+  imageOutput: false,
+  reasoning: false,
+};
+
+const FULL_CLOUD_CAPABILITIES: ModelCapabilities = {
+  nativeImageInput: true,
+  nativeDocumentInput: true,
+  toolCalling: true,
+  imageOutput: false,
+  reasoning: true,
+};
+
+function fromDetectedCapabilities(detected: DetectedModelCapabilities): ModelCapabilities {
+  return {
+    nativeImageInput: detected.visionInput,
+    nativeDocumentInput: false,
+    toolCalling: detected.toolCalling,
+    imageOutput: detected.imageOutput,
+    reasoning: detected.reasoning,
+  };
 }
 
 export function toInstalledModelProvider(installation: {
@@ -123,6 +160,41 @@ export function toInstalledModelProvider(installation: {
   };
 }
 
+/** Per-provider capability lookup used when building the model list — one
+ * network round trip (cached, see detect.ts) per installed provider, not
+ * per model. */
+async function capabilitiesForInstalledProvider(
+  provider: InstalledModelProvider,
+): Promise<Map<string, ModelCapabilities>> {
+  if (provider.providerKind === "anthropic" || provider.providerKind === "openai") {
+    return new Map(provider.modelIds.map((id) => [id, FULL_CLOUD_CAPABILITIES]));
+  }
+  if (provider.providerKind === "claude_cli" || provider.providerKind === "codex_cli") {
+    return new Map(provider.modelIds.map((id) => [id, DEFAULT_CAPABILITIES]));
+  }
+  if (provider.providerKind === "openrouter") {
+    const models = await fetchOpenRouterModels(provider.apiKey);
+    const byId = new Map(models.map((m) => [m.id, m]));
+    return new Map(
+      provider.modelIds.map((id) => {
+        const match = byId.get(id);
+        return [id, match ? fromDetectedCapabilities(match.capabilities) : DEFAULT_CAPABILITIES];
+      }),
+    );
+  }
+  const detected = await fetchOpenAiCompatibleCapabilities(
+    provider.baseUrl,
+    provider.apiKey,
+    provider.modelIds,
+  ).catch(() => new Map<string, DetectedModelCapabilities>());
+  return new Map(
+    provider.modelIds.map((id) => {
+      const match = detected.get(id);
+      return [id, match ? fromDetectedCapabilities(match) : DEFAULT_CAPABILITIES];
+    }),
+  );
+}
+
 export async function listAvailableModels(
   installedProviders: InstalledModelProvider[] = [],
 ): Promise<ModelSummary[]> {
@@ -134,26 +206,34 @@ export async function listAvailableModels(
         kind: "cloud" as const,
         provider: m.provider,
         providerLabel: "Anthropic",
+        capabilities: FULL_CLOUD_CAPABILITIES,
       }))
     : [];
-  const custom: ModelSummary[] = installedProviders
-    .filter((provider) => provider.enabled)
-    .flatMap((provider) =>
-      provider.modelIds
-        .filter((modelId) => !provider.disabledModelIds.includes(modelId))
-        .map((modelId) => ({
-          id: `custom:${provider.id}/${modelId}`,
-          label: `${modelId} (${provider.label})`,
-          kind:
-            provider.providerKind === "claude_cli" || provider.providerKind === "codex_cli"
-              ? ("local" as const)
-              : provider.providerKind === "openai_compatible"
-                ? ("custom" as const)
-                : ("cloud" as const),
-          provider: provider.providerKind,
-          providerLabel: provider.label,
-        })),
-    );
+  const enabledProviders = installedProviders.filter((provider) => provider.enabled);
+  const capabilitiesByProvider = new Map(
+    await Promise.all(
+      enabledProviders.map(
+        async (provider) => [provider.id, await capabilitiesForInstalledProvider(provider)] as const,
+      ),
+    ),
+  );
+  const custom: ModelSummary[] = enabledProviders.flatMap((provider) =>
+    provider.modelIds
+      .filter((modelId) => !provider.disabledModelIds.includes(modelId))
+      .map((modelId) => ({
+        id: `custom:${provider.id}/${modelId}`,
+        label: `${modelId} (${provider.label})`,
+        kind:
+          provider.providerKind === "claude_cli" || provider.providerKind === "codex_cli"
+            ? ("local" as const)
+            : provider.providerKind === "openai_compatible"
+              ? ("custom" as const)
+              : ("cloud" as const),
+        provider: provider.providerKind,
+        providerLabel: provider.label,
+        capabilities: capabilitiesByProvider.get(provider.id)?.get(modelId),
+      })),
+  );
 
   const merged = [
     ...local.map((m) => ({
@@ -162,6 +242,7 @@ export async function listAvailableModels(
       kind: "local" as const,
       provider: m.provider,
       providerLabel: m.providerLabel,
+      capabilities: m.capabilities ? fromDetectedCapabilities(m.capabilities) : undefined,
     })),
     ...custom,
     ...cloud,
@@ -352,28 +433,65 @@ export function getDefaultModelIdsForProviderKind(
   return [];
 }
 
-export function getModelCapabilities(
+/** Resolves live capabilities for a model id. Anthropic/OpenAI are trusted
+ * hardcoded (their SDKs are always native-multimodal, no capability
+ * endpoint to probe). Everything else — installed OpenRouter/openai_compatible
+ * providers and bare auto-detected local ids (`lmstudio/…`, `ollama/…`,
+ * `vllm/…`, …) — is probed live against the actual provider, see detect.ts. */
+export async function getModelCapabilities(
   modelId: string,
   installedProviders: InstalledModelProvider[] = [],
-): ModelCapabilities {
+): Promise<ModelCapabilities> {
   const installed = parseInstalledModelId(modelId, installedProviders);
   if (installed) {
-    if (installed.provider.providerKind === "anthropic") {
-      return { nativeImageInput: true, nativeDocumentInput: true };
-    }
-    if (installed.provider.providerKind === "openai") {
-      return { nativeImageInput: true, nativeDocumentInput: true };
+    if (installed.provider.providerKind === "anthropic" || installed.provider.providerKind === "openai") {
+      return FULL_CLOUD_CAPABILITIES;
     }
     // claude_cli/codex_cli: MVP is text-only passthrough over stdin — no
-    // native image/document upload to the CLI process, so these fall through
-    // to the default { false, false } below (attachments still work via the
-    // existing text-extraction fallback in attachment-processing.ts).
-    return { nativeImageInput: false, nativeDocumentInput: false };
+    // native image/document upload to the CLI process (attachments still
+    // work via the existing text-extraction fallback in
+    // attachment-processing.ts).
+    if (installed.provider.providerKind === "claude_cli" || installed.provider.providerKind === "codex_cli") {
+      return DEFAULT_CAPABILITIES;
+    }
+    if (installed.provider.providerKind === "openrouter") {
+      const models = await fetchOpenRouterModels(installed.provider.apiKey);
+      const match = models.find((m) => m.id === installed.nativeModelId);
+      return match ? fromDetectedCapabilities(match.capabilities) : DEFAULT_CAPABILITIES;
+    }
+    const detected = await fetchOpenAiCompatibleCapabilities(
+      installed.provider.baseUrl,
+      installed.provider.apiKey,
+      [installed.nativeModelId],
+    ).catch(() => new Map<string, DetectedModelCapabilities>());
+    const match = detected.get(installed.nativeModelId);
+    return match ? fromDetectedCapabilities(match) : DEFAULT_CAPABILITIES;
   }
 
   if (modelId.startsWith("anthropic/")) {
-    return { nativeImageInput: true, nativeDocumentInput: true };
+    return FULL_CLOUD_CAPABILITIES;
   }
 
-  return { nativeImageInput: false, nativeDocumentInput: false };
+  const [prefix, ...rest] = modelId.split("/");
+  const nativeModelId = rest.join("/");
+  if (prefix === "ollama" && nativeModelId) {
+    const caps = await fetchOllamaModelCapabilities(getOllamaBaseUrl(), nativeModelId).catch(() => null);
+    return caps ? fromDetectedCapabilities(caps) : DEFAULT_CAPABILITIES;
+  }
+  if (prefix && nativeModelId && prefix !== "ollama") {
+    try {
+      const baseUrl = inferOpenAiCompatibleBaseUrl(prefix);
+      const detected = await fetchOpenAiCompatibleCapabilities(
+        baseUrl,
+        inferOpenAiCompatibleApiKey(prefix),
+        [nativeModelId],
+      ).catch(() => new Map<string, DetectedModelCapabilities>());
+      const match = detected.get(nativeModelId);
+      return match ? fromDetectedCapabilities(match) : DEFAULT_CAPABILITIES;
+    } catch {
+      return DEFAULT_CAPABILITIES;
+    }
+  }
+
+  return DEFAULT_CAPABILITIES;
 }

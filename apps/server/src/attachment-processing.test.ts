@@ -15,7 +15,7 @@ const installedProviders = [
 ];
 
 describe("prepareMessageContentForModel", () => {
-	it("passes image attachments through natively when the model supports vision", () => {
+	it("passes image attachments through natively when the model supports vision", async () => {
 		const rawContent = JSON.stringify({
 			text: "Inspect this image",
 			attachments: [
@@ -27,7 +27,7 @@ describe("prepareMessageContentForModel", () => {
 				},
 			],
 		});
-		const prepared = prepareMessageContentForModel({
+		const prepared = await prepareMessageContentForModel({
 			rawContent,
 			modelId: "anthropic/claude-sonnet-5",
 			installedProviders,
@@ -43,7 +43,7 @@ describe("prepareMessageContentForModel", () => {
 		]);
 	});
 
-	it("falls back to extracted text for pdfs on non-native models", () => {
+	it("falls back to extracted text for pdfs on non-native models", async () => {
 		const rawContent = JSON.stringify({
 			text: "Read this PDF",
 			attachments: [
@@ -55,7 +55,7 @@ describe("prepareMessageContentForModel", () => {
 				},
 			],
 		});
-		const prepared = prepareMessageContentForModel({
+		const prepared = await prepareMessageContentForModel({
 			rawContent,
 			modelId: "ollama/llama3",
 			installedProviders: [],

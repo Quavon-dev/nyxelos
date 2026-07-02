@@ -178,17 +178,19 @@ export function registerChatStreamRoute(app: Hono) {
     }
 
     const history = await db.listMessages(chatId);
-    const modelMessages = history.map((entry) => ({
-      role: entry.role === "tool" ? "assistant" : entry.role,
-      content:
-        entry.role === "user"
-          ? (prepareMessageContentForModel({
-              rawContent: entry.content,
-              modelId,
-              installedProviders,
-            }) ?? summarizeChatMessageForModel(entry.content))
-          : stripAgentActivity(entry.content),
-    }));
+    const modelMessages = await Promise.all(
+      history.map(async (entry) => ({
+        role: entry.role === "tool" ? "assistant" : entry.role,
+        content:
+          entry.role === "user"
+            ? ((await prepareMessageContentForModel({
+                rawContent: entry.content,
+                modelId,
+                installedProviders,
+              })) ?? summarizeChatMessageForModel(entry.content))
+            : stripAgentActivity(entry.content),
+      })),
+    );
 
     // resolveModel() (called synchronously inside streamChat) throws for an
     // unknown/misconfigured model id — e.g. a stale chat.modelId pointing at
