@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { DEFAULT_CHAT_TOOL_POLICY } from "./types";
@@ -40,6 +40,28 @@ export function createPgRepository(connectionString: string): DbRepository {
 			sharedAt: row.sharedAt,
 			toolMode: row.toolMode,
 			toolPolicy: row.toolPolicy ?? DEFAULT_CHAT_TOOL_POLICY,
+			createdAt: row.createdAt,
+		};
+	}
+
+	function mapMessage(row: typeof schema.message.$inferSelect) {
+		return {
+			id: row.id,
+			chatId: row.chatId,
+			role: row.role,
+			content: row.content,
+			modelId: row.modelId,
+			inputTokens: row.inputTokens,
+			outputTokens: row.outputTokens,
+			reasoningTokens: row.reasoningTokens,
+			cacheReadTokens: row.cacheReadTokens,
+			totalTokens: row.totalTokens,
+			costMicros: row.costMicros,
+			durationMs: row.durationMs,
+			thinkingMs: row.thinkingMs,
+			lineCount: row.lineCount,
+			codeLineCount: row.codeLineCount,
+			codeBlockCount: row.codeBlockCount,
 			createdAt: row.createdAt,
 		};
 	}
@@ -599,19 +621,13 @@ export function createPgRepository(connectionString: string): DbRepository {
 			return mapProject(copy);
 		},
 
-		async addMessage({ chatId, role, content }) {
+		async addMessage({ chatId, role, content, ...usage }) {
 			const [row] = await db
 				.insert(schema.message)
-				.values({ id: randomUUID(), chatId, role, content })
+				.values({ id: randomUUID(), chatId, role, content, ...usage })
 				.returning();
 			if (!row) throw new Error("Failed to add message");
-			return {
-				id: row.id,
-				chatId: row.chatId,
-				role: row.role,
-				content: row.content,
-				createdAt: row.createdAt,
-			};
+			return mapMessage(row);
 		},
 
 		async listMessages(chatId) {
@@ -620,13 +636,19 @@ export function createPgRepository(connectionString: string): DbRepository {
 				.from(schema.message)
 				.where(eq(schema.message.chatId, chatId))
 				.orderBy(asc(schema.message.createdAt));
-			return rows.map((r) => ({
-				id: r.id,
-				chatId: r.chatId,
-				role: r.role,
-				content: r.content,
-				createdAt: r.createdAt,
-			}));
+			return rows.map(mapMessage);
+		},
+
+		async listMessagesByWorkspace(workspaceId, options) {
+			const conditions = [eq(schema.chat.workspaceId, workspaceId)];
+			if (options?.since) conditions.push(gte(schema.message.createdAt, options.since));
+			const rows = await db
+				.select({ message: schema.message })
+				.from(schema.message)
+				.innerJoin(schema.chat, eq(schema.message.chatId, schema.chat.id))
+				.where(and(...conditions))
+				.orderBy(desc(schema.message.createdAt));
+			return rows.map((r) => mapMessage(r.message));
 		},
 
 		async updateMessage(id, content) {
@@ -636,13 +658,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 				.where(eq(schema.message.id, id))
 				.returning();
 			if (!row) throw new Error("Failed to update message");
-			return {
-				id: row.id,
-				chatId: row.chatId,
-				role: row.role,
-				content: row.content,
-				createdAt: row.createdAt,
-			};
+			return mapMessage(row);
 		},
 
 		async deleteMessage(id) {
@@ -994,6 +1010,17 @@ export function createPgRepository(connectionString: string): DbRepository {
 				where: eq(schema.agentRun.id, id),
 			});
 			return row ? mapAgentRun(row) : null;
+		},
+
+		async listAgentRunsByWorkspace(workspaceId, options) {
+			const conditions = [eq(schema.agentRun.workspaceId, workspaceId)];
+			if (options?.since) conditions.push(gte(schema.agentRun.createdAt, options.since));
+			const rows = await db
+				.select()
+				.from(schema.agentRun)
+				.where(and(...conditions))
+				.orderBy(desc(schema.agentRun.createdAt));
+			return rows.map(mapAgentRun);
 		},
 
 		async listAgentRunsByTask(taskId) {

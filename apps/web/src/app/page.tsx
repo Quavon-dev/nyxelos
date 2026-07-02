@@ -5,21 +5,46 @@ import {
   ArrowRight,
   Blocks,
   Bot,
+  BrainCircuit,
   CheckSquare,
   ClipboardCheck,
   Clock,
+  Code2,
   Database,
+  DollarSign,
+  FileCode,
+  Gauge,
   Globe,
+  Layers,
   Library,
   MessageSquare,
   Plug,
   ShieldCheck,
+  Sparkles,
+  Timer,
   Wrench,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Area, AreaChart, XAxis } from "recharts";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  PolarAngleAxis,
+  PolarGrid,
+  Radar,
+  RadarChart,
+  RadialBar,
+  RadialBarChart,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { BrandMark } from "@/components/brand-mark";
 import { CardListSkeleton, Spinner, StatCardsSkeleton } from "@/components/loading";
 import { PageHeader, StatCard } from "@/components/page-header";
@@ -27,14 +52,18 @@ import { SystemScreen } from "@/components/system-screen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChartContainer } from "@/components/ui/chart";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  type AgentRunStatusStat,
   type AuditLogSummary,
   type AuditStatus,
   type InstallationMode,
+  type ModelUsageStat,
+  type ToolUsageStat,
   trpcClient,
 } from "@/lib/trpc";
 
@@ -133,6 +162,100 @@ function buildDailyActivity(entries: AuditLogSummary[]) {
   return days;
 }
 
+const STATS_WINDOW_OPTIONS = [
+  { value: 7, label: "7 days" },
+  { value: 30, label: "30 days" },
+  { value: 90, label: "90 days" },
+] as const;
+
+/** Fixed categorical order for the model-usage donut — never cycled. A 5th+
+ * model folds into "Other" instead of generating a new hue. */
+const MODEL_CHART_COLORS = [
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+];
+
+const TOOL_CALL_SUCCESS_COLOR = "#22c55e";
+const TOOL_CALL_ERROR_COLOR = "#f43f5e";
+
+/** State colors, not identity — reused from AUDIT_STATUS_BADGE's palette so
+ * "completed"/"failed" read the same way here as everywhere else in the app. */
+const AGENT_RUN_STATUS_COLOR: Record<string, string> = {
+  completed: "#22c55e",
+  failed: "#f43f5e",
+  cancelled: "#94a3b8",
+  running: "var(--chart-1)",
+  waiting_approval: "#f59e0b",
+  pending: "#94a3b8",
+};
+
+function formatCompactNumber(value: number): string {
+  return new Intl.NumberFormat(undefined, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function formatUsd(value: number): string {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: value > 0 && value < 1 ? 4 : 2,
+  }).format(value);
+}
+
+function formatDurationSeconds(totalSeconds: number): string {
+  if (totalSeconds < 1) return "0s";
+  if (totalSeconds < 60) return `${Math.round(totalSeconds)}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.round(totalSeconds % 60);
+  if (minutes < 60) return `${minutes}m ${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+function formatStatusLabel(status: string): string {
+  return status.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+}
+
+/** Buckets model usage into the top 4 by message count plus an "Other"
+ * slice, so the donut never needs a 5th generated hue. */
+function buildModelPieData(modelUsage: ModelUsageStat[]) {
+  const top = modelUsage.slice(0, 4);
+  const rest = modelUsage.slice(4);
+  const restMessages = rest.reduce((sum, m) => sum + m.messages, 0);
+  const data = top.map((m, index) => ({
+    name: m.label,
+    value: m.messages,
+    fill: MODEL_CHART_COLORS[index],
+  }));
+  if (restMessages > 0) {
+    data.push({ name: "Other", value: restMessages, fill: MODEL_CHART_COLORS[4] });
+  }
+  return data;
+}
+
+function buildToolUsageBarData(toolUsage: ToolUsageStat[]) {
+  return toolUsage.map((t) => ({
+    tool: t.toolLabel,
+    success: t.successCount,
+    error: t.errorCount,
+  }));
+}
+
+function buildAgentRunStatusData(agentRunStatus: AgentRunStatusStat[]) {
+  return [...agentRunStatus]
+    .sort((a, b) => b.count - a.count)
+    .map((s) => ({
+      status: formatStatusLabel(s.status),
+      count: s.count,
+      fill: AGENT_RUN_STATUS_COLOR[s.status] ?? "var(--chart-3)",
+    }));
+}
+
 type InstallForm = {
   mode: InstallationMode;
   ownerName: string;
@@ -229,6 +352,14 @@ export default function HomePage() {
     queryFn: () => trpcClient.auditLog.list.query({ workspaceId: workspaceId!, limit: 50 }),
     enabled: dashboardEnabled,
     refetchInterval: 15_000,
+  });
+
+  const [statsDays, setStatsDays] = useState<number>(30);
+  const statsQuery = useQuery({
+    queryKey: ["stats", "overview", workspaceId, statsDays],
+    queryFn: () =>
+      trpcClient.stats.overview.query({ workspaceId: workspaceId!, days: statsDays }),
+    enabled: dashboardEnabled,
   });
 
   const statsLoading =
@@ -588,6 +719,379 @@ export default function HomePage() {
             <p className="truncate">Owner id: {installationQuery.data.record?.ownerUserId}</p>
           </CardContent>
         </Card>
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight">Detailed statistics</h2>
+            <p className="text-sm text-muted-foreground">
+              Token usage, generation activity, and tool/model breakdowns for this workspace.
+            </p>
+          </div>
+          <Tabs value={String(statsDays)} onValueChange={(value) => setStatsDays(Number(value))}>
+            <TabsList>
+              {STATS_WINDOW_OPTIONS.map((option) => (
+                <TabsTrigger key={option.value} value={String(option.value)}>
+                  {option.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
+
+        {statsQuery.isLoading ? (
+          <StatCardsSkeleton count={8} />
+        ) : !statsQuery.data ||
+          (statsQuery.data.totals.assistantMessages === 0 && statsQuery.data.totals.toolCalls === 0) ? (
+          <Card>
+            <CardContent className="py-10 text-center text-sm text-muted-foreground">
+              No generation activity yet — detailed statistics show up here once agents start
+              chatting and calling tools.
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard
+                label="Tokens used"
+                value={formatCompactNumber(statsQuery.data.totals.totalTokens)}
+                icon={<Layers className="size-4" />}
+              />
+              <StatCard
+                label="Estimated cost"
+                value={formatUsd(statsQuery.data.totals.costUsd)}
+                icon={<DollarSign className="size-4" />}
+              />
+              <StatCard
+                label="Cached tokens"
+                value={formatCompactNumber(statsQuery.data.totals.cacheReadTokens)}
+                icon={<Sparkles className="size-4" />}
+              />
+              <StatCard
+                label="Tool success rate"
+                value={`${statsQuery.data.totals.toolCallSuccessRate}%`}
+                icon={<Gauge className="size-4" />}
+              />
+              <StatCard
+                label="Lines generated"
+                value={formatCompactNumber(statsQuery.data.totals.linesGenerated)}
+                icon={<FileCode className="size-4" />}
+              />
+              <StatCard
+                label="Code blocks"
+                value={formatCompactNumber(statsQuery.data.totals.codeBlocksGenerated)}
+                icon={<Code2 className="size-4" />}
+              />
+              <StatCard
+                label="Thinking time"
+                value={formatDurationSeconds(statsQuery.data.totals.thinkingSeconds)}
+                icon={<BrainCircuit className="size-4" />}
+              />
+              <StatCard
+                label="Avg. response time"
+                value={formatDurationSeconds(statsQuery.data.totals.avgResponseSeconds)}
+                icon={<Timer className="size-4" />}
+              />
+            </div>
+
+            {statsQuery.data.totals.costUnknownMessages > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Cost estimate excludes {statsQuery.data.totals.costUnknownMessages} message(s)
+                generated by models without known pricing.
+              </p>
+            )}
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Tokens generated</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ChartContainer
+                    className="aspect-auto h-52 w-full"
+                    config={{ tokens: { label: "Tokens", color: "var(--chart-1)" } }}
+                  >
+                    <AreaChart
+                      data={statsQuery.data.dailySeries}
+                      margin={{ top: 4, right: 4, left: 4, bottom: 0 }}
+                    >
+                      <defs>
+                        <linearGradient id="statsTokensGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                      <XAxis dataKey="date" tickLine={false} axisLine={false} minTickGap={24} />
+                      <YAxis
+                        tickLine={false}
+                        axisLine={false}
+                        width={36}
+                        tickFormatter={formatCompactNumber}
+                      />
+                      <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
+                      <Area
+                        dataKey="tokens"
+                        type="monotone"
+                        stroke="var(--chart-1)"
+                        fill="url(#statsTokensGradient)"
+                        strokeWidth={1.5}
+                      />
+                    </AreaChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Estimated cost</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ChartContainer
+                    className="aspect-auto h-52 w-full"
+                    config={{ costUsd: { label: "Cost", color: "var(--chart-2)" } }}
+                  >
+                    <AreaChart
+                      data={statsQuery.data.dailySeries}
+                      margin={{ top: 4, right: 4, left: 4, bottom: 0 }}
+                    >
+                      <defs>
+                        <linearGradient id="statsCostGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="var(--chart-2)" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="var(--chart-2)" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                      <XAxis dataKey="date" tickLine={false} axisLine={false} minTickGap={24} />
+                      <YAxis
+                        tickLine={false}
+                        axisLine={false}
+                        width={52}
+                        tickFormatter={(value: number) => formatUsd(value)}
+                      />
+                      <ChartTooltip
+                        content={
+                          <ChartTooltipContent
+                            indicator="line"
+                            formatter={(value) => formatUsd(Number(value))}
+                          />
+                        }
+                      />
+                      <Area
+                        dataKey="costUsd"
+                        type="monotone"
+                        stroke="var(--chart-2)"
+                        fill="url(#statsCostGradient)"
+                        strokeWidth={1.5}
+                      />
+                    </AreaChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-3">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Model usage</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {statsQuery.data.modelUsage.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No model usage recorded yet.</p>
+                  ) : (
+                    <>
+                      <ChartContainer className="mx-auto aspect-square max-h-[220px]" config={{}}>
+                        <PieChart>
+                          <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                          <Pie
+                            data={buildModelPieData(statsQuery.data.modelUsage)}
+                            dataKey="value"
+                            nameKey="name"
+                            innerRadius={55}
+                            outerRadius={80}
+                            strokeWidth={2}
+                          />
+                        </PieChart>
+                      </ChartContainer>
+                      <ul className="mt-3 space-y-1.5 text-sm">
+                        {buildModelPieData(statsQuery.data.modelUsage).map((slice) => (
+                          <li key={slice.name} className="flex items-center justify-between gap-2">
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span
+                                className="size-2.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: slice.fill }}
+                              />
+                              <span className="truncate">{slice.name}</span>
+                            </span>
+                            <span className="shrink-0 text-muted-foreground">{slice.value}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Tool usage</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {statsQuery.data.toolUsage.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No tool calls recorded yet.</p>
+                  ) : (
+                    <ChartContainer
+                      className="aspect-auto h-56 w-full"
+                      config={{
+                        success: { label: "Success", color: TOOL_CALL_SUCCESS_COLOR },
+                        error: { label: "Error", color: TOOL_CALL_ERROR_COLOR },
+                      }}
+                    >
+                      <BarChart
+                        data={buildToolUsageBarData(statsQuery.data.toolUsage)}
+                        layout="vertical"
+                        margin={{ top: 4, right: 12, left: 4, bottom: 0 }}
+                      >
+                        <CartesianGrid horizontal={false} strokeDasharray="3 3" />
+                        <XAxis
+                          type="number"
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={formatCompactNumber}
+                        />
+                        <YAxis
+                          dataKey="tool"
+                          type="category"
+                          tickLine={false}
+                          axisLine={false}
+                          width={96}
+                          tick={{ fontSize: 11 }}
+                        />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Bar
+                          dataKey="success"
+                          stackId="calls"
+                          fill="var(--color-success)"
+                          radius={[4, 0, 0, 4]}
+                        />
+                        <Bar
+                          dataKey="error"
+                          stackId="calls"
+                          fill="var(--color-error)"
+                          radius={[0, 4, 4, 0]}
+                        />
+                      </BarChart>
+                    </ChartContainer>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Content generated</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ChartContainer
+                    className="mx-auto aspect-square max-h-[240px]"
+                    config={{ value: { label: "Count", color: "var(--chart-1)" } }}
+                  >
+                    <RadarChart
+                      data={statsQuery.data.generationBreakdown.map((g) => ({
+                        subject: g.label,
+                        value: g.count,
+                      }))}
+                      outerRadius="62%"
+                      margin={{ top: 8, right: 28, bottom: 8, left: 28 }}
+                    >
+                      <PolarGrid />
+                      <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11 }} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Radar
+                        dataKey="value"
+                        fill="var(--chart-1)"
+                        fillOpacity={0.45}
+                        stroke="var(--chart-1)"
+                      />
+                    </RadarChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Tool call success rate</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="relative mx-auto max-w-[220px]">
+                    <ChartContainer
+                      className="mx-auto aspect-square max-h-[200px]"
+                      config={{ value: { label: "Success rate", color: "var(--chart-1)" } }}
+                    >
+                      <RadialBarChart
+                        data={[
+                          {
+                            name: "rate",
+                            value: statsQuery.data.totals.toolCallSuccessRate,
+                            fill: "var(--chart-1)",
+                          },
+                        ]}
+                        innerRadius={70}
+                        outerRadius={100}
+                        startAngle={90}
+                        endAngle={450}
+                      >
+                        <PolarAngleAxis type="number" domain={[0, 100]} dataKey="value" tick={false} />
+                        <RadialBar dataKey="value" background cornerRadius={12} />
+                      </RadialBarChart>
+                    </ChartContainer>
+                    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-2xl font-semibold">
+                        {statsQuery.data.totals.toolCallSuccessRate}%
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {statsQuery.data.totals.toolCalls} calls
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Agent runs by status</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {statsQuery.data.agentRunStatus.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No agent runs recorded yet.</p>
+                  ) : (
+                    <ChartContainer
+                      className="aspect-auto h-56 w-full"
+                      config={{ count: { label: "Runs", color: "var(--chart-1)" } }}
+                    >
+                      <BarChart
+                        data={buildAgentRunStatusData(statsQuery.data.agentRunStatus)}
+                        margin={{ top: 4, right: 4, left: 4, bottom: 0 }}
+                      >
+                        <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                        <XAxis dataKey="status" tickLine={false} axisLine={false} tick={{ fontSize: 11 }} />
+                        <YAxis tickLine={false} axisLine={false} width={28} allowDecimals={false} />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                          {buildAgentRunStatusData(statsQuery.data.agentRunStatus).map((entry) => (
+                            <Cell key={entry.status} fill={entry.fill} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ChartContainer>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[0.7fr_1.3fr]">
