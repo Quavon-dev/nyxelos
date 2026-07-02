@@ -1769,6 +1769,92 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			db.delete(schema.extension).where(eq(schema.extension.id, id)).run();
 		},
 
+		async createPlugin({
+			workspaceId,
+			slug,
+			name,
+			description,
+			version,
+			author,
+			homepage,
+			repoUrl,
+			manifest,
+			skillSlugs,
+			agentDefs,
+			fileCount,
+			installDir,
+		}) {
+			const row = db
+				.insert(schema.plugin)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					slug,
+					name,
+					description,
+					version: version ?? null,
+					author: author ?? null,
+					homepage: homepage ?? null,
+					repoUrl,
+					manifest,
+					skillSlugs,
+					agentDefs,
+					fileCount,
+					installDir,
+					enabled: true,
+					createdAt: new Date(),
+				})
+				.returning()
+				.get();
+			return row;
+		},
+
+		async listPluginsByWorkspace(workspaceId) {
+			return db
+				.select()
+				.from(schema.plugin)
+				.where(eq(schema.plugin.workspaceId, workspaceId))
+				.all();
+		},
+
+		async getPlugin(id) {
+			const row = db
+				.select()
+				.from(schema.plugin)
+				.where(eq(schema.plugin.id, id))
+				.get();
+			return row ?? null;
+		},
+
+		async getPluginBySlug(workspaceId, slug) {
+			const row = db
+				.select()
+				.from(schema.plugin)
+				.where(
+					and(
+						eq(schema.plugin.workspaceId, workspaceId),
+						eq(schema.plugin.slug, slug),
+					),
+				)
+				.get();
+			return row ?? null;
+		},
+
+		async setPluginEnabled(id, enabled) {
+			const row = db
+				.update(schema.plugin)
+				.set({ enabled })
+				.where(eq(schema.plugin.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Plugin not found: ${id}`);
+			return row;
+		},
+
+		async deletePlugin(id) {
+			db.delete(schema.plugin).where(eq(schema.plugin.id, id)).run();
+		},
+
 		async createSeoProject({ workspaceId, extensionId, domain, repoPath }) {
 			const now = new Date();
 			const row = db

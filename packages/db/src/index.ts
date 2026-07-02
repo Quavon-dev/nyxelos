@@ -34,6 +34,8 @@ export type {
 	MessageRole,
 	ModelInstallationRecord,
 	ModelProviderKind,
+	PluginAgentDefinition,
+	PluginRecord,
 	ProjectRecord,
 	PushSubscriptionRecord,
 	SeoAnalysisRunRecord,

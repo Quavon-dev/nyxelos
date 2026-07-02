@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Blocks, Download, Lock, Search, Sparkles, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { PageHeader, StatCard } from "@/components/page-header";
@@ -134,6 +135,7 @@ export default function SkillsPage() {
 	const skills = skillsQuery.data ?? [];
 	const builtinSkills = skills.filter((s) => s.source === "builtin");
 	const fileSkills = skills.filter((s) => s.source === "file");
+	const pluginSkills = skills.filter((s) => s.source === "plugin");
 
 	return (
 		<div className="mx-auto w-full max-w-4xl space-y-6 p-8">
@@ -142,7 +144,7 @@ export default function SkillsPage() {
 				description="Real, file-based skills — a markdown file with a description that tells the model when to use it. Calling a skill returns its instructions for the model to follow using its other tools, not an action by itself."
 			/>
 
-			<div className="grid gap-4 sm:grid-cols-3">
+			<div className="grid gap-4 sm:grid-cols-4">
 				<StatCard
 					label="Total skills"
 					value={skills.length}
@@ -158,6 +160,11 @@ export default function SkillsPage() {
 					value={fileSkills.length}
 					icon={<Blocks className="size-4" />}
 				/>
+				<StatCard
+					label="From plugins"
+					value={pluginSkills.length}
+					icon={<Blocks className="size-4" />}
+				/>
 			</div>
 
 			<Card>
@@ -166,7 +173,9 @@ export default function SkillsPage() {
 					<CardDescription>
 						Built-in skills ship with Nyxel and can't be edited or removed.
 						Custom skills are real files you can edit or delete here — agents
-						that reference a removed skill simply skip it.
+						that reference a removed skill simply skip it. Skills from plugins
+						are managed from the Plugins page — enable/disable or uninstall the
+						plugin to change them here.
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -198,10 +207,16 @@ export default function SkillsPage() {
 													className={
 														skill.source === "builtin"
 															? "border-0 bg-muted text-muted-foreground"
-															: "border-0 bg-violet-500/15 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"
+															: skill.source === "plugin"
+																? "border-0 bg-blue-500/15 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300"
+																: "border-0 bg-violet-500/15 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"
 													}
 												>
-													{skill.source === "builtin" ? "Built-in" : "Custom"}
+													{skill.source === "builtin"
+														? "Built-in"
+														: skill.source === "plugin"
+															? `Plugin: ${skill.pluginName ?? ""}`
+															: "Custom"}
 												</Badge>
 											</TableCell>
 											<TableCell className="max-w-[280px] truncate text-muted-foreground">
@@ -226,10 +241,15 @@ export default function SkillsPage() {
 															Delete
 														</Button>
 													</div>
+												) : skill.source === "plugin" ? (
+													<Link
+														href={`/workspace/${workspaceId}/plugins`}
+														className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+													>
+														Manage in Plugins
+													</Link>
 												) : (
-													<span className="text-xs text-muted-foreground">
-														Always on
-													</span>
+													<span className="text-xs text-muted-foreground">Always on</span>
 												)}
 											</TableCell>
 										</TableRow>

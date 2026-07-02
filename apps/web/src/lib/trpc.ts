@@ -340,10 +340,11 @@ export type ToolSummary = {
 	builtin: boolean;
 };
 
-/** A real skill — either process-wide/hand-written (source: "builtin",
- * read-only) or a workspace's own file-based skill (source: "file",
- * created/edited/deleted from the Skills page — a real markdown file with
- * frontmatter, matching Anthropic's Agent Skills format). */
+/** A real skill — process-wide/hand-written (source: "builtin", read-only),
+ * a workspace's own file-based skill (source: "file", created/edited/deleted
+ * from the Skills page — a real markdown file with frontmatter, matching
+ * Anthropic's Agent Skills format), or a folder-based bundle contributed by
+ * an installed plugin (source: "plugin" — see PluginSummary). */
 export type SkillSummary = {
 	id: string;
 	name: string;
@@ -351,11 +352,14 @@ export type SkillSummary = {
 	permissions: { network: string[]; filesystem: string[] };
 	sensitive: boolean;
 	enabled: boolean;
-	source: "builtin" | "file";
+	source: "builtin" | "file" | "plugin";
 	/** Only set for source: "file". */
 	slug?: string;
 	/** Only set for source: "file" — the skill's markdown body. */
 	body?: string;
+	/** Only set for source: "plugin". */
+	pluginId?: string;
+	pluginName?: string;
 };
 
 /** One SKILL.md hit from searching the known skill libraries on GitHub —
@@ -367,6 +371,44 @@ export type SkillLibraryResult = {
 	path: string;
 	rawUrl: string;
 	htmlUrl: string;
+};
+
+/** A sub-agent bundled in a plugin's agents/*.md directory — parsed for
+ * display only, see PluginSummary. */
+export type PluginAgentDefinition = {
+	slug: string;
+	name: string;
+	description: string;
+	body: string;
+};
+
+/** An installed plugin — a full folder-based bundle (Claude Code plugin
+ * format: .claude-plugin/plugin.json + skills/ + agents/ + arbitrary
+ * supporting files) pulled whole from a GitHub repo, as opposed to the
+ * single-file skills above. See apps/server/src/plugins.ts. */
+export type PluginSummary = {
+	id: string;
+	workspaceId: string;
+	slug: string;
+	name: string;
+	description: string;
+	version: string | null;
+	author: string | null;
+	homepage: string | null;
+	repoUrl: string;
+	manifest: Record<string, unknown>;
+	skillSlugs: string[];
+	agentDefs: PluginAgentDefinition[];
+	fileCount: number;
+	installDir: string;
+	enabled: boolean;
+	createdAt: Date;
+};
+
+export type InstallPluginResult = {
+	plugin: PluginSummary;
+	skills: { id: string; name: string; description: string }[];
+	skippedFiles: string[];
 };
 
 export type AutomationTriggerType = "cron" | "file_watch";
@@ -798,6 +840,23 @@ type NyxelTrpcClient = {
 		};
 		importFromUrl: {
 			mutate(input: { workspaceId: string; url: string }): Promise<SkillSummary>;
+		};
+	};
+	plugins: {
+		list: {
+			query(input: { workspaceId: string }): Promise<PluginSummary[]>;
+		};
+		get: {
+			query(input: { id: string }): Promise<PluginSummary | null>;
+		};
+		install: {
+			mutate(input: { workspaceId: string; repoUrl: string }): Promise<InstallPluginResult>;
+		};
+		setEnabled: {
+			mutate(input: { id: string; enabled: boolean }): Promise<PluginSummary>;
+		};
+		uninstall: {
+			mutate(input: { id: string }): Promise<{ ok: boolean }>;
 		};
 	};
 	tools: {

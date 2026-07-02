@@ -6,6 +6,7 @@ import {
 	type SkillDefinition,
 	serializeSkillMarkdown,
 } from "@nyxel/skills-sdk";
+import { listPlugins, loadPluginSkillDefinitions } from "./plugins";
 import { skillRegistry } from "./skills-registry";
 
 const SKILLS_ROOT = path.resolve(process.env.NYXEL_SKILLS_DIR ?? "/tmp/nyxel-skills");
@@ -36,14 +37,21 @@ export interface SkillCatalogEntry {
 	enabled: boolean;
 	/** Runtime skills are process-wide, hand-written (skills-registry.ts).
 	 * File skills are real markdown files (packages/skills-sdk/src/file-skill.ts),
-	 * created/edited/deleted per workspace from the Skills page. */
-	source: "builtin" | "file";
+	 * created/edited/deleted per workspace from the Skills page. Plugin skills
+	 * are folder-based bundles (SKILL.md + supporting files) contributed by an
+	 * installed plugin (see plugins.ts) — managed from the Plugins page, not
+	 * individually editable/deletable here. */
+	source: "builtin" | "file" | "plugin";
 	/** Only set for `source: "file"` — the filename (no extension), needed to
 	 * address update/delete. */
 	slug?: string;
 	/** Only set for `source: "file"` — the skill's markdown body (the
 	 * instructions returned when the skill is invoked). */
 	body?: string;
+	/** Only set for `source: "plugin"` — the contributing plugin's id/name,
+	 * so the UI can group and link back to it. */
+	pluginId?: string;
+	pluginName?: string;
 }
 
 /**
@@ -66,7 +74,31 @@ export async function listSkillCatalog(
 	}));
 
 	const fileSkills = await listFileSkillEntries(workspaceId);
-	return [...builtin, ...fileSkills];
+	const pluginSkills = await listPluginSkillEntries(workspaceId);
+	return [...builtin, ...fileSkills, ...pluginSkills];
+}
+
+async function listPluginSkillEntries(
+	workspaceId: string,
+): Promise<SkillCatalogEntry[]> {
+	const plugins = (await listPlugins(workspaceId)).filter((p) => p.enabled);
+	const entries = await Promise.all(
+		plugins.map(async (p) => {
+			const definitions = await loadPluginSkillDefinitions(p);
+			return definitions.map((skill) => ({
+				id: skill.id,
+				name: skill.name,
+				description: skill.description,
+				permissions: skill.permissions,
+				sensitive: skill.sensitive,
+				enabled: true,
+				source: "plugin" as const,
+				pluginId: p.id,
+				pluginName: p.name,
+			}));
+		}),
+	);
+	return entries.flat();
 }
 
 async function listFileSkillEntries(
@@ -109,6 +141,13 @@ export async function resolveSkillDefinition(
 ): Promise<SkillDefinition | null> {
 	const builtin = skillRegistry.get(skillId);
 	if (builtin) return builtin;
+	if (skillId.startsWith("file_skill_bundle__")) {
+		const plugins = await listPlugins(workspaceId);
+		const owner = plugins.find((p) => p.enabled && p.skillSlugs.includes(skillId));
+		if (!owner) return null;
+		const definitions = await loadPluginSkillDefinitions(owner);
+		return definitions.find((skill) => skill.id === skillId) ?? null;
+	}
 	if (!skillId.startsWith("file_skill__")) return null;
 	const slug = skillId.slice("file_skill__".length);
 	try {

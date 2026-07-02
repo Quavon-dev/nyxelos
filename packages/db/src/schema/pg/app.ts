@@ -285,6 +285,14 @@ export const knowledgeBaseConfig = pgTable("knowledge_base_config", {
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+/** See ../sqlite/app.ts. */
+export interface PluginAgentDefinition {
+	slug: string;
+	name: string;
+	description: string;
+	body: string;
+}
+
 /** See ../sqlite/app.ts — kept as plain text (not a pg enum) rather than an
  * enum column: adding one of Nyxel's ~30 built-in tool kinds would otherwise
  * need a dedicated `ALTER TYPE ... ADD VALUE` migration each time, which
@@ -634,6 +642,37 @@ export const extension = pgTable("extension", {
 		.default({})
 		.$type<Record<string, unknown>>(),
 	installedAt: timestamp("installed_at").notNull().defaultNow(),
+});
+
+/** An installed plugin — see ../sqlite/app.ts for the full rationale. A
+ * full folder-based bundle (Claude Code plugin format) pulled from a GitHub
+ * repo and kept on disk under `installDir` rather than flattened into a
+ * single markdown body. */
+export const plugin = pgTable("plugin", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	slug: text("slug").notNull(),
+	name: text("name").notNull(),
+	description: text("description").notNull(),
+	version: text("version"),
+	author: text("author"),
+	homepage: text("homepage"),
+	repoUrl: text("repo_url").notNull(),
+	manifest: jsonb("manifest")
+		.notNull()
+		.default({})
+		.$type<Record<string, unknown>>(),
+	skillSlugs: jsonb("skill_slugs").notNull().default([]).$type<string[]>(),
+	agentDefs: jsonb("agent_defs")
+		.notNull()
+		.default([])
+		.$type<PluginAgentDefinition[]>(),
+	fileCount: integer("file_count").notNull().default(0),
+	installDir: text("install_dir").notNull(),
+	enabled: boolean("enabled").notNull().default(true),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 /** Links a domain to a local repo checkout for the SEO/GEO/AEO analyzer

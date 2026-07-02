@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   Library,
   MessageSquare,
+  Package,
   Plug,
   Puzzle,
   ScrollText,
@@ -37,9 +38,9 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { WorkspaceSettingsPanel } from "@/components/workspace-settings-panel";
 import { trpcClient } from "@/lib/trpc";
 import { useInstallation } from "@/lib/use-installation";
-import { WorkspaceSettingsPanel } from "@/components/workspace-settings-panel";
 
 // Maps an ExtensionCatalogEntry.icon string (see apps/server/src/extensions.ts)
 // to the actual lucide component — keeps the catalog data serializable
@@ -103,6 +104,7 @@ export function AppSidebar() {
         { href: `/workspace/${workspaceId}/agents`, label: "Agents", icon: Bot },
         { href: `/workspace/${workspaceId}/tasks`, label: "Tasks", icon: CheckSquare },
         { href: `/workspace/${workspaceId}/skills`, label: "Skills", icon: Blocks },
+        { href: `/workspace/${workspaceId}/plugins`, label: "Plugins", icon: Package },
         { href: `/workspace/${workspaceId}/tools`, label: "Tools", icon: Wrench },
         { href: `/workspace/${workspaceId}/mcp-servers`, label: "Connectors", icon: Plug },
         { href: `/workspace/${workspaceId}/automations`, label: "Automations", icon: Clock },
@@ -171,7 +173,11 @@ export function AppSidebar() {
               <SidebarMenu>
                 {extensionNavItems.map((item) => (
                   <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton asChild isActive={pathname === item.href} tooltip={item.label}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname === item.href}
+                      tooltip={item.label}
+                    >
                       <Link href={item.href}>
                         <item.icon />
                         <span>{item.label}</span>
