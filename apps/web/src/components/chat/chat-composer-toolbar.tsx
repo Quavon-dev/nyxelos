@@ -160,7 +160,7 @@ function openAuthorizationWindow(authorizationUrl: string) {
 }
 
 function getAuthPrompt(result: McpToolListResult | undefined) {
-  if (!result || result.status !== "auth_required") return null;
+  if (result?.status !== "auth_required") return null;
   return {
     message: result.message,
     authorizationUrl: result.authorizationUrl,
@@ -168,7 +168,7 @@ function getAuthPrompt(result: McpToolListResult | undefined) {
 }
 
 function getInvalidConfigMessage(result: McpToolListResult | undefined) {
-  if (!result || result.status !== "invalid_config") return null;
+  if (result?.status !== "invalid_config") return null;
   return result.message;
 }
 
