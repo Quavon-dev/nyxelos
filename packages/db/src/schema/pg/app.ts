@@ -31,6 +31,7 @@ export const installationMode = pgEnum("installation_mode", ["pc", "server"]);
 export const modelProviderKind = pgEnum("model_provider_kind", [
 	"anthropic",
 	"openai",
+	"openrouter",
 	"openai_compatible",
 	"claude_cli",
 	"codex_cli",

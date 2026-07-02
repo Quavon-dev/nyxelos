@@ -3,8 +3,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   detectOllamaModels,
+  fetchOpenRouterModels,
   getLmStudioApiKey,
   getLmStudioBaseUrl,
+  OPENROUTER_BASE_URL,
   probeOpenAiCompatibleEndpoint,
 } from "./detect";
 import { getDefaultModelIdsForProviderKind, type InstalledModelProvider } from "./providers";
@@ -86,6 +88,36 @@ export async function scanProviderImportSources(): Promise<ProviderImportSource[
         disabledModelIds: [],
       }),
     );
+  }
+
+  const openrouterKey = normalizeApiKey(process.env.OPENROUTER_API_KEY);
+  if (openrouterKey) {
+    const models = await fetchOpenRouterModels(openrouterKey);
+    if (models.length === 0) {
+      sources.push({
+        id: "openrouter-env",
+        label: "OpenRouter (env)",
+        details: "OPENROUTER_API_KEY is set, but the OpenRouter model catalog couldn't be fetched.",
+        kind: "api_key",
+        status: "detected",
+      });
+    } else {
+      sources.push(
+        buildProviderSource(
+          "openrouter-env",
+          "OpenRouter (env)",
+          `Imported from OPENROUTER_API_KEY. ${models.length} model(s) available.`,
+          {
+            label: "OpenRouter",
+            providerKind: "openrouter",
+            baseUrl: OPENROUTER_BASE_URL,
+            apiKey: openrouterKey,
+            modelIds: models.map((model) => model.id),
+            disabledModelIds: [],
+          },
+        ),
+      );
+    }
   }
 
   const codexAuthPath = join(HOME, ".codex", "auth.json");

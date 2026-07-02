@@ -612,6 +612,7 @@ export type KnowledgeBaseGraph = {
 export type ModelProviderKind =
 	| "anthropic"
 	| "openai"
+	| "openrouter"
 	| "openai_compatible"
 	| "claude_cli"
 	| "codex_cli";
@@ -653,6 +654,12 @@ export type ProbedModelProvider = {
 	providerLabel: string;
 	baseUrl: string;
 	modelIds: string[];
+};
+
+export type OpenRouterModel = {
+	id: string;
+	label: string;
+	contextLength: number | null;
 };
 
 export type ProviderImportSource = {
@@ -723,6 +730,17 @@ type NyxelTrpcClient = {
 				providerKind?: ModelProviderKind;
 				baseUrl: string;
 				apiKey?: string;
+				modelIds?: string[];
+			}): Promise<ModelInstallationSummary>;
+		};
+		listOpenRouterModels: {
+			query(input?: { apiKey?: string }): Promise<OpenRouterModel[]>;
+		};
+		installOpenRouter: {
+			mutate(input: {
+				workspaceId: string;
+				label?: string;
+				apiKey: string;
 				modelIds?: string[];
 			}): Promise<ModelInstallationSummary>;
 		};

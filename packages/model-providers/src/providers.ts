@@ -3,7 +3,12 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
 import { CLI_DEFAULT_MODEL_SENTINEL } from "./cli";
-import { detectLocalModels, getLmStudioApiKey, normalizeOpenAiCompatibleBaseUrl } from "./detect";
+import {
+  detectLocalModels,
+  getLmStudioApiKey,
+  normalizeOpenAiCompatibleBaseUrl,
+  OPENROUTER_BASE_URL,
+} from "./detect";
 
 export interface CloudModelDefinition {
   id: string;
@@ -15,6 +20,7 @@ export interface CloudModelDefinition {
 export type ModelProviderKind =
   | "anthropic"
   | "openai"
+  | "openrouter"
   | "openai_compatible"
   | "claude_cli"
   | "codex_cli";
@@ -234,6 +240,22 @@ export function resolveModel(
     if (installed.provider.providerKind === "openai") {
       const openai = createOpenAI({ apiKey: installed.provider.apiKey ?? undefined });
       return openai(installed.nativeModelId);
+    }
+
+    if (installed.provider.providerKind === "openrouter") {
+      const openrouter = createOpenAICompatible({
+        name: installed.provider.label,
+        baseURL: OPENROUTER_BASE_URL,
+        apiKey: installed.provider.apiKey ?? undefined,
+        // Recommended (not required) by OpenRouter to attribute traffic —
+        // see https://openrouter.ai/docs#headers.
+        headers: {
+          "HTTP-Referer":
+            process.env.WEB_ORIGIN ?? process.env.PUBLIC_APP_URL ?? "http://localhost:3000",
+          "X-Title": "Nyxel",
+        },
+      });
+      return openrouter(installed.nativeModelId);
     }
 
     const compatible = createOpenAICompatible({
