@@ -1977,6 +1977,66 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			db.delete(schema.libraryFile).where(eq(schema.libraryFile.id, id)).run();
 		},
 
+		async createVideoGenerationJob({
+			workspaceId,
+			chatId,
+			prompt,
+			model,
+			provider,
+			size,
+			seconds,
+			auto,
+		}) {
+			const now = new Date();
+			const row = db
+				.insert(schema.videoGenerationJob)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					chatId,
+					prompt,
+					model,
+					provider,
+					size,
+					seconds,
+					auto,
+					createdAt: now,
+					updatedAt: now,
+				})
+				.returning()
+				.get();
+			return row;
+		},
+
+		async listVideoGenerationJobsByWorkspace(workspaceId) {
+			return db
+				.select()
+				.from(schema.videoGenerationJob)
+				.where(eq(schema.videoGenerationJob.workspaceId, workspaceId))
+				.orderBy(desc(schema.videoGenerationJob.createdAt))
+				.all();
+		},
+
+		async getVideoGenerationJob(id) {
+			const row = db
+				.select()
+				.from(schema.videoGenerationJob)
+				.where(eq(schema.videoGenerationJob.id, id))
+				.get();
+			return row ?? null;
+		},
+
+		async updateVideoGenerationJob(id, patch) {
+			const row = db
+				.update(schema.videoGenerationJob)
+				.set({ ...patch, updatedAt: new Date() })
+				.where(eq(schema.videoGenerationJob.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Video generation job not found: ${id}`);
+			return row;
+		},
+
 		async createSeoProject({ workspaceId, extensionId, domain, repoPath }) {
 			const now = new Date();
 			const row = db

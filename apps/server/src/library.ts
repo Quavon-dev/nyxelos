@@ -42,6 +42,7 @@ const DOCUMENT_MIME_TYPES = new Set([
 
 export function classifyLibraryItemKind(mimeType: string): LibraryItemKind {
 	if (mimeType.startsWith("image/")) return "image";
+	if (mimeType.startsWith("video/")) return "video";
 	if (mimeType.startsWith("text/") || DOCUMENT_MIME_TYPES.has(mimeType)) return "document";
 	return "other";
 }

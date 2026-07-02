@@ -276,7 +276,9 @@ export type ToolKind =
 	| "browser_run_playwright_code"
 	| "github_repo_fetch"
 	| "github_code_search"
-	| "generate_image";
+	| "generate_image"
+	| "generate_video"
+	| "edit_video";
 
 export type ToolCategory = "edit" | "read" | "search" | "execute" | "browser" | "web";
 
@@ -325,6 +327,8 @@ export const TOOL_KIND_CATEGORY: Record<ToolKind, ToolCategory> = {
 	github_repo_fetch: "web",
 	github_code_search: "web",
 	generate_image: "web",
+	generate_video: "web",
+	edit_video: "web",
 };
 
 /** A DB-backed, workspace-configurable tool (the old "Skills" tab concept —
@@ -423,7 +427,7 @@ export type LibraryFolderSummary = {
 	createdAt: Date;
 };
 
-export type LibraryItemKind = "image" | "document" | "other";
+export type LibraryItemKind = "image" | "document" | "video" | "other";
 
 /** Metadata for one uploaded library file — the bytes live on disk, fetched
  * through libraryFileUrl()/libraryDownloadUrl() below, not through tRPC. */
@@ -462,6 +466,40 @@ export function libraryDownloadUrl(id: string): string {
 export function libraryUploadUrl(): string {
 	return `${SERVER_URL}/api/library/upload`;
 }
+
+export type VideoGenerationJobStatus = "queued" | "in_progress" | "completed" | "failed";
+
+/** One text-to-video generation request — see apps/server/src/video.ts.
+ * `libraryFileId`/`posterLibraryFileId` are set once generation finishes;
+ * resolve them to playable URLs with libraryFileUrl(). */
+export type VideoGenerationJobSummary = {
+	id: string;
+	workspaceId: string;
+	chatId: string | null;
+	prompt: string;
+	model: string;
+	provider: string;
+	status: VideoGenerationJobStatus;
+	progress: number;
+	size: string;
+	seconds: number;
+	auto: boolean;
+	externalJobId: string | null;
+	libraryFileId: string | null;
+	posterLibraryFileId: string | null;
+	errorMessage: string | null;
+	createdAt: Date;
+	updatedAt: Date;
+};
+
+export type VideoEditOperation =
+	| "trim"
+	| "concat"
+	| "mute"
+	| "volume"
+	| "speed"
+	| "extractFrame"
+	| "toGif";
 
 export type AutomationTriggerType = "cron" | "file_watch";
 export type AutomationRunStatus = "success" | "error" | "pending_approval";
@@ -966,6 +1004,39 @@ type NyxelTrpcClient = {
 		};
 		deleteFile: {
 			mutate(input: { id: string }): Promise<{ ok: boolean }>;
+		};
+	};
+	video: {
+		generate: {
+			mutate(input: {
+				workspaceId: string;
+				folderId?: string | null;
+				prompt: string;
+				model?: string;
+				size?: string;
+				seconds?: number;
+			}): Promise<VideoGenerationJobSummary>;
+		};
+		list: {
+			query(input: { workspaceId: string }): Promise<VideoGenerationJobSummary[]>;
+		};
+		get: {
+			query(input: { id: string }): Promise<VideoGenerationJobSummary | null>;
+		};
+		edit: {
+			mutate(input: {
+				workspaceId: string;
+				folderId?: string | null;
+				operation: VideoEditOperation;
+				libraryFileId?: string;
+				libraryFileIds?: string[];
+				startSeconds?: number;
+				endSeconds?: number;
+				volume?: number;
+				speed?: number;
+				timestampSeconds?: number;
+				fps?: number;
+			}): Promise<LibraryFileSummary>;
 		};
 	};
 	tools: {

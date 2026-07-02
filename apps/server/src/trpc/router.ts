@@ -88,6 +88,12 @@ import {
 } from "../skills-resolve";
 import { seedBuiltinToolsForWorkspace } from "../tools-builtin-seed";
 import { listToolCatalogForWorkspace } from "../tools-resolve";
+import { editVideo } from "../video-edit";
+import {
+	getVideoGenerationJobById,
+	listVideoGenerationJobsForWorkspace,
+	queueVideoGeneration,
+} from "../video";
 import { publicProcedure, router } from "./trpc";
 
 const autonomyLevelSchema = z.enum([
@@ -158,6 +164,8 @@ const toolKindSchema = z.enum([
 	"github_repo_fetch",
 	"github_code_search",
 	"generate_image",
+	"generate_video",
+	"edit_video",
 ]);
 /** Kinds that default to `sensitive: false` (pure reads/lookups) when a
  * caller doesn't explicitly pass `sensitive` — mirrors the read-vs-write
@@ -732,6 +740,51 @@ export const appRouter = router({
 				await deleteLibraryFile(input.id);
 				return { ok: true };
 			}),
+	}),
+
+	// Video generation/editing — powers both the `generate_video`/`edit_video`
+	// chat tools and the standalone Video Studio page. `generate` is
+	// fire-and-forget (see queueVideoGeneration in ../video.ts): it returns a
+	// job as soon as it's created, and the caller polls `get`/`list` for
+	// progress rather than holding this request open for the several minutes
+	// generation can take. `edit` is a single ffmpeg pass, fast enough to
+	// await directly.
+	video: router({
+		generate: publicProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					folderId: z.string().nullable().optional(),
+					prompt: z.string().min(1),
+					model: z.string().optional(),
+					size: z.string().optional(),
+					seconds: z.number().int().optional(),
+				}),
+			)
+			.mutation(({ input }) => queueVideoGeneration(input)),
+		list: publicProcedure
+			.input(z.object({ workspaceId: z.string() }))
+			.query(({ input }) => listVideoGenerationJobsForWorkspace(input.workspaceId)),
+		get: publicProcedure
+			.input(z.object({ id: z.string() }))
+			.query(({ input }) => getVideoGenerationJobById(input.id)),
+		edit: publicProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					folderId: z.string().nullable().optional(),
+					operation: z.enum(["trim", "concat", "mute", "volume", "speed", "extractFrame", "toGif"]),
+					libraryFileId: z.string().optional(),
+					libraryFileIds: z.array(z.string()).optional(),
+					startSeconds: z.number().optional(),
+					endSeconds: z.number().optional(),
+					volume: z.number().optional(),
+					speed: z.number().optional(),
+					timestampSeconds: z.number().optional(),
+					fps: z.number().optional(),
+				}),
+			)
+			.mutation(({ input }) => editVideo(input).then((result) => result.file)),
 	}),
 
 	tools: router({

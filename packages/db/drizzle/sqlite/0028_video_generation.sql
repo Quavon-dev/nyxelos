@@ -1,0 +1,22 @@
+CREATE TABLE `video_generation_job` (
+	`id` text PRIMARY KEY NOT NULL,
+	`workspace_id` text NOT NULL,
+	`chat_id` text,
+	`prompt` text NOT NULL,
+	`model` text NOT NULL,
+	`provider` text NOT NULL,
+	`status` text DEFAULT 'queued' NOT NULL,
+	`progress` integer DEFAULT 0 NOT NULL,
+	`size` text NOT NULL,
+	`seconds` integer NOT NULL,
+	`auto` integer DEFAULT true NOT NULL,
+	`external_job_id` text,
+	`library_file_id` text,
+	`poster_library_file_id` text,
+	`error_message` text,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`workspace_id`) REFERENCES `workspace`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`library_file_id`) REFERENCES `library_file`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`poster_library_file_id`) REFERENCES `library_file`(`id`) ON UPDATE no action ON DELETE set null
+);

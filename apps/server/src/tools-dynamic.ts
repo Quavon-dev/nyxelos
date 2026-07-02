@@ -22,6 +22,8 @@ import {
 	buildNotebookEditTool,
 } from "./tools-builtin/edit";
 import { buildGenerateImageTool } from "./tools-builtin/image";
+import { buildEditVideoTool } from "./tools-builtin/video-edit";
+import { buildGenerateVideoTool } from "./tools-builtin/video";
 import {
 	buildFileStatTool,
 	buildFileViewImageTool,
@@ -298,6 +300,10 @@ export function buildDynamicToolDefinition(
 			return buildGithubCodeSearchTool(record);
 		case "generate_image":
 			return buildGenerateImageTool(record);
+		case "generate_video":
+			return buildGenerateVideoTool(record);
+		case "edit_video":
+			return buildEditVideoTool(record);
 
 		default:
 			// Exhaustiveness guard — a future ToolKind added to the DB schema
@@ -363,4 +369,6 @@ export const TOOL_KIND_CATEGORY: Record<
 	github_repo_fetch: "web",
 	github_code_search: "web",
 	generate_image: "web",
+	generate_video: "web",
+	edit_video: "web",
 };

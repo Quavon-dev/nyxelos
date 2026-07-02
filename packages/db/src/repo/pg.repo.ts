@@ -1737,6 +1737,59 @@ export function createPgRepository(connectionString: string): DbRepository {
 			await db.delete(schema.libraryFile).where(eq(schema.libraryFile.id, id));
 		},
 
+		async createVideoGenerationJob({
+			workspaceId,
+			chatId,
+			prompt,
+			model,
+			provider,
+			size,
+			seconds,
+			auto,
+		}) {
+			const [row] = await db
+				.insert(schema.videoGenerationJob)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					chatId,
+					prompt,
+					model,
+					provider,
+					size,
+					seconds,
+					auto,
+				})
+				.returning();
+			if (!row) throw new Error("Failed to create video generation job");
+			return row;
+		},
+
+		async listVideoGenerationJobsByWorkspace(workspaceId) {
+			return db
+				.select()
+				.from(schema.videoGenerationJob)
+				.where(eq(schema.videoGenerationJob.workspaceId, workspaceId))
+				.orderBy(desc(schema.videoGenerationJob.createdAt));
+		},
+
+		async getVideoGenerationJob(id) {
+			const row = await db.query.videoGenerationJob.findFirst({
+				where: eq(schema.videoGenerationJob.id, id),
+			});
+			return row ?? null;
+		},
+
+		async updateVideoGenerationJob(id, patch) {
+			const [row] = await db
+				.update(schema.videoGenerationJob)
+				.set({ ...patch, updatedAt: new Date() })
+				.where(eq(schema.videoGenerationJob.id, id))
+				.returning();
+			if (!row) throw new Error(`Video generation job not found: ${id}`);
+			return row;
+		},
+
 		async createSeoProject({ workspaceId, extensionId, domain, repoPath }) {
 			const [row] = await db
 				.insert(schema.seoProject)
