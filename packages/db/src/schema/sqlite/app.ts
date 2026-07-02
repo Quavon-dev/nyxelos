@@ -385,6 +385,21 @@ export const message = sqliteTable("message", {
 		.references(() => chat.id, { onDelete: "cascade" }),
 	role: text("role").notNull().$type<MessageRole>(),
 	content: text("content").notNull(),
+	// See ../pg/app.ts for the rationale — null for non-assistant turns, only
+	// populated by streamChat() (chat-stream.ts). Powers the detailed
+	// statistics dashboard.
+	modelId: text("model_id"),
+	inputTokens: integer("input_tokens"),
+	outputTokens: integer("output_tokens"),
+	reasoningTokens: integer("reasoning_tokens"),
+	cacheReadTokens: integer("cache_read_tokens"),
+	totalTokens: integer("total_tokens"),
+	costMicros: integer("cost_micros"),
+	durationMs: integer("duration_ms"),
+	thinkingMs: integer("thinking_ms"),
+	lineCount: integer("line_count"),
+	codeLineCount: integer("code_line_count"),
+	codeBlockCount: integer("code_block_count"),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

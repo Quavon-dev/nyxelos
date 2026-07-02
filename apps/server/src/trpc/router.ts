@@ -46,6 +46,7 @@ import {
 } from "../library";
 import { MCP_CONNECTOR_CATALOG } from "../mcp-connectors";
 import { EXTENSION_CATALOG, getExtensionCatalogEntry } from "../extensions";
+import { getWorkspaceStatsOverview } from "../stats";
 import {
 	dispatchSeoFix,
 	generateSeoBlogPost,
@@ -1860,6 +1861,19 @@ export const appRouter = router({
 			.query(({ input }) =>
 				getDb().listAuditLogByWorkspace(input.workspaceId, input.limit),
 			),
+	}),
+
+	stats: router({
+		/** Powers the "Detailed statistics" section of the Overview dashboard —
+		 * see apps/server/src/stats.ts for the aggregation. */
+		overview: publicProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					days: z.number().min(1).max(90).optional(),
+				}),
+			)
+			.query(({ input }) => getWorkspaceStatsOverview(input.workspaceId, input.days)),
 	}),
 
 	knowledgeBase: router({

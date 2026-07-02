@@ -565,6 +565,74 @@ export type AuditLogSummary = {
 	createdAt: Date;
 };
 
+export type DailyStatPoint = {
+	date: string;
+	messages: number;
+	tokens: number;
+	costUsd: number;
+	thinkingSeconds: number;
+	linesGenerated: number;
+};
+
+export type ModelUsageStat = {
+	modelId: string;
+	label: string;
+	messages: number;
+	tokens: number;
+	costUsd: number;
+};
+
+export type ToolUsageStat = {
+	toolLabel: string;
+	count: number;
+	successCount: number;
+	errorCount: number;
+};
+
+export type GenerationKindStat = {
+	kind: "code_blocks" | "images" | "documents" | "other_files";
+	label: string;
+	count: number;
+};
+
+export type AgentRunStatusStat = {
+	status: string;
+	count: number;
+};
+
+export type WorkspaceStatsOverview = {
+	windowDays: number;
+	totals: {
+		assistantMessages: number;
+		messagesWithUsage: number;
+		userMessages: number;
+		inputTokens: number;
+		outputTokens: number;
+		reasoningTokens: number;
+		cacheReadTokens: number;
+		totalTokens: number;
+		costUsd: number;
+		costUnknownMessages: number;
+		thinkingSeconds: number;
+		avgResponseSeconds: number;
+		linesGenerated: number;
+		codeLinesGenerated: number;
+		codeBlocksGenerated: number;
+		imagesGenerated: number;
+		documentsGenerated: number;
+		otherFilesGenerated: number;
+		toolCalls: number;
+		toolCallSuccessRate: number;
+		agentRuns: number;
+		agentRunSuccessRate: number;
+	};
+	dailySeries: DailyStatPoint[];
+	modelUsage: ModelUsageStat[];
+	toolUsage: ToolUsageStat[];
+	generationBreakdown: GenerationKindStat[];
+	agentRunStatus: AgentRunStatusStat[];
+};
+
 export type McpConnectorConfigField = {
 	key: string;
 	label: string;
@@ -1510,6 +1578,14 @@ type NyxelTrpcClient = {
 				workspaceId: string;
 				limit?: number;
 			}): Promise<AuditLogSummary[]>;
+		};
+	};
+	stats: {
+		overview: {
+			query(input: {
+				workspaceId: string;
+				days?: number;
+			}): Promise<WorkspaceStatsOverview>;
 		};
 	};
 	knowledgeBase: {

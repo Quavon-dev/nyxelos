@@ -26,6 +26,17 @@ export type ChatMessageContentPart =
 	| MessageImagePart
 	| MessageFilePart;
 
+/** Token accounting for one generation, normalized from the AI SDK's
+ * `LanguageModelUsage` — see chat-stream.ts for how this feeds the detailed
+ * statistics dashboard. */
+export interface ChatStreamUsage {
+	inputTokens?: number;
+	outputTokens?: number;
+	reasoningTokens?: number;
+	cacheReadTokens?: number;
+	totalTokens?: number;
+}
+
 export interface ChatMessageInput {
 	role: "user" | "assistant" | "system";
 	content: string | ChatMessageContentPart[];
@@ -52,8 +63,9 @@ export interface StreamChatInput {
 	/** Called once the full response text is available — the AI SDK awaits
 	 * this as part of the stream's own lifecycle (unlike a detached `.then()`
 	 * on `result.text`), so persistence side effects are tied to the request
-	 * actually finishing rather than racing it. */
-	onFinish?: (event: { text: string }) => void | Promise<void>;
+	 * actually finishing rather than racing it. `usage` is undefined for
+	 * claude_cli/codex_cli models — those CLIs don't report token counts. */
+	onFinish?: (event: { text: string; usage?: ChatStreamUsage }) => void | Promise<void>;
 	/** Called if the model/provider throws mid-stream — without this, a
 	 * failure after the first token would otherwise vanish silently from the
 	 * caller's perspective (the HTTP response is already streaming). */
@@ -188,7 +200,19 @@ export function streamChat({
 		// continuing on to produce a final answer from the tool's result.
 		...(tools ? { stopWhen: stepCountIs(5) } : {}),
 		...(onFinish
-			? { onFinish: (event: any) => onFinish({ text: event.text }) }
+			? {
+					onFinish: (event: any) =>
+						onFinish({
+							text: event.text,
+							usage: {
+								inputTokens: event.usage?.inputTokens,
+								outputTokens: event.usage?.outputTokens,
+								reasoningTokens: event.usage?.outputTokenDetails?.reasoningTokens,
+								cacheReadTokens: event.usage?.inputTokenDetails?.cacheReadTokens,
+								totalTokens: event.usage?.totalTokens,
+							},
+						}),
+				}
 			: {}),
 		...(onError
 			? { onError: (event: any) => onError({ error: event.error }) }
