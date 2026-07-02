@@ -108,6 +108,20 @@ export function AppSidebar() {
     })
     .filter((item): item is NonNullable<typeof item> => item !== null);
 
+  // Workflows is a built-in (not catalog-installed) extension, so it's
+  // pinned first in the Extensions group rather than sourced from
+  // EXTENSION_CATALOG like the opt-in ones above.
+  const workflowsNavItem = workspaceId
+    ? [
+        {
+          href: `/workspace/${workspaceId}/workflows`,
+          label: "Workflows",
+          icon: Workflow,
+        },
+      ]
+    : [];
+  const extensionsGroupItems = [...workflowsNavItem, ...extensionNavItems];
+
   const navItems = workspaceId
     ? [
         { href: "/", label: "Overview", icon: LayoutDashboard },
@@ -143,11 +157,6 @@ export function AppSidebar() {
           href: `/workspace/${workspaceId}/library`,
           label: "Library",
           icon: Images,
-        },
-        {
-          href: `/workspace/${workspaceId}/workflows`,
-          label: "Workflows",
-          icon: Workflow,
         },
       ]
     : [{ href: "/", label: "Overview", icon: LayoutDashboard }];
@@ -200,12 +209,12 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {extensionNavItems.length > 0 && (
+        {extensionsGroupItems.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel>Extensions</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {extensionNavItems.map((item) => (
+                {extensionsGroupItems.map((item) => (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
                       asChild
