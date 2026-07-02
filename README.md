@@ -11,6 +11,7 @@ Run NyxelOS entirely on your hardware or deploy it across a server cluster. Full
 *   **🌳 Local-First:** Usable offline once the local model ecosystem is running. Your data stays yours.
 *   **🧱 Modularity:** Swappable components—models, skills, MCP servers, and databases. Everything plugs into the robust core.
 *   **🎨 Consistent UI:** A clean, predictable experience powered by `shadcn/ui`.
+*   **🎬 AI Video Generation:** Prompt a video right from chat or the Video Studio page — Nyxel auto-picks the model, aspect ratio, and clip length from your wording (or you choose yourself), then plays it back, lets you trim/mute/speed/GIF it, and files it straight into the Library.
 
 ### 🛠️ Tech Stack at a Glance
 *   **Backend:** Bun runtime, Hono, tRPC. The intelligence layer.
@@ -33,6 +34,7 @@ cp apps/web/.env.example apps/web/.env.local
 bun dev # Start both server and web interfaces
 ```
 > 💡 **Tip:** For models to show up automatically, run Ollama or LM Studio beforehand. API keys can also be configured in `apps/server/.env`.
+> 🎬 **Video generation** needs an OpenAI provider with an API key installed under **Settings → Model Providers** (Sora 2 / Sora 2 Pro). **Video editing** (trim/concat/mute/speed/GIF) shells out to `ffmpeg`, so install it on the server host — it isn't bundled.
 
 #### 🍎 macOS Companion Server (Phase 4)
 Give Nyxel access to your local ecosystem! The `apps/companion-macos` package functions as a dedicated MCP server for deep integration with:
@@ -78,6 +80,14 @@ Access at `https://NYXEL_DOMAIN`. Caddy handles TLS certificates, health checks 
 | Document & Image Library | Folder navigation |
 | --- | --- |
 | ![Document & Image Library](docs/screenshots/library-overview.png) | ![Library folder navigation](docs/screenshots/library-folder.png) |
+
+| Video Studio | Auto mode — model/aspect/length picked from the prompt |
+| --- | --- |
+| ![Video Studio](docs/screenshots/video-studio.png) | ![Video generation with auto-selected model, aspect ratio, and length](docs/screenshots/video-studio-generation.png) |
+
+| Video playback in the Library | Generate/Edit video tools |
+| --- | --- |
+| ![Video playback in the Library](docs/screenshots/library-video-playback.png) | ![Generate video and Edit video tools in the Tools catalog](docs/screenshots/tools-video-catalog.png) |
 
 ---
 ### 📂 Project Structure Deep Dive
