@@ -530,6 +530,16 @@ export const appRouter = router({
 					: Array.from(new Set([...installation.disabledModelIds, input.modelId]));
 				return db.updateModelInstallation({ id: input.id, disabledModelIds });
 			}),
+		addModelToInstallation: publicProcedure
+			.input(z.object({ id: z.string(), modelId: z.string().min(1) }))
+			.mutation(async ({ input }) => {
+				const db = getDb();
+				const installation = await db.getModelInstallation(input.id);
+				if (!installation) throw new Error(`Model installation not found: ${input.id}`);
+				if (installation.modelIds.includes(input.modelId)) return installation;
+				const modelIds = [...installation.modelIds, input.modelId];
+				return db.updateModelInstallation({ id: input.id, modelIds });
+			}),
 		removeModelFromInstallation: publicProcedure
 			.input(z.object({ id: z.string(), modelId: z.string() }))
 			.mutation(async ({ input }) => {

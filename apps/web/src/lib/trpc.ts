@@ -980,6 +980,9 @@ type NyxelTrpcClient = {
 		removeModelFromInstallation: {
 			mutate(input: { id: string; modelId: string }): Promise<ModelInstallationSummary | null>;
 		};
+		addModelToInstallation: {
+			mutate(input: { id: string; modelId: string }): Promise<ModelInstallationSummary>;
+		};
 		cliStatus: {
 			query(input: { providerKind: CliProviderKind }): Promise<CliAuthStatus>;
 		};

@@ -633,6 +633,9 @@ export function WorkspaceSettingsPanel({
   const [providerBaseUrl, setProviderBaseUrl] = useState("http://localhost:1234");
   const [providerApiKey, setProviderApiKey] = useState("");
   const [probeResult, setProbeResult] = useState<ProbedModelProvider | null>(null);
+  const [newModelIdByInstallation, setNewModelIdByInstallation] = useState<Record<string, string>>(
+    {},
+  );
 
   const installationQuery = useQuery({
     queryKey: ["installation", "status"],
@@ -775,6 +778,15 @@ export function WorkspaceSettingsPanel({
     mutationFn: (input: { id: string; modelId: string }) =>
       trpcClient.models.removeModelFromInstallation.mutate(input),
     onSuccess: invalidateModelQueries,
+  });
+
+  const addModel = useMutation({
+    mutationFn: (input: { id: string; modelId: string }) =>
+      trpcClient.models.addModelToInstallation.mutate(input),
+    onSuccess: (_result, variables) => {
+      invalidateModelQueries();
+      setNewModelIdByInstallation((current) => ({ ...current, [variables.id]: "" }));
+    },
   });
 
   const activeSection = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0];

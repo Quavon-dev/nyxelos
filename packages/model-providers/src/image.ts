@@ -7,14 +7,25 @@ export interface ImageModelDefinition {
   label: string;
 }
 
+const GPT_IMAGE_2: ImageModelDefinition = { id: "gpt-image-2", label: "GPT Image 2" };
+const GPT_IMAGE_1_5: ImageModelDefinition = { id: "gpt-image-1.5", label: "GPT Image 1.5" };
 const GPT_IMAGE_1: ImageModelDefinition = { id: "gpt-image-1", label: "GPT Image 1" };
+const GPT_IMAGE_1_MINI: ImageModelDefinition = { id: "gpt-image-1-mini", label: "GPT Image 1 Mini" };
 const DALL_E_3: ImageModelDefinition = { id: "dall-e-3", label: "DALL·E 3" };
+const DALL_E_2: ImageModelDefinition = { id: "dall-e-2", label: "DALL·E 2" };
 
 /** OpenAI is currently the only installed-provider kind with an AI SDK image
  * model factory (`openai.image(...)`) — Anthropic has no image-generation
  * API, and OpenRouter/local openai_compatible runtimes don't standardize an
  * image endpoint the SDK understands. */
-export const OPENAI_IMAGE_MODELS: ImageModelDefinition[] = [GPT_IMAGE_1, DALL_E_3];
+export const OPENAI_IMAGE_MODELS: ImageModelDefinition[] = [
+  GPT_IMAGE_2,
+  GPT_IMAGE_1_5,
+  GPT_IMAGE_1,
+  GPT_IMAGE_1_MINI,
+  DALL_E_3,
+  DALL_E_2,
+];
 
 export const DEFAULT_IMAGE_MODEL_ID = GPT_IMAGE_1.id;
 
