@@ -165,11 +165,26 @@ function buildTaskPrompt(task: TaskRecord, instructionOverride?: string): string
 	].join("\n");
 }
 
+/** Tool inputs/outputs can be arbitrarily large (whole file contents) — the
+ * task-event timeline only needs enough to identify the call, not replay it. */
+function truncateForEventPayload(value: unknown, limit = 2_000): string {
+	let serialized: string;
+	try {
+		serialized = typeof value === "string" ? value : JSON.stringify(value);
+	} catch {
+		serialized = String(value);
+	}
+	return serialized.length > limit ? `${serialized.slice(0, limit)}…` : serialized;
+}
+
 /** Streams a chat completion while progressively persisting the growing
  * output onto the given agent run — so a task's "Agent runs" panel (which
  * just polls the row) shows the answer taking shape live instead of only
  * appearing once the whole run finishes. Throttled to avoid hammering the
- * DB on every token. Cancellation is the caller's concern: pass `abortSignal`
+ * DB on every token. Consumes `fullStream` rather than `textStream` so a
+ * background run's tool calls land on the task-event timeline as
+ * `tool_called` entries instead of vanishing (only chat streaming used to
+ * surface them). Cancellation is the caller's concern: pass `abortSignal`
  * on `input` and it's forwarded to the model call as-is — this function
  * doesn't own a controller, so it stays consistent with the single
  * per-run controller `executeManagedTask` registers in
@@ -177,21 +192,67 @@ function buildTaskPrompt(task: TaskRecord, instructionOverride?: string): string
 async function streamWithLiveUpdates(
 	input: Parameters<typeof streamChat>[0],
 	runId: string,
-): Promise<string> {
+	eventContext?: { taskId: string; workspaceId: string; agentId: string },
+): Promise<{ text: string; toolStepCount: number }> {
 	const db = getDb();
 	const result = streamChat(input);
 	let acc = "";
+	let toolStepCount = 0;
 	let lastFlush = 0;
 	const FLUSH_INTERVAL_MS = 400;
-	for await (const delta of result.textStream) {
-		acc += delta;
-		const now = Date.now();
-		if (now - lastFlush >= FLUSH_INTERVAL_MS) {
-			lastFlush = now;
-			await db.updateAgentRun(runId, { finalOutput: acc }).catch(() => {});
+
+	async function recordToolEvent(
+		kind: "tool_called" | "failed",
+		message: string,
+		payload: Record<string, unknown>,
+	) {
+		if (!eventContext) return;
+		await db
+			.createTaskEvent({
+				taskId: eventContext.taskId,
+				workspaceId: eventContext.workspaceId,
+				agentRunId: runId,
+				agentId: eventContext.agentId,
+				kind,
+				message,
+				payload,
+			})
+			.catch(() => {});
+	}
+
+	for await (const part of result.fullStream) {
+		switch (part.type) {
+			case "text-delta": {
+				acc += part.text;
+				const now = Date.now();
+				if (now - lastFlush >= FLUSH_INTERVAL_MS) {
+					lastFlush = now;
+					await db.updateAgentRun(runId, { finalOutput: acc }).catch(() => {});
+				}
+				break;
+			}
+			case "tool-call":
+				toolStepCount++;
+				await recordToolEvent("tool_called", `Tool ${part.toolName} aufgerufen.`, {
+					toolName: part.toolName,
+					toolCallId: part.toolCallId,
+					input: truncateForEventPayload(part.input),
+				});
+				break;
+			case "tool-error":
+				await recordToolEvent("failed", `Tool ${part.toolName} fehlgeschlagen.`, {
+					toolName: part.toolName,
+					toolCallId: part.toolCallId,
+					error: truncateForEventPayload(
+						part.error instanceof Error ? part.error.message : part.error,
+					),
+				});
+				break;
+			default:
+				break;
 		}
 	}
-	return acc;
+	return { text: acc, toolStepCount };
 }
 
 async function runDirectExecution(
@@ -200,7 +261,7 @@ async function runDirectExecution(
 	run: AgentRunRecord,
 	instructionOverride?: string,
 	abortSignal?: AbortSignal,
-): Promise<string> {
+): Promise<{ text: string; toolStepCount: number }> {
 	const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
 	const systemPrompt = await buildSystemPrompt(agent, true);
 	const tools = await buildToolsForAgent(agent, {
@@ -214,11 +275,15 @@ async function runDirectExecution(
 			installedProviders,
 			tools,
 			abortSignal,
+			// Unattended runs have no human to catch a shallow answer — let the
+			// model think before acting where the provider supports it.
+			reasoningEffort: "medium",
 			messages: [
 				{ role: "user", content: buildTaskPrompt(task, instructionOverride) },
 			],
 		},
 		run.id,
+		{ taskId: task.id, workspaceId: task.workspaceId, agentId: agent.id },
 	);
 }
 
@@ -328,6 +393,7 @@ async function runManagedTask(
 	});
 
 	let output: string;
+	let toolStepCount = 0;
 
 	if (
 		input.agent.autonomyLevel === "super_agent" &&
@@ -407,24 +473,28 @@ async function runManagedTask(
 			input.agent.workspaceId,
 		);
 		const systemPrompt = await buildSystemPrompt(input.agent, true);
-		output = await streamWithLiveUpdates(
+		const synthesis = await streamWithLiveUpdates(
 			{
 				modelId: effectiveModelId(input.agent, task),
 				systemPrompt,
 				installedProviders,
+				reasoningEffort: "medium",
 				messages: [{ role: "user", content: synthesisPrompt }],
 				abortSignal,
 			},
 			run.id,
 		);
+		output = synthesis.text;
 	} else {
-		output = await runDirectExecution(
+		const execution = await runDirectExecution(
 			input.agent,
 			task,
 			run,
 			input.instructionOverride,
 			abortSignal,
 		);
+		output = execution.text;
+		toolStepCount = execution.toolStepCount;
 	}
 
 	const pausedOnQuestion = output.includes("pending_question");
@@ -444,7 +514,8 @@ async function runManagedTask(
 		status: isPaused ? "waiting_approval" : "completed",
 		finalOutput: output,
 		completedAt: isPaused ? null : new Date(),
-		stepCount: Math.max(1, plan.steps.length),
+		// Real tool calls when the run made any; the plan length otherwise.
+		stepCount: Math.max(1, toolStepCount || plan.steps.length),
 	});
 	const finalTask = await db.updateTask(task.id, {
 		status: taskStatus,

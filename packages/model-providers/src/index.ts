@@ -50,6 +50,7 @@ export type {
   ChatMessageContentPart,
   ChatMessageInput,
   ChatStreamUsage,
+  ReasoningEffort,
   StreamChatInput,
 } from "./stream";
 export { streamChat } from "./stream";

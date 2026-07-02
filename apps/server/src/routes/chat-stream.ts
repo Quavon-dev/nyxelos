@@ -47,6 +47,10 @@ const bodySchema = z.object({
 	 * the existing last user turn — drops the stale assistant reply instead
 	 * of appending a duplicate user turn. */
 	regenerate: z.boolean().optional(),
+	/** Client-side "Nachdenken" toggle — requests extended thinking/reasoning
+	 * from providers that support it (Anthropic thinking budget, OpenAI
+	 * reasoning effort); a harmless no-op everywhere else. */
+	reasoning: z.boolean().optional(),
 });
 
 const CHAT_FOLLOW_UP_GUIDANCE = [
@@ -131,7 +135,7 @@ export function registerChatStreamRoute(app: Hono) {
 			return c.json({ error: parsed.error.flatten() }, 400);
 		}
 
-		const { chatId, message, editMessageId, regenerate } = parsed.data;
+		const { chatId, message, editMessageId, regenerate, reasoning } = parsed.data;
 		if (!editMessageId && !regenerate && !message) {
 			return c.json({ error: "message is required" }, 400);
 		}
@@ -217,6 +221,7 @@ export function registerChatStreamRoute(app: Hono) {
 				tools,
 				cwd: chat.workingDirectory ?? undefined,
 				toolMode: chat.toolMode,
+				reasoningEffort: reasoning ? "medium" : undefined,
 				messages: modelMessages,
 				onFinish: ({ text, usage }) => {
 					finalizedText = text;

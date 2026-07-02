@@ -171,8 +171,19 @@ export default function ChatPage() {
 		enabled: Boolean(workspaceId),
 	});
 
+	// "Nachdenken" (extended thinking) — remembered across chats so the person
+	// doesn't have to re-enable their preferred mode on every new thread.
+	const [reasoningEnabled, setReasoningEnabled] = useState(false);
+	useEffect(() => {
+		setReasoningEnabled(localStorage.getItem("nyxel:reasoning") === "1");
+	}, []);
+	const handleReasoningChange = useCallback((enabled: boolean) => {
+		setReasoningEnabled(enabled);
+		localStorage.setItem("nyxel:reasoning", enabled ? "1" : "0");
+	}, []);
+
 	const { sendMessage, editMessage, regenerate, streamingMessage, isStreaming, error } =
-		useChatStream(chatId);
+		useChatStream(chatId, { reasoning: reasoningEnabled });
 
 	// A tool call that needs approval is created server-side mid-stream, before
 	// the assistant's final text is flushed — refetch right after the turn
@@ -459,6 +470,8 @@ export default function ChatPage() {
 					messages={messagesQuery.data ?? []}
 					assistantQuestion={pendingQuestion}
 					assistantPrompt={pendingPrompt}
+					reasoningEnabled={reasoningEnabled}
+					onReasoningChange={handleReasoningChange}
 				/>
 			</div>
 		</div>

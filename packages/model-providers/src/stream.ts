@@ -42,6 +42,24 @@ export interface ChatMessageInput {
 	content: string | ChatMessageContentPart[];
 }
 
+/** How hard the model should think before answering. Maps onto Anthropic's
+ * extended-thinking token budget and OpenAI's reasoning effort; silently a
+ * no-op for providers without a reasoning knob (local OpenAI-compatible
+ * runtimes still surface whatever reasoning deltas they emit on their own). */
+export type ReasoningEffort = "low" | "medium" | "high";
+
+const ANTHROPIC_THINKING_BUDGET_TOKENS: Record<ReasoningEffort, number> = {
+	low: 4_000,
+	medium: 12_000,
+	high: 24_000,
+};
+
+/** Multi-step tool loops previously hard-stopped at 5 steps, which silently
+ * truncated any genuinely agentic task (read → plan → edit → verify → retry
+ * easily exceeds it). 12 keeps runaway loops bounded while giving autonomous
+ * runs room to actually finish. */
+const DEFAULT_MAX_TOOL_STEPS = 12;
+
 export interface StreamChatInput {
 	modelId: string;
 	messages: ChatMessageInput[];
@@ -73,6 +91,11 @@ export interface StreamChatInput {
 	/** Lets a caller cancel an in-flight generation (e.g. a "Stop agent"
 	 * action) — forwarded straight to the AI SDK's own abortSignal support. */
 	abortSignal?: AbortSignal;
+	/** Opt-in extended thinking/reasoning — see ReasoningEffort. */
+	reasoningEffort?: ReasoningEffort;
+	/** Caps the agentic tool loop (model → tool → model …) for this call.
+	 * Defaults to DEFAULT_MAX_TOOL_STEPS; only meaningful when tools are set. */
+	maxToolSteps?: number;
 }
 
 const INLINE_SYSTEM_PROMPT_MODEL_PREFIXES = new Set([
@@ -90,6 +113,36 @@ function findInstalledProvider(
 	installedProviders: InstalledModelProvider[],
 ): InstalledModelProvider | null {
 	return parseInstalledModelId(modelId, installedProviders)?.provider ?? null;
+}
+
+/** Translates the effort level into the provider-specific reasoning option.
+ * Returns undefined for providers without a reasoning parameter so the
+ * request stays byte-identical to today's behavior there. */
+function buildReasoningProviderOptions(
+	modelId: string,
+	installedProviders: InstalledModelProvider[],
+	effort: ReasoningEffort | undefined,
+): Record<string, Record<string, unknown>> | undefined {
+	if (!effort) return undefined;
+
+	const installedKind = findInstalledProvider(modelId, installedProviders)?.providerKind;
+	const prefix = modelId.split("/")[0] ?? "";
+	const kind = installedKind ?? (prefix === "anthropic" ? "anthropic" : null);
+
+	if (kind === "anthropic") {
+		return {
+			anthropic: {
+				thinking: {
+					type: "enabled",
+					budgetTokens: ANTHROPIC_THINKING_BUDGET_TOKENS[effort],
+				},
+			},
+		};
+	}
+	if (kind === "openai") {
+		return { openai: { reasoningEffort: effort } };
+	}
+	return undefined;
 }
 
 function shouldInlineSystemPrompt(
@@ -153,6 +206,8 @@ export function streamChat({
 	onFinish,
 	onError,
 	abortSignal,
+	reasoningEffort,
+	maxToolSteps,
 }: StreamChatInput): ChatStreamResult {
 	const resolvedInstalledProviders = installedProviders ?? [];
 
@@ -189,6 +244,11 @@ export function streamChat({
 	const preparedMessages = inlineSystemPrompt
 		? inlineSystemPromptIntoMessages(messages, inlineSystemPrompt)
 		: messages;
+	const providerOptions = buildReasoningProviderOptions(
+		modelId,
+		resolvedInstalledProviders,
+		reasoningEffort,
+	);
 
 	return streamText({
 		model,
@@ -196,9 +256,10 @@ export function streamChat({
 		messages: preparedMessages,
 		tools,
 		abortSignal,
+		...(providerOptions ? { providerOptions } : {}),
 		// Without this, streamText stops right after a tool call instead of
 		// continuing on to produce a final answer from the tool's result.
-		...(tools ? { stopWhen: stepCountIs(5) } : {}),
+		...(tools ? { stopWhen: stepCountIs(maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS) } : {}),
 		...(onFinish
 			? {
 					onFinish: (event: any) =>

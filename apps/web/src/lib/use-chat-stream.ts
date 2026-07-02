@@ -33,12 +33,20 @@ export interface StreamingMessage {
  * (see apps/server/src/routes/chat-stream.ts) — this hook only ever needs
  * the chat id.
  */
-export function useChatStream(chatId: string) {
+export function useChatStream(
+	chatId: string,
+	options?: {
+		/** Request extended thinking/reasoning from the model for every turn
+		 * sent through this hook — see the `reasoning` flag in chat-stream.ts. */
+		reasoning?: boolean;
+	},
+) {
 	const [streamingMessage, setStreamingMessage] =
 		useState<StreamingMessage | null>(null);
 	const [isStreaming, setIsStreaming] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const queryClient = useQueryClient();
+	const reasoningEnabled = options?.reasoning ?? false;
 
 	const runTurn = useCallback(
 		async (body: { message?: string; editMessageId?: string; regenerate?: boolean }) => {
@@ -87,7 +95,11 @@ export function useChatStream(chatId: string) {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					credentials: "include",
-					body: JSON.stringify({ chatId, ...body }),
+					body: JSON.stringify({
+						chatId,
+						...(reasoningEnabled ? { reasoning: true } : {}),
+						...body,
+					}),
 				});
 
 				if (!res.ok || !res.body) {
@@ -202,7 +214,7 @@ export function useChatStream(chatId: string) {
 				queryClient.invalidateQueries({ queryKey: ["messages", chatId] });
 			}
 		},
-		[chatId, queryClient],
+		[chatId, queryClient, reasoningEnabled],
 	);
 
 	const sendMessage = useCallback(
