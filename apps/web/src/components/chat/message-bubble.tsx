@@ -9,6 +9,18 @@ import { MarkdownContent } from "./markdown-content";
 import { MessageActions } from "./message-actions";
 import { MultiSelectPromptCard } from "./multi-select-prompt";
 
+/** While a ```nyxel-multiselect or ```nyxel-activity fence is still being
+ * streamed in, it hasn't closed yet, so parseAssistantContent/parseAgentActivity
+ * can't recognize it and would otherwise leak the raw, half-written JSON into
+ * the visible answer. Cut the display text at the fence opener until it closes. */
+function stripOpenFence(text: string): string {
+  const openerMatch = text.match(/```nyxel-(?:multiselect|activity)\b/);
+  if (!openerMatch || openerMatch.index === undefined) return text;
+  const afterOpener = text.slice(openerMatch.index + openerMatch[0].length);
+  if (afterOpener.includes("```")) return text;
+  return text.slice(0, openerMatch.index).trimEnd();
+}
+
 /** Document-style turn — avatar + name header above full-width content, no
  * chat-bubble background. Matches a Gemini/ChatGPT-style transcript rather
  * than a messaging-app thread, which reads better once replies are long,
@@ -43,9 +55,9 @@ export function MessageBubble({
   // (and its plain-text multiselect fallback heuristic) never scans the raw
   // reasoning/tool-call JSON — it's a single escaped-newline JSON line, but
   // there's no reason to let it anywhere near text-sniffing logic.
-  const historyActivity = !isUser && !streaming ? parseAgentActivity(content) : null;
+  const historyActivity = !isUser ? parseAgentActivity(content) : null;
   const contentWithoutActivity = historyActivity?.body ?? content;
-  const parsed = !isUser && !streaming ? parseAssistantContent(contentWithoutActivity) : null;
+  const parsed = !isUser ? parseAssistantContent(stripOpenFence(contentWithoutActivity)) : null;
   const userAttachment = isUser ? parseChatMessageContent(content) : null;
   const body = parsed?.body ?? contentWithoutActivity;
   const activityReasoning = streaming ? reasoning : historyActivity?.activity?.reasoning;
@@ -97,7 +109,7 @@ export function MessageBubble({
           <AgentActivity
             reasoning={activityReasoning}
             steps={activitySteps}
-            thinking={streaming && !content.trim()}
+            thinking={streaming && !body.trim()}
           />
         )}
 
@@ -142,8 +154,8 @@ export function MessageBubble({
               <MultiSelectPromptCard prompt={parsed.prompt} mode="preview" />
             </div>
           ) : streaming && !isUser ? (
-            content.trim() ? (
-              <MarkdownContent content={content} />
+            body.trim() ? (
+              <MarkdownContent content={body} />
             ) : (
               <TypingIndicator />
             )

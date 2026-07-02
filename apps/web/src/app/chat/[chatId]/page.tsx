@@ -181,7 +181,7 @@ export default function ChatPage() {
   );
 
   const [toolSelection, setToolSelection] = useState<ChatToolSelection | null>(null);
-  const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const initializedToolsRef = useRef(false);
   // Id of the one-off "Chat — custom tools" agent this chat already owns, if
   // any — once forked, every later toolbar tweak updates that same agent in
@@ -436,8 +436,8 @@ export default function ChatPage() {
           onToolSelectionChange={handleToolSelectionChange}
           toolMode={chat?.toolPolicy.mode ?? "default"}
           onToolModeChange={(next) => updateToolMode.mutate(next)}
-          attachedFile={attachedFile}
-          onAttachedFileChange={setAttachedFile}
+          attachedFiles={attachedFiles}
+          onAttachedFilesChange={setAttachedFiles}
           messages={messagesQuery.data ?? []}
           assistantQuestion={pendingQuestion}
           assistantPrompt={pendingPrompt}

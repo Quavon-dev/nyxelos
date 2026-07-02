@@ -12,7 +12,7 @@ import {
   Copy,
   Download,
   FileText,
-  Image,
+  Library,
   Loader2,
   Mic,
   Paperclip,
@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Sparkles,
   Square,
+  Upload,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -40,6 +41,8 @@ import { useLocalVoiceInput } from "@/hooks/use-local-voice-input";
 import type { ChatAttachment } from "@/lib/chat-message";
 import { type ChatToolMode, type McpToolListResult, trpcClient } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+import { type AttachedFile, useAttachmentStaging } from "./attachment-utils";
+import { LibraryPickerDialog } from "./library-picker-dialog";
 import { ToolsAndSkillsPicker } from "./tools-and-skills-picker";
 
 const CHAT_MODES = ["default", "automatic", "auto"] as const;
@@ -83,11 +86,82 @@ export interface ChatToolSelection {
   mcpToolFilter: string[] | null;
 }
 
-export interface AttachedFile {
-  name: string;
-  kind: ChatAttachment["kind"];
-  mimeType: string;
-  content: string;
+export type { AttachedFile };
+
+const ATTACHMENT_KIND_LABEL: Record<ChatAttachment["kind"], string> = {
+  image: "Image",
+  pdf: "Document",
+  text: "Text file",
+};
+
+/** Card shown above the textarea for each staged attachment — mirrors the
+ * detached-thumbnail-with-corner-close look of native chat composers instead
+ * of the inline pill this used to be, since a full-size preview reads much
+ * faster than a truncated filename buried in the tool row. Images that fail
+ * to decode (`broken`, e.g. HEIC photos Chrome can't render inline) fall
+ * back to the plain file card instead of a broken-image glyph. */
+export function AttachmentPreviewCard({
+  file,
+  onRemove,
+  onBroken,
+}: {
+  file: AttachedFile;
+  onRemove: () => void;
+  onBroken?: () => void;
+}) {
+  if (file.kind === "image" && !file.broken) {
+    return (
+      <div className="relative inline-block size-16 shrink-0">
+        <img
+          src={file.content}
+          alt={file.name}
+          className="size-16 rounded-xl border object-cover"
+          onError={onBroken}
+        />
+        {file.uploading && (
+          <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-background/60">
+            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={`Remove ${file.name}`}
+          title="Remove attachment"
+          className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-foreground text-background shadow"
+        >
+          <X className="size-3" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative inline-flex max-w-xs items-center gap-2.5 rounded-xl border bg-muted/60 py-2 pl-2 pr-6">
+      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+        {file.uploading ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <FileText className="size-4" />
+        )}
+      </div>
+      <div className="min-w-0">
+        <div className="truncate text-xs font-medium text-foreground">{file.name}</div>
+        <div className="text-[11px] text-muted-foreground">
+          {file.kind === "image" ? "Image (preview unavailable)" : ATTACHMENT_KIND_LABEL[file.kind]}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Remove ${file.name}`}
+        title="Remove attachment"
+        className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-foreground text-background shadow"
+      >
+        <X className="size-3" />
+      </button>
+    </div>
+  );
 }
 
 interface MessageLike {
@@ -180,8 +254,8 @@ export function ChatComposerToolbar({
   onToolSelectionChange,
   toolMode,
   onToolModeChange,
-  attachedFile,
-  onAttachedFileChange,
+  attachedFiles,
+  onAttachedFilesChange,
   onVoiceResult,
   messages = [],
   showContextWindow = true,
@@ -198,8 +272,8 @@ export function ChatComposerToolbar({
   onToolSelectionChange: (next: ChatToolSelection | null) => void;
   toolMode: ChatToolMode;
   onToolModeChange: (next: ChatToolMode) => void;
-  attachedFile: AttachedFile | null;
-  onAttachedFileChange: (file: AttachedFile | null) => void;
+  attachedFiles: AttachedFile[];
+  onAttachedFilesChange: (files: AttachedFile[]) => void;
   onVoiceResult: (text: string) => void;
   messages?: MessageLike[];
   /** Context window usage only means something once a chat actually has
@@ -211,6 +285,10 @@ export function ChatComposerToolbar({
   reasoningEnabled?: boolean;
   onReasoningChange?: (enabled: boolean) => void;
 }) {
+  // Capability lookup only makes sense to show for a single attachment —
+  // with several staged at once the per-kind fallback copy would just be
+  // noise, so it stays hidden once there's more than one.
+  const soleAttachment = attachedFiles.length === 1 ? attachedFiles[0] : null;
   const attachmentCapabilitiesQuery = useQuery({
     queryKey: ["models", "capabilities", workspaceId, modelId],
     queryFn: () =>
@@ -221,13 +299,13 @@ export function ChatComposerToolbar({
     enabled:
       Boolean(workspaceId) &&
       Boolean(modelId) &&
-      (attachedFile?.kind === "image" || attachedFile?.kind === "pdf"),
+      (soleAttachment?.kind === "image" || soleAttachment?.kind === "pdf"),
   });
   const attachmentCapabilityCopy = (() => {
-    if (!attachedFile || attachedFile.kind === "text") return null;
+    if (!soleAttachment || soleAttachment.kind === "text") return null;
     const caps = attachmentCapabilitiesQuery.data;
     if (!caps) return null;
-    if (attachedFile.kind === "image") {
+    if (soleAttachment.kind === "image") {
       return caps.nativeImageInput
         ? "Processed natively by the selected model"
         : "Native vision unavailable; sent as metadata fallback";
@@ -241,6 +319,7 @@ export function ChatComposerToolbar({
   const [mcpOpen, setMcpOpen] = useState(false);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
+  const [libraryPickerOpen, setLibraryPickerOpen] = useState(false);
   const [expandedServerId, setExpandedServerId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -353,29 +432,13 @@ export function ChatComposerToolbar({
     commit({ mcpToolFilter: [...otherServers, ...nextForServer] });
   }
 
+  const { addFiles } = useAttachmentStaging(attachedFiles, onAttachedFilesChange, workspaceId);
+
   function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    const files = e.target.files;
     e.target.value = "";
-    if (!file) return;
-    const reader = new FileReader();
-    const isImage = file.type.startsWith("image/");
-    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-    reader.onerror = () => {
-      onAttachedFileChange(null);
-    };
-    reader.onload = () => {
-      onAttachedFileChange({
-        name: file.name,
-        kind: isImage ? "image" : isPdf ? "pdf" : "text",
-        mimeType: file.type || (isImage ? "image/*" : isPdf ? "application/pdf" : "text/plain"),
-        content: String(reader.result ?? ""),
-      });
-    };
-    if (isImage || isPdf) {
-      reader.readAsDataURL(file);
-    } else {
-      reader.readAsText(file);
-    }
+    if (!files || files.length === 0) return;
+    void addFiles(files);
   }
 
   const mcpSummary = mcpCustomized ? `${effective.mcpServerIds.length} selected` : "MCP Server";
@@ -399,9 +462,16 @@ export function ChatComposerToolbar({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*,.pdf,.txt,.md,.json,.csv,.log,.ts,.tsx,.js,.jsx,.py,.yml,.yaml"
+        multiple
+        accept="image/*,.pdf,.heic,.heif,.txt,.md,.json,.csv,.log,.ts,.tsx,.js,.jsx,.py,.yml,.yaml"
         className="hidden"
         onChange={handleFilePick}
+      />
+      <LibraryPickerDialog
+        open={libraryPickerOpen}
+        onOpenChange={setLibraryPickerOpen}
+        workspaceId={workspaceId ?? ""}
+        onAttach={(files) => onAttachedFilesChange([...attachedFiles, ...files])}
       />
 
       {/* Single-line, horizontally scrollable pill row — never wraps. Wrapping
@@ -423,8 +493,18 @@ export function ChatComposerToolbar({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
               <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
-                <Paperclip className="size-4" />
-                Attachment{attachedFile ? ` — ${attachedFile.name}` : ""}
+                <Upload className="size-4" />
+                Upload files{attachedFiles.length ? ` (${attachedFiles.length})` : ""}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setLibraryPickerOpen(true);
+                }}
+                disabled={!workspaceId}
+              >
+                <Library className="size-4" />
+                Attach from Library
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={(event) => {
@@ -461,30 +541,44 @@ export function ChatComposerToolbar({
 
         {mode === "compact" && (
           <>
-            <button
-              type="button"
-              onClick={() =>
-                attachedFile ? onAttachedFileChange(null) : fileInputRef.current?.click()
-              }
-              className={cn(
-                "flex size-8 shrink-0 items-center justify-center rounded-full transition-colors",
-                attachedFile
-                  ? "bg-primary/15 text-primary hover:bg-primary/20"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-              aria-label={
-                attachedFile
-                  ? `Remove attachment (${attachedFile.name})`
-                  : "Attach an image, PDF, or text file"
-              }
-              title={
-                attachedFile
-                  ? `Attached: ${attachedFile.name}`
-                  : "Attach an image, PDF, or text file"
-              }
-            >
-              <Paperclip className="size-4" />
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "relative flex size-8 shrink-0 items-center justify-center rounded-full transition-colors",
+                    attachedFiles.length > 0
+                      ? "bg-primary/15 text-primary hover:bg-primary/20"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                  aria-label="Attach images, PDFs, or text files"
+                  title="Attach an image, PDF, or text file"
+                >
+                  <Paperclip className="size-4" />
+                  {attachedFiles.length > 0 && (
+                    <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
+                      {attachedFiles.length}
+                    </span>
+                  )}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48">
+                <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
+                  <Upload className="size-4" />
+                  Upload files
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setLibraryPickerOpen(true);
+                  }}
+                  disabled={!workspaceId}
+                >
+                  <Library className="size-4" />
+                  Attach from Library
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -498,9 +592,23 @@ export function ChatComposerToolbar({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-56">
                 <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
-                  <Paperclip className="size-4" />
-                  Attachment
-                  {attachedFile && <Check className="ml-auto size-3.5" />}
+                  <Upload className="size-4" />
+                  Upload files
+                  {attachedFiles.length > 0 && (
+                    <Badge variant="outline" className="ml-auto h-4 px-1.5 text-[10px]">
+                      {attachedFiles.length}
+                    </Badge>
+                  )}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setLibraryPickerOpen(true);
+                  }}
+                  disabled={!workspaceId}
+                >
+                  <Library className="size-4" />
+                  Attach from Library
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={(event) => {
@@ -533,24 +641,6 @@ export function ChatComposerToolbar({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {attachedFile && (
-              <button
-                type="button"
-                onClick={() => onAttachedFileChange(null)}
-                className={pillClass(true)}
-                title="Remove attachment"
-              >
-                {attachedFile.kind === "image" ? (
-                  <Image className="size-3.5" />
-                ) : attachedFile.kind === "pdf" ? (
-                  <FileText className="size-3.5" />
-                ) : (
-                  <Paperclip className="size-3.5" />
-                )}
-                {attachedFile.name}
-                <X className="size-3 opacity-70" />
-              </button>
-            )}
             {attachmentCapabilityCopy && (
               <span
                 className="shrink-0 rounded-full border border-transparent bg-muted px-2.5 py-1 text-[11px] text-muted-foreground"
@@ -582,24 +672,30 @@ export function ChatComposerToolbar({
 
         {mode === "full" && (
           <>
-            <button
-              type="button"
-              onClick={() =>
-                attachedFile ? onAttachedFileChange(null) : fileInputRef.current?.click()
-              }
-              className={pillClass(Boolean(attachedFile))}
-              title={attachedFile ? "Remove attachment" : "Attach an image, PDF, or text file"}
-            >
-              {attachedFile?.kind === "image" ? (
-                <Image className="size-3.5" />
-              ) : attachedFile?.kind === "pdf" ? (
-                <FileText className="size-3.5" />
-              ) : (
-                <Paperclip className="size-3.5" />
-              )}
-              {attachedFile ? attachedFile.name : "Attachment"}
-              {attachedFile && <X className="size-3 opacity-70" />}
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className={pillClass(attachedFiles.length > 0)}>
+                  <Paperclip className="size-3.5" />
+                  {attachedFiles.length > 0
+                    ? `Attachments (${attachedFiles.length})`
+                    : "Attachment"}
+                  <ChevronDown className="size-3 opacity-60" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
+                  <Upload className="size-4" />
+                  Upload files
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => setLibraryPickerOpen(true)}
+                  disabled={!workspaceId}
+                >
+                  <Library className="size-4" />
+                  Attach from Library
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <Popover open={artifactsOpen} onOpenChange={setArtifactsOpen}>
               <PopoverTrigger asChild>
