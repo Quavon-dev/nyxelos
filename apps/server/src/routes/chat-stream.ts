@@ -49,7 +49,7 @@ const bodySchema = z.object({
 
 const CHAT_FOLLOW_UP_GUIDANCE = [
   "When the request is underspecified or you need a missing detail to respond correctly, ask one concise follow-up question instead of guessing.",
-  "Keep the question short and specific so the user can answer it directly in the next message.",
+  "Reply with just that single question — one sentence, no preamble, no summary of what you found, no bullet lists of capabilities.",
   'When a choice is needed, respond with a single fenced code block tagged `nyxel-multiselect` that contains strict JSON in this shape: {"kind":"multi_select","question":"...","options":[{"id":"stable-id","label":"Display label"}]}. Provide exactly 3 concise suggestion options and keep any surrounding prose minimal; the client adds a custom-answer option automatically.',
 ].join(" ");
 
