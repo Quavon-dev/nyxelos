@@ -10,6 +10,7 @@ import {
 } from "@nyxel/model-providers";
 import { getInstalledProvidersForWorkspace } from "./models";
 import { saveLibraryUpload } from "./library";
+import { notifyWorkspaceOwner } from "./push";
 
 const OPENAI_VIDEOS_URL = "https://api.openai.com/v1/videos";
 
@@ -241,6 +242,13 @@ async function runVideoJob(
 			posterLibraryFileId: poster?.id ?? null,
 		});
 
+		await notifyWorkspaceOwner(input.workspaceId, {
+			title: "Video ready",
+			body: input.prompt,
+			url: `/workspace/${input.workspaceId}/video-studio`,
+			tag: `video-${job.id}`,
+		});
+
 		return { job, file, poster };
 	} catch (err) {
 		const message = err instanceof Error ? err.message : "Video generation failed.";
@@ -249,6 +257,12 @@ async function runVideoJob(
 				.updateVideoGenerationJob(job.id, { status: "failed", errorMessage: message })
 				.catch(() => job);
 		}
+		await notifyWorkspaceOwner(input.workspaceId, {
+			title: "Video generation failed",
+			body: message,
+			url: `/workspace/${input.workspaceId}/video-studio`,
+			tag: `video-${job.id}`,
+		});
 		throw err;
 	}
 }

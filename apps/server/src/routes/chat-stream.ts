@@ -19,6 +19,7 @@ import { summarizeChatMessageForModel } from "../chat-message";
 import { getKnowledgeBaseContextForPrompt, runDocsAgentForWorkspace } from "../knowledge-base";
 import { computeMessageGenerationMetrics } from "../message-generation-metrics";
 import { getInstalledProvidersForWorkspace } from "../models";
+import { notifyWorkspaceOwner } from "../push";
 import { buildToolsForAgent } from "../tools";
 import { composeSystemPrompt } from "../workspace-prompt";
 import { buildStreamFailureResponse, ensureVisibleAssistantResponse } from "./chat-stream-response";
@@ -101,6 +102,15 @@ function triggerKnowledgeBaseSync(workspaceId: string) {
   runDocsAgentForWorkspace(workspaceId, "background").catch((err) => {
     console.error(`Knowledge-base sync failed for workspace ${workspaceId}:`, err);
   });
+}
+
+const CHAT_NOTIFICATION_PREVIEW_LENGTH = 120;
+
+function chatNotificationPreview(text: string): string {
+  const oneLine = text.trim().replace(/\s+/g, " ");
+  return oneLine.length > CHAT_NOTIFICATION_PREVIEW_LENGTH
+    ? `${oneLine.slice(0, CHAT_NOTIFICATION_PREVIEW_LENGTH)}…`
+    : oneLine;
 }
 
 function isClosedStreamControllerError(err: unknown): boolean {
@@ -355,6 +365,12 @@ export function registerChatStreamRoute(app: Hono) {
 
           await persistAssistantMessage(chatId, finalize(assistantText), telemetry());
           triggerKnowledgeBaseSync(chat.workspaceId);
+          await notifyWorkspaceOwner(chat.workspaceId, {
+            title: chat.title,
+            body: chatNotificationPreview(assistantText),
+            url: `/chat/${chatId}`,
+            tag: `chat-${chatId}`,
+          });
           if (!clientDisconnected) {
             controller.close();
           }
