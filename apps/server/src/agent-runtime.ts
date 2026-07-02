@@ -288,6 +288,14 @@ async function runDirectExecution(
       // Unattended runs have no human to catch a shallow answer — let the
       // model think before acting where the provider supports it.
       reasoningEffort: "medium",
+      // claude_cli/codex_cli-backed agents map this straight to the spawned
+      // CLI's own --permission-mode flag (see model-providers/cli.ts):
+      // anything but "auto" spawns Claude Code in "plan" mode, which can
+      // only propose edits and stops waiting for a human to approve the
+      // plan — a human who never arrives on an unattended task run. Without
+      // this, a "super_agent"/"autonomous" agent would still get silently
+      // stuck presenting a plan instead of applying it.
+      toolMode: toolPolicyForAutonomyLevel(agent.autonomyLevel).mode,
       messages: [{ role: "user", content: buildTaskPrompt(task, instructionOverride) }],
     },
     run.id,
