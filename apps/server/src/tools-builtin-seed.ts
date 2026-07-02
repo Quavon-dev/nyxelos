@@ -245,6 +245,14 @@ export const BUILTIN_TOOL_SEEDS: BuiltinToolSeed[] = [
 		sensitive: false,
 		config: GITHUB_HOST_CONFIG,
 	},
+	{
+		kind: "generate_image",
+		name: "Generate image",
+		description:
+			"Generate an image from a text prompt using an AI image model (OpenAI gpt-image-1 or dall-e-3) and return it for display in the chat.",
+		sensitive: false,
+		config: {},
+	},
 ];
 
 /** Idempotent — only inserts seeds whose `kind` isn't already present for

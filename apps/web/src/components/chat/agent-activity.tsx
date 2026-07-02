@@ -6,6 +6,7 @@ import {
 	FileSearch,
 	FileText,
 	FolderOpen,
+	Image as ImageIcon,
 	Lightbulb,
 	Loader2,
 	Move,
@@ -29,7 +30,28 @@ const STEP_META: Record<string, { verb: string; icon: typeof FileText }> = {
 	workspace_file_delete: { verb: "Gelöscht", icon: Trash2 },
 	write_note: { verb: "Notiz erstellt", icon: FilePlus },
 	delegate_to_agent: { verb: "Delegiert", icon: Users },
+	generate_image: { verb: "Bild generiert", icon: ImageIcon },
 };
+
+/** Matches the `{ mimeType, base64 }` shape shared by generate_image,
+ * browser_screenshot, and file_view_image's tool output — any tool step
+ * carrying that shape gets rendered as an actual image instead of a raw
+ * JSON dump. */
+function generatedImageFromOutput(
+	output: unknown,
+): { mimeType: string; base64: string } | null {
+	if (!output || typeof output !== "object") return null;
+	const record = output as Record<string, unknown>;
+	if (
+		typeof record.mimeType === "string" &&
+		record.mimeType.startsWith("image/") &&
+		typeof record.base64 === "string" &&
+		record.base64.length > 0
+	) {
+		return { mimeType: record.mimeType, base64: record.base64 };
+	}
+	return null;
+}
 
 function stepMeta(name: string) {
 	return STEP_META[name] ?? { verb: "Verwendet", icon: Wrench };
@@ -41,6 +63,7 @@ function stepTarget(step: AgentActivityStep): string {
 		const record = input as Record<string, unknown>;
 		if (typeof record.path === "string") return record.path;
 		if (typeof record.toPath === "string") return record.toPath;
+		if (typeof record.prompt === "string") return record.prompt;
 	}
 	return step.name;
 }
@@ -69,9 +92,11 @@ function ToolStepRow({ step }: { step: AgentActivityStep }) {
 	const target = stepTarget(step);
 	const stats = diffStats(step.output);
 	const running = step.output === undefined && !step.error;
+	const isImageGeneration = step.name === "generate_image";
+	const generatedImage = generatedImageFromOutput(step.output);
 	const detail = step.error
 		? step.error
-		: step.output !== undefined
+		: step.output !== undefined && !generatedImage
 			? JSON.stringify(step.output, null, 2)
 			: null;
 
@@ -107,6 +132,25 @@ function ToolStepRow({ step }: { step: AgentActivityStep }) {
 					/>
 				)}
 			</button>
+
+			{isImageGeneration && running && (
+				<div className="border-t border-border/60 p-2.5">
+					<div className="flex aspect-square w-full max-w-56 animate-pulse items-center justify-center rounded-lg border border-border/60 bg-background/50">
+						<ImageIcon className="size-6 text-muted-foreground/40" />
+					</div>
+				</div>
+			)}
+
+			{generatedImage && (
+				<div className="border-t border-border/60 p-2.5">
+					<img
+						src={`data:${generatedImage.mimeType};base64,${generatedImage.base64}`}
+						alt={target}
+						className="max-h-80 w-full max-w-56 rounded-lg border border-border/60 object-contain"
+					/>
+				</div>
+			)}
+
 			{open && detail && (
 				<pre className="max-h-56 overflow-auto whitespace-pre-wrap border-t border-border/60 px-2.5 py-2 font-mono text-[11px] text-muted-foreground">
 					{detail}

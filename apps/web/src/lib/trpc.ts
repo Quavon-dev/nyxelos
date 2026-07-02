@@ -275,7 +275,8 @@ export type ToolKind =
 	| "browser_read_page"
 	| "browser_run_playwright_code"
 	| "github_repo_fetch"
-	| "github_code_search";
+	| "github_code_search"
+	| "generate_image";
 
 export type ToolCategory = "edit" | "read" | "search" | "execute" | "browser" | "web";
 
@@ -323,6 +324,7 @@ export const TOOL_KIND_CATEGORY: Record<ToolKind, ToolCategory> = {
 	browser_run_playwright_code: "browser",
 	github_repo_fetch: "web",
 	github_code_search: "web",
+	generate_image: "web",
 };
 
 /** A DB-backed, workspace-configurable tool (the old "Skills" tab concept —
