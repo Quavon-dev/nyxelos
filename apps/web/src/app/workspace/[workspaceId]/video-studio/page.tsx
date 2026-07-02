@@ -3,6 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
+  Check,
+  ChevronDown,
   Clapperboard,
   Clock,
   Film,
@@ -12,7 +14,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PageHeaderSkeleton, StatCardsSkeleton } from "@/components/loading";
 import { PageHeader, StatCard } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +28,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
@@ -43,17 +51,15 @@ import {
   trpcClient,
   type VideoEditOperation,
   type VideoGenerationJobSummary,
+  type VideoModelSummary,
 } from "@/lib/trpc";
 
-const VIDEO_MODELS = [
-  { value: "sora-2", label: "Sora 2 (fast)" },
-  { value: "sora-2-pro", label: "Sora 2 Pro (cinematic)" },
-];
-const VIDEO_SIZES = [
-  { value: "1280x720", label: "Landscape (1280×720)" },
-  { value: "720x1280", label: "Portrait (720×1280)" },
-];
-const VIDEO_DURATIONS = [4, 8, 12];
+const SIZE_LABELS: Record<string, string> = {
+  "1280x720": "Landscape (1280×720)",
+  "720x1280": "Portrait (720×1280)",
+  "1792x1024": "Landscape HD (1792×1024)",
+  "1024x1792": "Portrait HD (1024×1792)",
+};
 
 const EDIT_OPERATIONS: { value: VideoEditOperation; label: string }[] = [
   { value: "trim", label: "Trim" },
@@ -83,10 +89,40 @@ export default function VideoStudioPage() {
 
   const [prompt, setPrompt] = useState("");
   const [autoMode, setAutoMode] = useState(true);
-  const [model, setModel] = useState<string>(VIDEO_MODELS[0]?.value ?? "sora-2");
-  const [size, setSize] = useState<string>(VIDEO_SIZES[0]?.value ?? "1280x720");
+  const [model, setModel] = useState<string>("sora-2");
+  const [size, setSize] = useState<string>("1280x720");
   const [seconds, setSeconds] = useState(8);
   const [editTarget, setEditTarget] = useState<VideoGenerationJobSummary | null>(null);
+
+  // Video-capable models only — the fixed Sora catalog from
+  // packages/model-providers/src/video.ts, same source the server's "auto"
+  // heuristic and generate() validate against, fetched instead of duplicated
+  // as a frontend constant so the picker can't drift out of sync with it.
+  const modelsQuery = useQuery({
+    queryKey: ["video", "models"],
+    queryFn: () => trpcClient.video.models.query(),
+  });
+  const videoModels = modelsQuery.data ?? [];
+  const selectedModel: VideoModelSummary | undefined =
+    videoModels.find((m) => m.id === model) ?? videoModels[0];
+  const sizeOptions = selectedModel?.sizes ?? ["1280x720", "720x1280"];
+  const durationOptions = selectedModel?.durations ?? [4, 8, 12];
+
+  // Keep aspect ratio/length valid whenever the chosen model changes (or the
+  // catalog finishes its first load) — a model like Sora 2 (non-pro) doesn't
+  // support every size Sora 2 Pro does.
+  useEffect(() => {
+    const current = videoModels.find((m) => m.id === model) ?? videoModels[0];
+    if (!current) return;
+    setSize((prev) => (current.sizes.includes(prev) ? prev : (current.sizes[0] ?? prev)));
+    setSeconds((prev) =>
+      current.durations.includes(prev)
+        ? prev
+        : current.durations.reduce((closest, candidate) =>
+            Math.abs(candidate - prev) < Math.abs(closest - prev) ? candidate : closest,
+          ),
+    );
+  }, [model, videoModels]);
 
   const jobsQuery = useQuery({
     queryKey: ["video", "list", workspaceId],
@@ -151,6 +187,15 @@ export default function VideoStudioPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <VideoModelDropdown
+            models={videoModels}
+            modelId={selectedModel?.id ?? model}
+            onModelChange={(id) => {
+              setModel(id);
+              setAutoMode(false);
+            }}
+          />
+
           <Textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -167,22 +212,7 @@ export default function VideoStudioPage() {
           </div>
 
           {!autoMode && (
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <Label>Model</Label>
-                <Select value={model} onValueChange={setModel}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {VIDEO_MODELS.map((m) => (
-                      <SelectItem key={m.value} value={m.value}>
-                        {m.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Aspect ratio</Label>
                 <Select value={size} onValueChange={setSize}>
@@ -190,9 +220,9 @@ export default function VideoStudioPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {VIDEO_SIZES.map((s) => (
-                      <SelectItem key={s.value} value={s.value}>
-                        {s.label}
+                    {sizeOptions.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {SIZE_LABELS[s] ?? s}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -205,7 +235,7 @@ export default function VideoStudioPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {VIDEO_DURATIONS.map((d) => (
+                    {durationOptions.map((d) => (
                       <SelectItem key={d} value={String(d)}>
                         {d} seconds
                       </SelectItem>
@@ -262,6 +292,62 @@ export default function VideoStudioPage() {
         onClose={() => setEditTarget(null)}
       />
     </div>
+  );
+}
+
+/** Model switcher for video generation — same dropdown-pill pattern as
+ * chat's ChatTopBar model switcher, sourced from trpcClient.video.models
+ * (packages/model-providers/src/video.ts's OPENAI_VIDEO_MODELS) so only
+ * video-capable models ever show up here. */
+function VideoModelDropdown({
+  models,
+  modelId,
+  onModelChange,
+}: {
+  models: VideoModelSummary[];
+  modelId: string;
+  onModelChange: (modelId: string) => void;
+}) {
+  const activeModel = models.find((m) => m.id === modelId);
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex w-fit max-w-full items-center gap-1.5 rounded-full border bg-background py-1.5 pl-1.5 pr-2.5 text-sm font-medium transition-colors hover:bg-muted"
+        >
+          <span
+            className="flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-primary-foreground"
+            style={{
+              backgroundImage: "linear-gradient(135deg, var(--primary), var(--chart-2))",
+            }}
+          >
+            <Film className="size-3" />
+          </span>
+          <span className="truncate">{activeModel?.label ?? "Select model"}</span>
+          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        {models.length === 0 && (
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+            No video-capable models available.
+          </div>
+        )}
+        {models.map((m) => (
+          <DropdownMenuItem key={m.id} onSelect={() => onModelChange(m.id)}>
+            <span className="truncate">{m.label}</span>
+            {m.tier === "pro" && (
+              <Badge variant="outline" className="ml-auto border-0 bg-muted text-muted-foreground">
+                pro
+              </Badge>
+            )}
+            {m.id === modelId && <Check className="ml-1 size-3.5 shrink-0" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

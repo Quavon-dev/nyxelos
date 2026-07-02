@@ -501,6 +501,16 @@ export type VideoEditOperation =
 	| "extractFrame"
 	| "toGif";
 
+/** A video-capable model from the fixed Sora catalog — see
+ * packages/model-providers/src/video.ts's OPENAI_VIDEO_MODELS. */
+export type VideoModelSummary = {
+	id: string;
+	label: string;
+	sizes: string[];
+	durations: number[];
+	tier: "standard" | "pro";
+};
+
 export type AutomationTriggerType = "cron" | "file_watch";
 export type AutomationRunStatus = "success" | "error" | "pending_approval";
 
@@ -1075,6 +1085,9 @@ type NyxelTrpcClient = {
 		};
 	};
 	video: {
+		models: {
+			query(): Promise<VideoModelSummary[]>;
+		};
 		generate: {
 			mutate(input: {
 				workspaceId: string;

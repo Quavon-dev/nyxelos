@@ -97,7 +97,7 @@ function toExecutionPlan(task: TaskRecord, raw: string): ExecutionPlan {
 }
 
 const TASK_QUESTION_POLICY_PROMPT =
-  "You are running as a durable, mostly-unattended task. Only call ask_user_question when you are genuinely blocked by a critical, urgent gap — something destructive/irreversible, a missing credential, or directly conflicting instructions. For any ordinary ambiguity, decide yourself: pick the most reasonable interpretation, state the assumption plainly in your final answer, and keep working instead of stopping to ask.";
+  "You are running as a durable, mostly-unattended task. Only call ask_user_question when you are genuinely blocked by a critical, urgent gap — something destructive/irreversible, a missing credential, or directly conflicting instructions. For any ordinary ambiguity, decide yourself: pick the most reasonable interpretation, state the assumption plainly in your final answer, and keep working instead of stopping to ask. Never end your turn by announcing a plan and saying you're waiting for approval — there is no human watching this turn. If a step requires approval, the sensitive tool call itself defers automatically and tells you so; you don't need to, and must not, pause in prose to ask permission first. Once you've formed a plan, execute it immediately in the same turn using your tools and keep going until the task's success criteria are met or you hit a real blocker.";
 
 async function buildSystemPrompt(agent: AgentRecord, forTask = false) {
   const db = getDb();

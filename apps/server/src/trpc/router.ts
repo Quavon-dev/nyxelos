@@ -11,6 +11,7 @@ import {
 	fetchOpenRouterModels,
 	getModelCapabilities,
 	listAvailableModels,
+	OPENAI_VIDEO_MODELS,
 	OPENROUTER_BASE_URL,
 	probeOpenAiCompatibleEndpoint,
 } from "@nyxel/model-providers";
@@ -751,6 +752,11 @@ export const appRouter = router({
 	// generation can take. `edit` is a single ffmpeg pass, fast enough to
 	// await directly.
 	video: router({
+		// Fixed catalog (Sora only today, see video.ts in model-providers) —
+		// exposed over tRPC so the Video Studio model picker can stay in sync
+		// with the same list the "auto" heuristic picks from, like models.list
+		// does for chat, instead of duplicating it as a frontend constant.
+		models: publicProcedure.query(() => OPENAI_VIDEO_MODELS),
 		generate: publicProcedure
 			.input(
 				z.object({

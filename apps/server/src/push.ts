@@ -44,8 +44,10 @@ export type PushPayload = {
 
 /** Sends a push notification to every device a user has subscribed from.
  * Silently drops subscriptions the push service reports as gone (404/410)
- * instead of retrying — those endpoints are dead until the device
- * resubscribes. */
+ * or rejects as unauthorized (403) instead of retrying — a 403 means the
+ * subscription was created against a VAPID key pair that no longer matches
+ * the server's (e.g. an old temporary dev keypair), so it's dead until the
+ * device resubscribes. */
 export async function sendPushToUser(userId: string, payload: PushPayload): Promise<void> {
   const db = getDb();
   const subscriptions = await db.listPushSubscriptionsByUser(userId);
@@ -63,7 +65,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
         );
       } catch (error) {
         const statusCode = (error as { statusCode?: number }).statusCode;
-        if (statusCode === 404 || statusCode === 410) {
+        if (statusCode === 404 || statusCode === 410 || statusCode === 403) {
           await db.deletePushSubscriptionByEndpoint(sub.endpoint);
         } else {
           console.error(`[push] failed to notify ${sub.endpoint}:`, error);
