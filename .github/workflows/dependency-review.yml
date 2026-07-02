@@ -17,7 +17,7 @@ jobs:
     # check doesn't fail every PR until that's turned on.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/dependency-review-action@v4
         with:
           comment-summary-in-pr: on-failure
