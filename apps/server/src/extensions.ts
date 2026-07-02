@@ -38,6 +38,15 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
 		route: "seo-analyzer",
 		pluginRepoUrl: "https://github.com/AgricIDaniel/claude-seo",
 	},
+	{
+		key: "video-studio",
+		name: "Video Studio",
+		description:
+			"Describe a clip and generate it with Sora, then play back, edit, and organize everything it renders — every result lands in the Library too.",
+		category: "Creative",
+		icon: "Film",
+		route: "video-studio",
+	},
 ];
 
 export function getExtensionCatalogEntry(

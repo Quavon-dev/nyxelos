@@ -13,7 +13,6 @@ import {
   Sparkles,
   Wand2,
 } from "lucide-react";
-import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PageHeaderSkeleton, StatCardsSkeleton } from "@/components/loading";
 import { PageHeader, StatCard } from "@/components/page-header";
@@ -82,9 +81,7 @@ function formatDate(d: Date | string) {
   return new Date(d).toLocaleString();
 }
 
-export default function VideoStudioPage() {
-  const params = useParams<{ workspaceId: string }>();
-  const workspaceId = params.workspaceId;
+export function VideoStudioExtensionPage({ workspaceId }: { workspaceId: string }) {
   const queryClient = useQueryClient();
 
   const [prompt, setPrompt] = useState("");

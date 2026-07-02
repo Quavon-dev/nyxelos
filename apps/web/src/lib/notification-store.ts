@@ -22,7 +22,7 @@ function emitChange() {
  * matched against these to decide which nav item lights up. Extend this
  * list alongside any new push-notification source that should surface in
  * the sidebar. */
-const BADGE_PREFIXES = ["/chat", "/video-studio"];
+const BADGE_PREFIXES = ["/chat"];
 
 function prefixFor(url: string): string | null {
   return BADGE_PREFIXES.find((prefix) => url.includes(prefix)) ?? null;

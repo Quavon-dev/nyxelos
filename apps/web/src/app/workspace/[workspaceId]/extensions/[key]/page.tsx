@@ -6,6 +6,7 @@ import type { ComponentType } from "react";
 import { PageHeaderSkeleton } from "@/components/loading";
 import { PageHeader } from "@/components/page-header";
 import { SeoAnalyzerExtensionPage } from "@/components/extensions/seo-analyzer-page";
+import { VideoStudioExtensionPage } from "@/components/extensions/video-studio-page";
 import { trpcClient } from "@/lib/trpc";
 
 /** Per-extension page component, keyed by ExtensionCatalogEntry.route (see
@@ -13,6 +14,7 @@ import { trpcClient } from "@/lib/trpc";
  * falls back to a generic "not built yet" placeholder instead of 404ing. */
 const EXTENSION_PAGES: Record<string, ComponentType<{ workspaceId: string }>> = {
   "seo-analyzer": SeoAnalyzerExtensionPage,
+  "video-studio": VideoStudioExtensionPage,
 };
 
 export default function ExtensionDetailPage() {

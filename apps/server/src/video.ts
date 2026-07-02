@@ -245,7 +245,7 @@ async function runVideoJob(
 		await notifyWorkspaceOwner(input.workspaceId, {
 			title: "Video ready",
 			body: input.prompt,
-			url: `/workspace/${input.workspaceId}/video-studio`,
+			url: `/workspace/${input.workspaceId}/extensions/video-studio`,
 			tag: `video-${job.id}`,
 		});
 
@@ -260,7 +260,7 @@ async function runVideoJob(
 		await notifyWorkspaceOwner(input.workspaceId, {
 			title: "Video generation failed",
 			body: message,
-			url: `/workspace/${input.workspaceId}/video-studio`,
+			url: `/workspace/${input.workspaceId}/extensions/video-studio`,
 			tag: `video-${job.id}`,
 		});
 		throw err;
