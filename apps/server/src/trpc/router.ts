@@ -8,6 +8,7 @@ import {
 	McpInvalidConfigurationError,
 } from "@nyxel/mcp-client";
 import {
+	fetchLiveModelIdsForProviderKind,
 	fetchOpenRouterModels,
 	getModelCapabilities,
 	listAvailableModels,
@@ -560,6 +561,24 @@ export const appRouter = router({
 					: Array.from(new Set([...installation.disabledModelIds, input.modelId]));
 				return db.updateModelInstallation({ id: input.id, disabledModelIds });
 			}),
+		// Catalog for the "add model" autocomplete/autofill on an already
+		// installed provider — same live source addModelToInstallation
+		// validates against, exposed separately so the UI can suggest ids
+		// before the user commits to typing one. Empty array (not an error)
+		// when the provider kind has no catalog endpoint (CLI providers,
+		// arbitrary openai_compatible runtimes without a key).
+		listCatalogForInstallation: publicProcedure
+			.input(z.object({ id: z.string() }))
+			.query(async ({ input }) => {
+				const installation = await getDb().getModelInstallation(input.id);
+				if (!installation) throw new Error(`Model installation not found: ${input.id}`);
+				const ids = await fetchLiveModelIdsForProviderKind(
+					installation.providerKind,
+					installation.apiKey,
+					installation.baseUrl,
+				);
+				return ids ?? [];
+			}),
 		addModelToInstallation: publicProcedure
 			.input(z.object({ id: z.string(), modelId: z.string().min(1) }))
 			.mutation(async ({ input }) => {
@@ -567,6 +586,21 @@ export const appRouter = router({
 				const installation = await db.getModelInstallation(input.id);
 				if (!installation) throw new Error(`Model installation not found: ${input.id}`);
 				if (installation.modelIds.includes(input.modelId)) return installation;
+
+				// Verify against the provider's real catalog when one is
+				// reachable — `null` means unverifiable (no key, CLI provider,
+				// network error), which stays permissive rather than blocking.
+				const liveIds = await fetchLiveModelIdsForProviderKind(
+					installation.providerKind,
+					installation.apiKey,
+					installation.baseUrl,
+				);
+				if (liveIds && !liveIds.includes(input.modelId)) {
+					throw new Error(
+						`"${input.modelId}" doesn't exist for ${installation.label}. Known models: ${liveIds.slice(0, 15).join(", ")}${liveIds.length > 15 ? ", …" : ""}`,
+					);
+				}
+
 				const modelIds = [...installation.modelIds, input.modelId];
 				return db.updateModelInstallation({ id: input.id, modelIds });
 			}),

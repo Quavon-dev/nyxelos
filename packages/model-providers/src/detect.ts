@@ -161,6 +161,78 @@ export async function fetchOpenRouterModels(apiKey?: string | null): Promise<Ope
   return models;
 }
 
+export interface KnownProviderModel {
+  id: string;
+  label: string;
+}
+
+const KNOWN_PROVIDER_CATALOG_CACHE_TTL_MS = 60_000;
+const openAiModelsCache = new Map<string, { expires: number; value: KnownProviderModel[] }>();
+const anthropicModelsCache = new Map<string, { expires: number; value: KnownProviderModel[] }>();
+
+/** OpenAI's `/v1/models` reports the full catalog available to a key,
+ * including non-chat model families (embeddings, tts, whisper, dall-e,
+ * gpt-image, sora, ...) mixed in with chat-capable ones — see
+ * isOpenAiChatModelId for the filter callers apply on top. */
+export async function fetchOpenAiModels(apiKey: string): Promise<KnownProviderModel[]> {
+  const cached = openAiModelsCache.get(apiKey);
+  if (cached && cached.expires > Date.now()) return cached.value;
+
+  const result = await safeFetchJson<{ data?: Array<{ id: string }> }>(
+    "https://api.openai.com/v1/models",
+    { headers: { Authorization: `Bearer ${apiKey}` } },
+    8000,
+  );
+  if (!result.ok || !result.data?.data) return [];
+
+  const models = result.data.data
+    .map((model) => ({ id: model.id, label: model.id }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  openAiModelsCache.set(apiKey, {
+    expires: Date.now() + KNOWN_PROVIDER_CATALOG_CACHE_TTL_MS,
+    value: models,
+  });
+  return models;
+}
+
+/** Chat-completions-capable subset of fetchOpenAiModels' catalog — the only
+ * models usable as a LanguageModel via resolveModel()'s `openai(id)` path.
+ * Everything else (embeddings/tts/whisper/dall-e/gpt-image/sora/realtime)
+ * has its own API shape and would 400 if resolved as a chat model. */
+export function isOpenAiChatModelId(id: string): boolean {
+  return (
+    /^(gpt-|o[1-9]|chatgpt-)/i.test(id) &&
+    !/(embedding|whisper|tts|moderation|dall-e|gpt-image|sora|davinci|babbage|realtime|transcribe|image)/i.test(
+      id,
+    )
+  );
+}
+
+/** Anthropic's `/v1/models` — same role as fetchOpenAiModels but every
+ * entry is already a chat model, so callers don't need a filter. */
+export async function fetchAnthropicModels(apiKey: string): Promise<KnownProviderModel[]> {
+  const cached = anthropicModelsCache.get(apiKey);
+  if (cached && cached.expires > Date.now()) return cached.value;
+
+  const result = await safeFetchJson<{
+    data?: Array<{ id: string; display_name?: string }>;
+  }>(
+    "https://api.anthropic.com/v1/models?limit=1000",
+    { headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" } },
+    8000,
+  );
+  if (!result.ok || !result.data?.data) return [];
+
+  const models = result.data.data
+    .map((model) => ({ id: model.id, label: model.display_name?.trim() || model.id }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  anthropicModelsCache.set(apiKey, {
+    expires: Date.now() + KNOWN_PROVIDER_CATALOG_CACHE_TTL_MS,
+    value: models,
+  });
+  return models;
+}
+
 export function normalizeOpenAiCompatibleBaseUrl(baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/+$/, "");
   return trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : trimmed;

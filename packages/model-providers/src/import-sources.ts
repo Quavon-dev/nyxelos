@@ -9,7 +9,24 @@ import {
   OPENROUTER_BASE_URL,
   probeOpenAiCompatibleEndpoint,
 } from "./detect";
-import { getDefaultModelIdsForProviderKind, type InstalledModelProvider } from "./providers";
+import {
+  fetchLiveModelIdsForProviderKind,
+  getDefaultModelIdsForProviderKind,
+  type InstalledModelProvider,
+} from "./providers";
+
+/** Prefers the provider's real catalog (auto model compilation) over the
+ * hardcoded default list, so an import doesn't seed models the account
+ * doesn't actually have or miss ones the hardcoded list hasn't caught up to
+ * yet. Falls back to the static list only when the live fetch can't verify
+ * anything (offline, bad key, provider outage). */
+async function resolveImportModelIds(
+  providerKind: InstalledModelProvider["providerKind"],
+  apiKey: string | null,
+): Promise<string[]> {
+  const live = await fetchLiveModelIdsForProviderKind(providerKind, apiKey).catch(() => null);
+  return live ?? getDefaultModelIdsForProviderKind(providerKind);
+}
 
 export interface ProviderImportSource {
   id: string;
@@ -70,7 +87,7 @@ export async function scanProviderImportSources(): Promise<ProviderImportSource[
         providerKind: "anthropic",
         baseUrl: "https://api.anthropic.com",
         apiKey: anthropicKey,
-        modelIds: getDefaultModelIdsForProviderKind("anthropic"),
+        modelIds: await resolveImportModelIds("anthropic", anthropicKey),
         disabledModelIds: [],
       }),
     );
@@ -84,7 +101,7 @@ export async function scanProviderImportSources(): Promise<ProviderImportSource[
         providerKind: "openai",
         baseUrl: "https://api.openai.com/v1",
         apiKey: openaiKey,
-        modelIds: getDefaultModelIdsForProviderKind("openai"),
+        modelIds: await resolveImportModelIds("openai", openaiKey),
         disabledModelIds: [],
       }),
     );
@@ -134,7 +151,7 @@ export async function scanProviderImportSources(): Promise<ProviderImportSource[
           providerKind: "openai",
           baseUrl: "https://api.openai.com/v1",
           apiKey: codexOpenAiKey,
-          modelIds: getDefaultModelIdsForProviderKind("openai"),
+          modelIds: await resolveImportModelIds("openai", codexOpenAiKey),
           disabledModelIds: [],
         }),
       );

@@ -2,6 +2,7 @@ export type { ChatStreamPart, ChatStreamResult, CliPermissionMode } from "./cli"
 export type {
   DetectedLocalModel,
   DetectedModelCapabilities,
+  KnownProviderModel,
   OpenAiCompatibleProbeFailure,
   OpenAiCompatibleProbeResult,
   OpenRouterModel,
@@ -11,9 +12,12 @@ export {
   detectLocalModels,
   detectOllamaModels,
   detectOpenAiCompatibleModels,
+  fetchAnthropicModels,
   fetchOllamaModelCapabilities,
   fetchOpenAiCompatibleCapabilities,
+  fetchOpenAiModels,
   fetchOpenRouterModels,
+  isOpenAiChatModelId,
   OPENROUTER_BASE_URL,
   probeOpenAiCompatibleEndpoint,
   probeOpenAiCompatibleEndpointDetailed,
@@ -32,6 +36,7 @@ export type {
   ModelSummary,
 } from "./providers";
 export {
+  fetchLiveModelIdsForProviderKind,
   getDefaultModelIdsForProviderKind,
   getModelCapabilities,
   listAvailableModels,

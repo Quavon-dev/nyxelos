@@ -6,13 +6,17 @@ import { CLI_DEFAULT_MODEL_SENTINEL } from "./cli";
 import {
   detectLocalModels,
   type DetectedModelCapabilities,
+  fetchAnthropicModels,
   fetchOllamaModelCapabilities,
   fetchOpenAiCompatibleCapabilities,
+  fetchOpenAiModels,
   fetchOpenRouterModels,
   getLmStudioApiKey,
   getOllamaBaseUrl,
+  isOpenAiChatModelId,
   normalizeOpenAiCompatibleBaseUrl,
   OPENROUTER_BASE_URL,
+  probeOpenAiCompatibleEndpoint,
 } from "./detect";
 
 export interface CloudModelDefinition {
@@ -445,6 +449,49 @@ export function getDefaultModelIdsForProviderKind(
   if (providerKind === "claude_cli") return CLAUDE_CLI_DEFAULT_MODELS;
   if (providerKind === "codex_cli") return CODEX_CLI_DEFAULT_MODELS;
   return [];
+}
+
+/**
+ * Live model-id catalog for a provider kind, straight from the provider's
+ * own API rather than the hardcoded CLOUD_MODELS/OPENAI_DEFAULT_MODELS
+ * fallback lists above. Used two ways: (1) "auto model compilation" — fill
+ * an install's modelIds with whatever the account can actually see instead
+ * of a stale hand-maintained guess, and (2) existence validation — reject a
+ * manually-typed model id that isn't in this list.
+ *
+ * Returns `null` when the provider kind has no catalog endpoint to check
+ * against (claude_cli/codex_cli — any `--model` string is accepted, see the
+ * CLI defaults' doc comment) or when the live fetch didn't return anything
+ * usable (missing key, network error, empty account catalog). `null` means
+ * "couldn't verify," not "no models exist" — callers should treat that as
+ * permissive, not a rejection.
+ */
+export async function fetchLiveModelIdsForProviderKind(
+  providerKind: InstalledModelProvider["providerKind"],
+  apiKey: string | null | undefined,
+  baseUrl?: string | null,
+): Promise<string[] | null> {
+  if (providerKind === "openai") {
+    if (!apiKey) return null;
+    const models = await fetchOpenAiModels(apiKey).catch(() => []);
+    const chatModels = models.map((m) => m.id).filter(isOpenAiChatModelId);
+    return chatModels.length > 0 ? chatModels : null;
+  }
+  if (providerKind === "anthropic") {
+    if (!apiKey) return null;
+    const models = await fetchAnthropicModels(apiKey).catch(() => []);
+    return models.length > 0 ? models.map((m) => m.id) : null;
+  }
+  if (providerKind === "openrouter") {
+    const models = await fetchOpenRouterModels(apiKey).catch(() => []);
+    return models.length > 0 ? models.map((m) => m.id) : null;
+  }
+  if (providerKind === "openai_compatible") {
+    if (!baseUrl) return null;
+    const detected = await probeOpenAiCompatibleEndpoint({ baseUrl, apiKey }).catch(() => null);
+    return detected && detected.modelIds.length > 0 ? detected.modelIds : null;
+  }
+  return null;
 }
 
 /** Resolves live capabilities for a model id. Anthropic/OpenAI are trusted

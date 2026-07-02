@@ -983,6 +983,9 @@ type NyxelTrpcClient = {
 		addModelToInstallation: {
 			mutate(input: { id: string; modelId: string }): Promise<ModelInstallationSummary>;
 		};
+		listCatalogForInstallation: {
+			query(input: { id: string }): Promise<string[]>;
+		};
 		cliStatus: {
 			query(input: { providerKind: CliProviderKind }): Promise<CliAuthStatus>;
 		};

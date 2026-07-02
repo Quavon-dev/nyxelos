@@ -1,6 +1,12 @@
 "use client";
 
-import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  type UseMutationResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   Bot,
   Eye,
@@ -40,6 +46,7 @@ import {
   type CliProviderKind,
   DEFAULT_CHAT_TOOL_POLICY,
   type ModelCapabilities,
+  type ModelInstallationSummary,
   type OpenRouterModel,
   type ProbedModelProvider,
   trpcClient,
@@ -400,6 +407,138 @@ function CliProviderCard({
   );
 }
 
+/** One "already installed" provider card. The "add model" field autofills
+ * from the provider's live catalog (models.listCatalogForInstallation) via a
+ * native <datalist> — known providers (OpenAI, Anthropic, OpenRouter, any
+ * OpenAI-compatible endpoint with a reachable `/v1/models`) get real
+ * suggestions; providers with no catalog endpoint (CLI providers) just get a
+ * free-text field, same as before. The server re-validates against that same
+ * catalog on submit either way, so a typo or unavailable id is rejected even
+ * if the user ignores the suggestions. */
+function InstalledProviderCard({
+  provider,
+  modelCapabilitiesByLabel,
+  setModelEnabled,
+  removeModel,
+  removeProvider,
+  invalidateModelQueries,
+}: {
+  provider: ModelInstallationSummary;
+  modelCapabilitiesByLabel: Map<string, ModelCapabilities | undefined>;
+  setModelEnabled: UseMutationResult<
+    ModelInstallationSummary,
+    Error,
+    { id: string; modelId: string; enabled: boolean }
+  >;
+  removeModel: UseMutationResult<ModelInstallationSummary | null, Error, { id: string; modelId: string }>;
+  removeProvider: UseMutationResult<void, Error, { id: string }>;
+  invalidateModelQueries: () => void;
+}) {
+  const [newModelId, setNewModelId] = useState("");
+  const datalistId = `model-catalog-${provider.id}`;
+
+  const catalogQuery = useQuery({
+    queryKey: ["models", "catalog", provider.id],
+    queryFn: () => trpcClient.models.listCatalogForInstallation.query({ id: provider.id }),
+    staleTime: 60_000,
+  });
+  const suggestions = (catalogQuery.data ?? []).filter((id) => !provider.modelIds.includes(id));
+
+  // Local (not shared across rows) so one row's pending/error state can't
+  // bleed into every other installed provider's card.
+  const addModel = useMutation({
+    mutationFn: (input: { id: string; modelId: string }) =>
+      trpcClient.models.addModelToInstallation.mutate(input),
+    onSuccess: () => {
+      invalidateModelQueries();
+      setNewModelId("");
+    },
+  });
+
+  const submit = () => {
+    const modelId = newModelId.trim();
+    if (!modelId) return;
+    addModel.mutate({ id: provider.id, modelId });
+  };
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border-l-2 border-l-emerald-500 border-y border-r p-3 md:flex-row md:items-start md:justify-between">
+      <div className="w-full space-y-1 text-sm">
+        <div className="font-medium">{provider.label}</div>
+        <div className="text-muted-foreground">{provider.baseUrl}</div>
+        <div className="flex flex-col gap-1 pt-1">
+          {provider.modelIds.map((modelId) => {
+            const isEnabled = !provider.disabledModelIds.includes(modelId);
+            const capabilities = modelCapabilitiesByLabel.get(`${modelId} (${provider.label})`);
+            return (
+              <div key={modelId} className="flex items-center gap-2 rounded-md border px-2 py-1">
+                <Switch
+                  checked={isEnabled}
+                  onCheckedChange={(checked) =>
+                    setModelEnabled.mutate({ id: provider.id, modelId, enabled: checked })
+                  }
+                />
+                <span className={cn("text-xs", !isEnabled && "text-muted-foreground line-through")}>
+                  {modelId}
+                </span>
+                <CapabilityBadges capabilities={capabilities} />
+                <button
+                  type="button"
+                  className="ml-auto text-muted-foreground hover:text-destructive"
+                  onClick={() => removeModel.mutate({ id: provider.id, modelId })}
+                  disabled={removeModel.isPending}
+                  aria-label={`Remove ${modelId}`}
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-2 pt-1">
+          <Input
+            list={suggestions.length > 0 ? datalistId : undefined}
+            placeholder="Add model id (e.g. gpt-5.5)"
+            value={newModelId}
+            onChange={(e) => setNewModelId(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submit();
+            }}
+            className="h-8 text-xs"
+          />
+          {suggestions.length > 0 && (
+            <datalist id={datalistId}>
+              {suggestions.map((id) => (
+                <option key={id} value={id} />
+              ))}
+            </datalist>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0"
+            onClick={submit}
+            disabled={addModel.isPending || !newModelId.trim()}
+          >
+            Add
+          </Button>
+        </div>
+        {addModel.isError && (
+          <p className="text-xs text-destructive">{(addModel.error as Error).message}</p>
+        )}
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => removeProvider.mutate({ id: provider.id })}
+        disabled={removeProvider.isPending}
+      >
+        Remove all
+      </Button>
+    </div>
+  );
+}
+
 /** OpenRouter card — enter an API key, fetch its full model catalog directly
  * from OpenRouter, then import all (or a hand-picked subset) as one workspace
  * provider installation. The catalog fetch itself needs no key (OpenRouter's
@@ -633,9 +772,6 @@ export function WorkspaceSettingsPanel({
   const [providerBaseUrl, setProviderBaseUrl] = useState("http://localhost:1234");
   const [providerApiKey, setProviderApiKey] = useState("");
   const [probeResult, setProbeResult] = useState<ProbedModelProvider | null>(null);
-  const [newModelIdByInstallation, setNewModelIdByInstallation] = useState<Record<string, string>>(
-    {},
-  );
 
   const installationQuery = useQuery({
     queryKey: ["installation", "status"],
@@ -778,15 +914,6 @@ export function WorkspaceSettingsPanel({
     mutationFn: (input: { id: string; modelId: string }) =>
       trpcClient.models.removeModelFromInstallation.mutate(input),
     onSuccess: invalidateModelQueries,
-  });
-
-  const addModel = useMutation({
-    mutationFn: (input: { id: string; modelId: string }) =>
-      trpcClient.models.addModelToInstallation.mutate(input),
-    onSuccess: (_result, variables) => {
-      invalidateModelQueries();
-      setNewModelIdByInstallation((current) => ({ ...current, [variables.id]: "" }));
-    },
   });
 
   const activeSection = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0];
@@ -1135,101 +1262,15 @@ export function WorkspaceSettingsPanel({
               )}
               <div className="space-y-3">
                 {installedProvidersQuery.data?.map((provider) => (
-                  <div
+                  <InstalledProviderCard
                     key={provider.id}
-                    className="flex flex-col gap-3 rounded-lg border-l-2 border-l-emerald-500 border-y border-r p-3 md:flex-row md:items-start md:justify-between"
-                  >
-                    <div className="w-full space-y-1 text-sm">
-                      <div className="font-medium">{provider.label}</div>
-                      <div className="text-muted-foreground">{provider.baseUrl}</div>
-                      <div className="flex flex-col gap-1 pt-1">
-                        {provider.modelIds.map((modelId) => {
-                          const isEnabled = !provider.disabledModelIds.includes(modelId);
-                          const capabilities = modelCapabilitiesByLabel.get(
-                            `${modelId} (${provider.label})`,
-                          );
-                          return (
-                            <div
-                              key={modelId}
-                              className="flex items-center gap-2 rounded-md border px-2 py-1"
-                            >
-                              <Switch
-                                checked={isEnabled}
-                                onCheckedChange={(checked) =>
-                                  setModelEnabled.mutate({
-                                    id: provider.id,
-                                    modelId,
-                                    enabled: checked,
-                                  })
-                                }
-                              />
-                              <span
-                                className={cn(
-                                  "text-xs",
-                                  !isEnabled && "text-muted-foreground line-through",
-                                )}
-                              >
-                                {modelId}
-                              </span>
-                              <CapabilityBadges capabilities={capabilities} />
-                              <button
-                                type="button"
-                                className="ml-auto text-muted-foreground hover:text-destructive"
-                                onClick={() =>
-                                  removeModel.mutate({ id: provider.id, modelId })
-                                }
-                                disabled={removeModel.isPending}
-                                aria-label={`Remove ${modelId}`}
-                              >
-                                <X className="size-3.5" />
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <div className="flex items-center gap-2 pt-1">
-                        <Input
-                          placeholder="Add model id (e.g. gpt-5.5)"
-                          value={newModelIdByInstallation[provider.id] ?? ""}
-                          onChange={(e) =>
-                            setNewModelIdByInstallation((current) => ({
-                              ...current,
-                              [provider.id]: e.target.value,
-                            }))
-                          }
-                          onKeyDown={(e) => {
-                            const modelId = (newModelIdByInstallation[provider.id] ?? "").trim();
-                            if (e.key === "Enter" && modelId) {
-                              addModel.mutate({ id: provider.id, modelId });
-                            }
-                          }}
-                          className="h-8 text-xs"
-                        />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 shrink-0"
-                          onClick={() => {
-                            const modelId = (newModelIdByInstallation[provider.id] ?? "").trim();
-                            if (modelId) addModel.mutate({ id: provider.id, modelId });
-                          }}
-                          disabled={
-                            addModel.isPending || !(newModelIdByInstallation[provider.id] ?? "").trim()
-                          }
-                        >
-                          Add
-                        </Button>
-                      </div>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => removeProvider.mutate({ id: provider.id })}
-                      disabled={removeProvider.isPending}
-                    >
-                      Remove all
-                    </Button>
-                  </div>
+                    provider={provider}
+                    modelCapabilitiesByLabel={modelCapabilitiesByLabel}
+                    setModelEnabled={setModelEnabled}
+                    removeModel={removeModel}
+                    removeProvider={removeProvider}
+                    invalidateModelQueries={invalidateModelQueries}
+                  />
                 ))}
               </div>
             </div>
