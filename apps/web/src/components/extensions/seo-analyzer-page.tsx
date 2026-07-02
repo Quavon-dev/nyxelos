@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { WorkingDirectoryPicker } from "@/components/chat/working-directory-picker";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,11 @@ function LinkProjectForm({
 }) {
   const [domain, setDomain] = useState("");
   const [repoPath, setRepoPath] = useState("");
+  // The browser's folder picker can only ever return a bare directory name
+  // (showDirectoryPicker() never exposes a real filesystem path, by design —
+  // see WorkingDirectoryPicker's own comment on this) — so the user has to
+  // complete it into an absolute path themselves before this is valid.
+  const repoPathIsAbsolute = repoPath.trim().startsWith("/");
   const createProject = useMutation({
     mutationFn: () =>
       trpcClient.seoAnalyzer.createProject.mutate({ workspaceId, domain, repoPath }),
@@ -59,28 +65,96 @@ function LinkProjectForm({
         />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="seo-repo-path">Local repo path</Label>
-        <Input
-          id="seo-repo-path"
-          placeholder="/Users/you/dev/example-site"
-          value={repoPath}
-          onChange={(e) => setRepoPath(e.target.value)}
-        />
-        <p className="text-xs text-muted-foreground">
-          Absolute path on this machine — the fixer agent's file access is scoped to this
-          directory only.
-        </p>
+        <Label>Local repo path</Label>
+        <div className="flex items-center gap-2">
+          <WorkingDirectoryPicker value={repoPath} onChange={setRepoPath} />
+          <Input
+            value={repoPath}
+            onChange={(e) => setRepoPath(e.target.value)}
+            placeholder="/Users/you/dev/example-site"
+            className="h-8 flex-1 text-xs"
+          />
+        </div>
+        {repoPath && !repoPathIsAbsolute ? (
+          <p className="text-xs text-destructive">
+            The folder picker only knows the folder's name, not its full location — complete it
+            into an absolute path (starting with /) in the field above.
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Absolute path on this machine — the fixer agent's file access is scoped to this
+            directory only.
+          </p>
+        )}
       </div>
       {createProject.error && (
         <p className="text-sm text-destructive">{(createProject.error as Error).message}</p>
       )}
       <Button
         size="sm"
-        disabled={!domain.trim() || !repoPath.trim() || createProject.isPending}
+        disabled={!domain.trim() || !repoPathIsAbsolute || createProject.isPending}
         onClick={() => createProject.mutate()}
       >
         {createProject.isPending ? "Linking…" : "Link project"}
       </Button>
+    </div>
+  );
+}
+
+function FixerAgentControl({ project }: { project: SeoProjectSummary }) {
+  const queryClient = useQueryClient();
+
+  const agentsQuery = useQuery({
+    queryKey: ["agents", project.workspaceId],
+    queryFn: () => trpcClient.agents.list.query({ workspaceId: project.workspaceId }),
+  });
+
+  const setFixerAgent = useMutation({
+    mutationFn: (agentId: string | null) =>
+      trpcClient.seoAnalyzer.setFixerAgent.mutate({ id: project.id, agentId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["seoAnalyzer", "projects", project.workspaceId],
+      });
+    },
+  });
+
+  const pinnedAgent = agentsQuery.data?.find((a) => a.id === project.fixerAgentId);
+  // Auto-provisioned agents are always named this way (see ensureSeoFixerAgent
+  // in seo-analyzer.ts) and come with file tools scoped to repoPath only —
+  // anything else the user picks is their own agent with whatever tools it
+  // already has, so it isn't guaranteed to stay inside the repo.
+  const pinnedIsAutoProvisioned = pinnedAgent?.name === `SEO Fixer — ${project.domain}`;
+
+  return (
+    <div className="space-y-2 rounded-lg border p-4">
+      <h3 className="text-sm font-medium">Fixer agent</h3>
+      <p className="text-xs text-muted-foreground">
+        Which agent (and model) runs "Fix with AI" and blog generation for this project. Leave on
+        Auto for a dedicated agent whose file access is scoped to the repo only.
+      </p>
+      <select
+        className="h-8 w-full max-w-xs rounded-md border bg-background px-2 text-sm"
+        value={project.fixerAgentId ?? ""}
+        disabled={agentsQuery.isLoading || setFixerAgent.isPending}
+        onChange={(e) => setFixerAgent.mutate(e.target.value === "" ? null : e.target.value)}
+      >
+        <option value="">Auto (dedicated, repo-scoped)</option>
+        {(agentsQuery.data ?? []).map((agent) => (
+          <option key={agent.id} value={agent.id}>
+            {agent.name} — {agent.modelId}
+          </option>
+        ))}
+      </select>
+      {project.fixerAgentId && !pinnedIsAutoProvisioned && (
+        <p className="text-xs text-amber-600">
+          This agent isn't repo-scoped — it can touch whatever files its own tools allow, not just
+          this repo.
+        </p>
+      )}
+      {setFixerAgent.error && (
+        <p className="text-sm text-destructive">{(setFixerAgent.error as Error).message}</p>
+      )}
     </div>
   );
 }
@@ -280,6 +354,7 @@ function ProjectDashboard({ project }: { project: SeoProjectSummary }) {
             )}
           </div>
 
+          <FixerAgentControl project={project} />
           <ScheduleControl project={project} />
         </TabsContent>
 

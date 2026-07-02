@@ -102,10 +102,66 @@ function countMatches(html: string, regex: RegExp): number {
 	return [...html.matchAll(regex)].length;
 }
 
+/** Stable identity for a finding across separate analysis runs — used to
+ * reconcile instead of re-inserting duplicates every re-scan. Two findings
+ * are "the same" if they're the same category+severity+title at the same
+ * location, regardless of which run detected them. */
+function findingKey(f: Pick<DraftFinding, "category" | "severity" | "title" | "location">): string {
+	return `${f.category}|${f.severity}|${f.title}|${f.location ?? ""}`;
+}
+
+/** Rough word count from rendered-ish text — strips script/style blocks and
+ * tags, not a real DOM text extraction, but close enough to flag genuinely
+ * thin pages without needing a parser. */
+function estimateWordCount(html: string): number {
+	const text = html
+		.replace(/<script[\s\S]*?<\/script>/gi, " ")
+		.replace(/<style[\s\S]*?<\/style>/gi, " ")
+		.replace(/<[^>]+>/g, " ")
+		.replace(/&[a-z]+;/gi, " ")
+		.trim();
+	return text ? text.split(/\s+/).filter(Boolean).length : 0;
+}
+
+/** Findings for meta values (title or description) shared by more than one
+ * crawled page — only meaningful once there are 2+ pages to compare. */
+function findDuplicateMetaFindings(
+	pages: { url: string; title: string | null; description: string | null }[],
+	field: "title" | "description",
+): DraftFinding[] {
+	const groups = new Map<string, string[]>();
+	for (const page of pages) {
+		const value = page[field];
+		if (!value) continue;
+		const key = value.trim().toLowerCase();
+		const urls = groups.get(key) ?? [];
+		urls.push(page.url);
+		groups.set(key, urls);
+	}
+
+	const label = field === "title" ? "<title>" : "meta description";
+	const findings: DraftFinding[] = [];
+	for (const [value, urls] of groups) {
+		if (urls.length < 2) continue;
+		findings.push({
+			category: "seo",
+			severity: "warning",
+			title: `Duplicate ${label} across pages`,
+			description: `${urls.length} pages share the same ${label} ("${value}"): ${urls.join(", ")}`,
+			recommendation: `Give each page a unique ${label} describing its own content instead of reusing the same one.`,
+			location: urls[0],
+		});
+	}
+	return findings;
+}
+
 /** SEO/GEO/AEO checks against one already-fetched page's HTML. Regex-based
  * on purpose — a full DOM parser (cheerio/jsdom) is unnecessary weight for
  * meta-tag presence/shape checks, and this runs per-page across a crawl. */
-function analyzePageHtml(url: string, html: string): DraftFinding[] {
+function analyzePageHtml(
+	url: string,
+	html: string,
+): { findings: DraftFinding[]; title: string | null; description: string | null } {
 	const findings: DraftFinding[] = [];
 
 	// --- SEO ---
@@ -200,6 +256,57 @@ function analyzePageHtml(url: string, html: string): DraftFinding[] {
 		});
 	}
 
+	const hasViewport = /<meta[^>]+name=["']viewport["']/i.test(html);
+	if (!hasViewport) {
+		findings.push({
+			category: "seo",
+			severity: "warning",
+			title: "Missing viewport meta tag",
+			description: `${url} has no <meta name="viewport"> tag.`,
+			recommendation: 'Add <meta name="viewport" content="width=device-width, initial-scale=1"> so mobile search ranking isn\'t penalized.',
+			location: url,
+		});
+	}
+
+	const htmlLang = extractTag(html, /<html[^>]+lang=["']([a-zA-Z-]+)["']/i);
+	if (!htmlLang) {
+		findings.push({
+			category: "seo",
+			severity: "info",
+			title: "Missing lang attribute on <html>",
+			description: `${url}'s <html> tag has no lang attribute.`,
+			recommendation: 'Add lang="en" (or the page\'s actual language) to <html> — screen readers and search/answer engines both use it.',
+			location: url,
+		});
+	}
+
+	const robotsMeta = extractTag(
+		html,
+		/<meta[^>]+name=["']robots["'][^>]+content=["']([^"']*)["']/i,
+	);
+	if (robotsMeta && /noindex/i.test(robotsMeta)) {
+		findings.push({
+			category: "seo",
+			severity: "warning",
+			title: "Page is set to noindex",
+			description: `${url} has <meta name="robots" content="${robotsMeta}">.`,
+			recommendation: "Remove noindex if this page should actually rank — easy to leave on by accident after staging/launch.",
+			location: url,
+		});
+	}
+
+	const wordCount = estimateWordCount(html);
+	if (wordCount > 0 && wordCount < 300) {
+		findings.push({
+			category: "seo",
+			severity: "info",
+			title: "Thin content",
+			description: `${url} has roughly ${wordCount} words of text.`,
+			recommendation: "Pages under ~300 words often struggle to rank — expand with genuinely useful content, don't pad with filler.",
+			location: url,
+		});
+	}
+
 	// --- GEO (structured data / answer-engine readability of facts) ---
 	const jsonLdBlocks = [
 		...html.matchAll(
@@ -220,11 +327,13 @@ function analyzePageHtml(url: string, html: string): DraftFinding[] {
 	}
 
 	const parsedTypes = new Set<string>();
+	const parsedEntries: Record<string, unknown>[] = [];
 	for (const block of jsonLdBlocks) {
 		try {
 			const parsed = JSON.parse(block);
 			const entries = Array.isArray(parsed) ? parsed : [parsed];
 			for (const entry of entries) {
+				parsedEntries.push(entry);
 				const type = entry?.["@type"];
 				if (typeof type === "string") parsedTypes.add(type);
 				else if (Array.isArray(type)) type.forEach((t) => typeof t === "string" && parsedTypes.add(t));
@@ -245,10 +354,12 @@ function analyzePageHtml(url: string, html: string): DraftFinding[] {
 		});
 	}
 
-	const hasOrgOrLocalBusiness = [...parsedTypes].some((t) =>
-		/Organization|LocalBusiness/i.test(t),
-	);
-	if (jsonLdBlocks.length > 0 && !hasOrgOrLocalBusiness) {
+	const orgEntry = parsedEntries.find((entry) => {
+		const type = entry?.["@type"];
+		const types = Array.isArray(type) ? type : [type];
+		return types.some((t) => typeof t === "string" && /Organization|LocalBusiness/i.test(t));
+	});
+	if (jsonLdBlocks.length > 0 && !orgEntry) {
 		findings.push({
 			category: "geo",
 			severity: "info",
@@ -256,6 +367,47 @@ function analyzePageHtml(url: string, html: string): DraftFinding[] {
 			description: `${url}'s structured data doesn't declare an Organization or LocalBusiness type.`,
 			recommendation:
 				"Add an Organization (or LocalBusiness) JSON-LD block site-wide so answer engines can attribute facts to your brand.",
+			location: url,
+		});
+	} else if (orgEntry && (!orgEntry.name || !orgEntry.url)) {
+		const missing = [!orgEntry.name && "name", !orgEntry.url && "url"].filter(Boolean).join(", ");
+		findings.push({
+			category: "geo",
+			severity: "info",
+			title: "Organization structured data is incomplete",
+			description: `${url}'s Organization/LocalBusiness JSON-LD is missing: ${missing}.`,
+			recommendation: "Fill in every core field (name, url, and ideally logo) so answer engines can attribute facts to your brand confidently.",
+			location: url,
+		});
+	}
+
+	const ogTags = {
+		title: /<meta[^>]+property=["']og:title["']/i.test(html),
+		description: /<meta[^>]+property=["']og:description["']/i.test(html),
+		image: /<meta[^>]+property=["']og:image["']/i.test(html),
+	};
+	const missingOgTags = Object.entries(ogTags)
+		.filter(([, present]) => !present)
+		.map(([key]) => `og:${key}`);
+	if (missingOgTags.length > 0) {
+		findings.push({
+			category: "geo",
+			severity: "warning",
+			title: "Missing Open Graph tags",
+			description: `${url} is missing: ${missingOgTags.join(", ")}.`,
+			recommendation: "Add Open Graph meta tags so links to this page render correctly (and with the right facts) when shared or summarized.",
+			location: url,
+		});
+	}
+
+	const hasTwitterCard = /<meta[^>]+name=["']twitter:card["']/i.test(html);
+	if (!hasTwitterCard) {
+		findings.push({
+			category: "geo",
+			severity: "info",
+			title: "Missing Twitter Card meta tag",
+			description: `${url} has no <meta name="twitter:card"> tag.`,
+			recommendation: 'Add <meta name="twitter:card" content="summary_large_image"> for a proper card preview when the page is shared on X.',
 			location: url,
 		});
 	}
@@ -282,7 +434,7 @@ function analyzePageHtml(url: string, html: string): DraftFinding[] {
 		}
 	}
 
-	return findings;
+	return { findings, title, description };
 }
 
 /** Runs the full crawl + on-page analysis for a domain. Network failures on
@@ -296,9 +448,12 @@ export async function crawlAndAnalyze(
 	const urls = await discoverUrls(baseUrl);
 	const findings: DraftFinding[] = [];
 	let pagesScanned = 0;
+	const pageMeta: { url: string; title: string | null; description: string | null }[] = [];
 
 	for (const url of urls) {
+		const startedAt = Date.now();
 		const page = await fetchText(url);
+		const elapsedMs = Date.now() - startedAt;
 		if (!page || page.status >= 400) {
 			findings.push({
 				category: "seo",
@@ -311,7 +466,25 @@ export async function crawlAndAnalyze(
 			continue;
 		}
 		pagesScanned += 1;
-		findings.push(...analyzePageHtml(url, page.body));
+		const analyzed = analyzePageHtml(url, page.body);
+		findings.push(...analyzed.findings);
+		pageMeta.push({ url, title: analyzed.title, description: analyzed.description });
+
+		if (elapsedMs > 2000) {
+			findings.push({
+				category: "seo",
+				severity: "info",
+				title: "Slow response time",
+				description: `${url} took ${elapsedMs}ms to respond.`,
+				recommendation: "Pages over ~2s hurt both crawl budget and user experience — check caching, CDN, and server-side rendering cost.",
+				location: url,
+			});
+		}
+	}
+
+	if (pageMeta.length > 1) {
+		findings.push(...findDuplicateMetaFindings(pageMeta, "title"));
+		findings.push(...findDuplicateMetaFindings(pageMeta, "description"));
 	}
 
 	const llmsTxt = await fetchText(new URL("/llms.txt", baseUrl).toString());
@@ -456,8 +629,29 @@ export async function runSeoAnalysis(
 		]);
 		const findings = [...crawl.findings, ...repoScan.findings];
 
+		// Reconcile against what's already open instead of re-inserting the same
+		// finding every re-scan: a finding detected again this run stays exactly
+		// as it was (still tied to whichever run first found it); a finding that
+		// was open but isn't detected this time gets auto-resolved (fixed, or
+		// the page/condition is gone); only genuinely new ones get a new row.
+		const existingOpen = await db.listOpenSeoFindingsByProject(seoProjectId);
+		const existingByKey = new Map(existingOpen.map((f) => [findingKey(f), f]));
+		const detectedKeys = new Set<string>();
+		let newCount = 0;
+
 		for (const finding of findings) {
+			const key = findingKey(finding);
+			detectedKeys.add(key);
+			if (existingByKey.has(key)) continue;
 			await db.createSeoFinding({ runId: run.id, seoProjectId, ...finding });
+			newCount++;
+		}
+
+		let resolvedCount = 0;
+		for (const [key, existing] of existingByKey) {
+			if (detectedKeys.has(key)) continue;
+			await db.setSeoFindingResolved(existing.id, true);
+			resolvedCount++;
 		}
 
 		if (repoScan.blogConfig && !project.blogConfig) {
@@ -468,7 +662,7 @@ export async function runSeoAnalysis(
 		const critical = findings.filter((f) => f.severity === "critical").length;
 		const warning = findings.filter((f) => f.severity === "warning").length;
 		const info = findings.filter((f) => f.severity === "info").length;
-		const summary = `${findings.length} finding(s): ${critical} critical, ${warning} warning, ${info} info.`;
+		const summary = `${findings.length} open finding(s): ${critical} critical, ${warning} warning, ${info} info (${newCount} new, ${resolvedCount} resolved since last run).`;
 
 		const completed = await db.updateSeoAnalysisRun(run.id, {
 			status: "completed",

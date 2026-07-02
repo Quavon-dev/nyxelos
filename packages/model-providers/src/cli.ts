@@ -257,14 +257,28 @@ async function* runCli(
 
 	let finalText = "";
 	let sawAnyPart = false;
+	// Both CLIs emit one *complete* text block per turn (not token deltas) —
+	// a fresh "assistant"/"item.completed" event after a tool call starts a
+	// new block with no boundary of its own. Without a separator here, the
+	// client's `full += event.text` concatenation runs two sentences
+	// together with no space (e.g. "...server code.Read chat-stream...").
+	let sawToolSinceText = false;
 
 	try {
 		for await (const line of lines) {
 			const event = tryParseJsonLine(line);
 			const parts = event ? mapEvent(event) : [{ type: "text-delta" as const, text: line }];
-			for (const part of parts) {
+			for (let part of parts) {
 				sawAnyPart = true;
-				if (part.type === "text-delta" && part.text) finalText += part.text;
+				if (part.type === "tool-call" || part.type === "tool-result" || part.type === "tool-error") {
+					sawToolSinceText = true;
+				} else if ((part.type === "text-delta" || part.type === "reasoning-delta") && part.text) {
+					if (sawToolSinceText) {
+						part = { ...part, text: `\n\n${part.text}` };
+						sawToolSinceText = false;
+					}
+					if (part.type === "text-delta") finalText += part.text;
+				}
 				yield part;
 			}
 		}

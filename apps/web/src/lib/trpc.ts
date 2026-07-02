@@ -1153,6 +1153,12 @@ type NyxelTrpcClient = {
 		deleteProject: {
 			mutate(input: { id: string }): Promise<void>;
 		};
+		setFixerAgent: {
+			mutate(input: {
+				id: string;
+				agentId: string | null;
+			}): Promise<SeoProjectSummary>;
+		};
 		setSchedule: {
 			mutate(input: {
 				id: string;

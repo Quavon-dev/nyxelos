@@ -1401,6 +1401,27 @@ export const appRouter = router({
 		deleteProject: publicProcedure
 			.input(z.object({ id: z.string() }))
 			.mutation(({ input }) => getDb().deleteSeoProject(input.id)),
+		// Lets the user pick which agent runs fix-dispatch/blog-generation for a
+		// project instead of always auto-provisioning a dedicated repo-scoped
+		// one (see ensureSeoFixerAgent in seo-analyzer.ts, which reuses
+		// project.fixerAgentId as-is when set — this is the only place that
+		// sets it to a user-chosen agent rather than an auto-provisioned one).
+		// Passing null clears the pin, reverting to auto-provisioning.
+		setFixerAgent: publicProcedure
+			.input(z.object({ id: z.string(), agentId: z.string().nullable() }))
+			.mutation(async ({ input }) => {
+				const db = getDb();
+				if (input.agentId) {
+					const agent = await db.getAgent(input.agentId);
+					if (!agent) throw new Error(`Unknown agent: ${input.agentId}`);
+					const project = await db.getSeoProject(input.id);
+					if (!project) throw new Error(`Unknown SEO project: ${input.id}`);
+					if (agent.workspaceId !== project.workspaceId) {
+						throw new Error("Agent must belong to the same workspace.");
+					}
+				}
+				return db.updateSeoProject(input.id, { fixerAgentId: input.agentId });
+			}),
 		setSchedule: publicProcedure
 			.input(z.object({ id: z.string(), cronExpression: z.string().nullable() }))
 			.mutation(async ({ input }) => {
