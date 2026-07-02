@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { decryptNullable, encryptNullable } from "../crypto";
 import { DEFAULT_CHAT_TOOL_POLICY } from "./types";
 import { normalizeChatWorkingDirectory } from "../working-directory";
 import * as schema from "../schema/pg";
@@ -245,7 +246,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 					label,
 					providerKind,
 					baseUrl,
-					apiKey: apiKey ?? null,
+					apiKey: encryptNullable(apiKey),
 					modelIds,
 					disabledModelIds: disabledModelIds ?? [],
 					enabled: enabled ?? true,
@@ -253,21 +254,22 @@ export function createPgRepository(connectionString: string): DbRepository {
 				})
 				.returning();
 			if (!row) throw new Error("Failed to create model installation");
-			return row;
+			return { ...row, apiKey: decryptNullable(row.apiKey) };
 		},
 
 		async listModelInstallationsByWorkspace(workspaceId) {
-			return db
+			const rows = await db
 				.select()
 				.from(schema.modelInstallation)
 				.where(eq(schema.modelInstallation.workspaceId, workspaceId));
+			return rows.map((row) => ({ ...row, apiKey: decryptNullable(row.apiKey) }));
 		},
 
 		async getModelInstallation(id) {
 			const row = await db.query.modelInstallation.findFirst({
 				where: eq(schema.modelInstallation.id, id),
 			});
-			return row ?? null;
+			return row ? { ...row, apiKey: decryptNullable(row.apiKey) } : null;
 		},
 
 		async updateModelInstallation({ id, ...updates }) {
@@ -277,7 +279,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 				.where(eq(schema.modelInstallation.id, id))
 				.returning();
 			if (!row) throw new Error(`Model installation not found: ${id}`);
-			return row;
+			return { ...row, apiKey: decryptNullable(row.apiKey) };
 		},
 
 		async deleteModelInstallation(id) {
@@ -1209,11 +1211,15 @@ export function createPgRepository(connectionString: string): DbRepository {
 			const row = await db.query.knowledgeBaseConfig.findFirst({
 				where: eq(schema.knowledgeBaseConfig.workspaceId, workspaceId),
 			});
-			return row ?? null;
+			return row ? { ...row, obsidianApiKey: decryptNullable(row.obsidianApiKey) } : null;
 		},
 
 		async listKnowledgeBaseConfigs() {
-			return db.select().from(schema.knowledgeBaseConfig);
+			const rows = await db.select().from(schema.knowledgeBaseConfig);
+			return rows.map((row) => ({
+				...row,
+				obsidianApiKey: decryptNullable(row.obsidianApiKey),
+			}));
 		},
 
 		async upsertKnowledgeBaseConfig({
@@ -1224,6 +1230,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 			docsAgentEnabled,
 			injectIntoPrompts,
 		}) {
+			const encryptedObsidianApiKey = encryptNullable(obsidianApiKey);
 			const existing = await db.query.knowledgeBaseConfig.findFirst({
 				where: eq(schema.knowledgeBaseConfig.workspaceId, workspaceId),
 			});
@@ -1233,7 +1240,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 					.set({
 						vaultPath,
 						obsidianRestUrl: obsidianRestUrl ?? null,
-						obsidianApiKey: obsidianApiKey ?? null,
+						obsidianApiKey: encryptedObsidianApiKey,
 						docsAgentEnabled: docsAgentEnabled ?? existing.docsAgentEnabled,
 						injectIntoPrompts: injectIntoPrompts ?? existing.injectIntoPrompts,
 						updatedAt: new Date(),
@@ -1242,7 +1249,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 					.returning();
 				if (!row)
 					throw new Error(`Knowledge base config not found: ${workspaceId}`);
-				return row;
+				return { ...row, obsidianApiKey: decryptNullable(row.obsidianApiKey) };
 			}
 
 			const [row] = await db
@@ -1251,14 +1258,14 @@ export function createPgRepository(connectionString: string): DbRepository {
 					workspaceId,
 					vaultPath,
 					obsidianRestUrl: obsidianRestUrl ?? null,
-					obsidianApiKey: obsidianApiKey ?? null,
+					obsidianApiKey: encryptedObsidianApiKey,
 					docsAgentEnabled: docsAgentEnabled ?? true,
 					injectIntoPrompts: injectIntoPrompts ?? true,
 					updatedAt: new Date(),
 				})
 				.returning();
 			if (!row) throw new Error("Failed to create knowledge base config");
-			return row;
+			return { ...row, obsidianApiKey: decryptNullable(row.obsidianApiKey) };
 		},
 
 		async updateKnowledgeBaseSyncStatus({

@@ -1,5 +1,6 @@
 export { createAuthDb } from "./auth-db";
 export { getDb } from "./client";
+export { assertProductionSecret, isWeakSecretValue } from "./secret-guard";
 export { DEFAULT_CHAT_TOOL_POLICY } from "./repo/types";
 export {
 	DEFAULT_CHAT_WORKING_DIRECTORY,

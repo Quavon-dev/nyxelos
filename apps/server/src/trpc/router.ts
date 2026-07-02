@@ -2,6 +2,7 @@ import {
 	DEFAULT_CHAT_TOOL_POLICY,
 	DEFAULT_CHAT_WORKING_DIRECTORY,
 	getDb,
+	type ModelInstallationRecord,
 } from "@nyxel/db";
 import {
 	McpAuthorizationRequiredError,
@@ -407,6 +408,16 @@ async function deleteAgentGuarded(db: ReturnType<typeof getDb>, id: string) {
 	await db.deleteAgent(id);
 }
 
+// Strips the raw provider secret before a model installation row leaves the
+// server — the client only needs to know whether a key is configured, not
+// its value (SECURITY_AUDIT.md SEC-02). `apiKey` is replaced with a
+// `hasApiKey` boolean rather than a masked prefix so the UI never receives
+// even a partial live credential.
+export function toClientSafeInstallation(installation: ModelInstallationRecord) {
+	const { apiKey, ...rest } = installation;
+	return { ...rest, hasApiKey: apiKey !== null && apiKey.length > 0 };
+}
+
 export const appRouter = router({
 	health: publicProcedure.query(() => ({ ok: true, name: "nyxel-server" })),
 
@@ -509,9 +520,12 @@ export const appRouter = router({
 		})),
 		installations: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
-			.query(({ input }) =>
-				getDb().listModelInstallationsByWorkspace(input.workspaceId),
-			),
+			.query(async ({ input }) => {
+				const installations = await getDb().listModelInstallationsByWorkspace(
+					input.workspaceId,
+				);
+				return installations.map(toClientSafeInstallation);
+			}),
 		// Lets the composer show whether an attachment will be sent natively
 		// (image/PDF passed through to the model) or via server-side text
 		// extraction fallback — see attachment-processing.ts.

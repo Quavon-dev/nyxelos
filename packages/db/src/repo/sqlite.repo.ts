@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { decryptNullable, encryptNullable } from "../crypto";
 import { DEFAULT_CHAT_TOOL_POLICY } from "./types";
 import { normalizeChatWorkingDirectory } from "../working-directory";
 import * as schema from "../schema/sqlite";
@@ -323,7 +324,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					label,
 					providerKind,
 					baseUrl,
-					apiKey: apiKey ?? null,
+					apiKey: encryptNullable(apiKey),
 					modelIds,
 					disabledModelIds: disabledModelIds ?? [],
 					enabled: enabled ?? true,
@@ -332,15 +333,16 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				})
 				.returning()
 				.get();
-			return row;
+			return { ...row, apiKey: decryptNullable(row.apiKey) };
 		},
 
 		async listModelInstallationsByWorkspace(workspaceId) {
-			return db
+			const rows = db
 				.select()
 				.from(schema.modelInstallation)
 				.where(eq(schema.modelInstallation.workspaceId, workspaceId))
 				.all();
+			return rows.map((row) => ({ ...row, apiKey: decryptNullable(row.apiKey) }));
 		},
 
 		async getModelInstallation(id) {
@@ -349,7 +351,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.from(schema.modelInstallation)
 				.where(eq(schema.modelInstallation.id, id))
 				.get();
-			return row ?? null;
+			return row ? { ...row, apiKey: decryptNullable(row.apiKey) } : null;
 		},
 
 		async updateModelInstallation({ id, ...updates }) {
@@ -360,7 +362,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.returning()
 				.get();
 			if (!row) throw new Error(`Model installation not found: ${id}`);
-			return row;
+			return { ...row, apiKey: decryptNullable(row.apiKey) };
 		},
 
 		async deleteModelInstallation(id) {
@@ -1391,11 +1393,15 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.from(schema.knowledgeBaseConfig)
 				.where(eq(schema.knowledgeBaseConfig.workspaceId, workspaceId))
 				.get();
-			return row ?? null;
+			return row ? { ...row, obsidianApiKey: decryptNullable(row.obsidianApiKey) } : null;
 		},
 
 		async listKnowledgeBaseConfigs() {
-			return db.select().from(schema.knowledgeBaseConfig).all();
+			const rows = db.select().from(schema.knowledgeBaseConfig).all();
+			return rows.map((row) => ({
+				...row,
+				obsidianApiKey: decryptNullable(row.obsidianApiKey),
+			}));
 		},
 
 		async upsertKnowledgeBaseConfig({
@@ -1407,6 +1413,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			injectIntoPrompts,
 		}) {
 			const now = new Date();
+			const encryptedObsidianApiKey = encryptNullable(obsidianApiKey);
 			const existing = db
 				.select()
 				.from(schema.knowledgeBaseConfig)
@@ -1418,7 +1425,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					.set({
 						vaultPath,
 						obsidianRestUrl: obsidianRestUrl ?? null,
-						obsidianApiKey: obsidianApiKey ?? null,
+						obsidianApiKey: encryptedObsidianApiKey,
 						docsAgentEnabled: docsAgentEnabled ?? existing.docsAgentEnabled,
 						injectIntoPrompts: injectIntoPrompts ?? existing.injectIntoPrompts,
 						updatedAt: now,
@@ -1428,7 +1435,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					.get();
 				if (!row)
 					throw new Error(`Knowledge base config not found: ${workspaceId}`);
-				return row;
+				return { ...row, obsidianApiKey: decryptNullable(row.obsidianApiKey) };
 			}
 
 			const row = db
@@ -1437,14 +1444,14 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					workspaceId,
 					vaultPath,
 					obsidianRestUrl: obsidianRestUrl ?? null,
-					obsidianApiKey: obsidianApiKey ?? null,
+					obsidianApiKey: encryptedObsidianApiKey,
 					docsAgentEnabled: docsAgentEnabled ?? true,
 					injectIntoPrompts: injectIntoPrompts ?? true,
 					updatedAt: now,
 				})
 				.returning()
 				.get();
-			return row;
+			return { ...row, obsidianApiKey: decryptNullable(row.obsidianApiKey) };
 		},
 
 		async updateKnowledgeBaseSyncStatus({

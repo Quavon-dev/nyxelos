@@ -1010,6 +1010,13 @@ export type ModelInstallationSummary = {
   updatedAt: Date;
 };
 
+/** Shape returned by `models.installations` — the server strips the raw
+ * provider secret before this leaves the process (SECURITY_AUDIT.md SEC-02);
+ * `hasApiKey` is all the UI needs to render "configured"/"not configured". */
+export type ModelInstallationClientSummary = Omit<ModelInstallationSummary, "apiKey"> & {
+  hasApiKey: boolean;
+};
+
 /** Per-(workspace, model) generation overrides — see models.getParameters. */
 export type ModelParameterSummary = {
   workspaceId: string;
@@ -1084,7 +1091,7 @@ type NyxelTrpcClient = {
       query(input?: { workspaceId?: string }): Promise<ModelSummary[]>;
     };
     installations: {
-      query(input: { workspaceId: string }): Promise<ModelInstallationSummary[]>;
+      query(input: { workspaceId: string }): Promise<ModelInstallationClientSummary[]>;
     };
     generationCatalog: {
       query(): Promise<{
@@ -1869,10 +1876,7 @@ type NyxelTrpcClient = {
       }): Promise<{ isGitRepo: boolean; branch: string | null; error: string | null }>;
     };
     status: {
-      query(input: {
-        workspaceId: string;
-        rootDir: string;
-      }): Promise<GitStatusEntry[]>;
+      query(input: { workspaceId: string; rootDir: string }): Promise<GitStatusEntry[]>;
     };
     diff: {
       query(input: { workspaceId: string; rootDir: string; filePath?: string }): Promise<string>;

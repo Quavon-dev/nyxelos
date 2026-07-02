@@ -1,4 +1,4 @@
-import { createAuthDb } from "@nyxel/db";
+import { assertProductionSecret, createAuthDb } from "@nyxel/db";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 
@@ -14,21 +14,17 @@ export const allowedWebOrigins = (process.env.WEB_ORIGIN ?? "http://localhost:30
   .filter(Boolean);
 
 const DEV_FALLBACK_SECRET = "dev-secret-change-me";
-const isProduction = process.env.NODE_ENV === "production";
 
 /**
  * A missing BETTER_AUTH_SECRET used to silently fall back to a fixed,
  * publicly-known string in every environment, including production — every
  * session cookie on a server started that way is forgeable by anyone who
  * read this file. Local/dev keeps the convenience fallback (no setup
- * friction for `bun dev`); production refuses to boot without a real one.
+ * friction for `bun dev`); production refuses to boot without a real one,
+ * one that isn't a known-weak placeholder, and one that's long enough to be
+ * a real secret (see @nyxel/db's shared `assertProductionSecret`).
  */
-if (!process.env.BETTER_AUTH_SECRET && isProduction) {
-  throw new Error(
-    "BETTER_AUTH_SECRET is not set. Refusing to start in production with the default auth secret — " +
-      "generate one (e.g. `openssl rand -base64 32`) and set it in the environment.",
-  );
-}
+assertProductionSecret("BETTER_AUTH_SECRET", process.env.BETTER_AUTH_SECRET);
 
 /**
  * Self-hosted auth (ADR: see ARCHITECTURE.md section 3). Works unchanged in

@@ -47,6 +47,7 @@ import {
   type CliProviderKind,
   DEFAULT_CHAT_TOOL_POLICY,
   type ModelCapabilities,
+  type ModelInstallationClientSummary,
   type ModelInstallationSummary,
   type OpenRouterModel,
   type ProbedModelProvider,
@@ -424,7 +425,7 @@ function InstalledProviderCard({
   removeProvider,
   invalidateModelQueries,
 }: {
-  provider: ModelInstallationSummary;
+  provider: ModelInstallationClientSummary;
   modelCapabilitiesByLabel: Map<string, ModelCapabilities | undefined>;
   setModelEnabled: UseMutationResult<
     ModelInstallationSummary,
