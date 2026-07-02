@@ -1855,6 +1855,128 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			db.delete(schema.plugin).where(eq(schema.plugin.id, id)).run();
 		},
 
+		async createLibraryFolder({ workspaceId, parentId, name }) {
+			const row = db
+				.insert(schema.libraryFolder)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					parentId,
+					name,
+					createdAt: new Date(),
+				})
+				.returning()
+				.get();
+			return row;
+		},
+
+		async listLibraryFoldersByWorkspace(workspaceId) {
+			return db
+				.select()
+				.from(schema.libraryFolder)
+				.where(eq(schema.libraryFolder.workspaceId, workspaceId))
+				.all();
+		},
+
+		async getLibraryFolder(id) {
+			const row = db
+				.select()
+				.from(schema.libraryFolder)
+				.where(eq(schema.libraryFolder.id, id))
+				.get();
+			return row ?? null;
+		},
+
+		async renameLibraryFolder(id, name) {
+			const row = db
+				.update(schema.libraryFolder)
+				.set({ name })
+				.where(eq(schema.libraryFolder.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Library folder not found: ${id}`);
+			return row;
+		},
+
+		async moveLibraryFolder(id, parentId) {
+			const row = db
+				.update(schema.libraryFolder)
+				.set({ parentId })
+				.where(eq(schema.libraryFolder.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Library folder not found: ${id}`);
+			return row;
+		},
+
+		async deleteLibraryFolder(id) {
+			db.delete(schema.libraryFolder).where(eq(schema.libraryFolder.id, id)).run();
+		},
+
+		async createLibraryFile({ workspaceId, folderId, name, mimeType, sizeBytes, kind, storageKey }) {
+			const now = new Date();
+			const row = db
+				.insert(schema.libraryFile)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					folderId,
+					name,
+					mimeType,
+					sizeBytes,
+					kind,
+					storageKey,
+					createdAt: now,
+					updatedAt: now,
+				})
+				.returning()
+				.get();
+			return row;
+		},
+
+		async listLibraryFilesByWorkspace(workspaceId) {
+			return db
+				.select()
+				.from(schema.libraryFile)
+				.where(eq(schema.libraryFile.workspaceId, workspaceId))
+				.all();
+		},
+
+		async getLibraryFile(id) {
+			const row = db
+				.select()
+				.from(schema.libraryFile)
+				.where(eq(schema.libraryFile.id, id))
+				.get();
+			return row ?? null;
+		},
+
+		async renameLibraryFile(id, name) {
+			const row = db
+				.update(schema.libraryFile)
+				.set({ name, updatedAt: new Date() })
+				.where(eq(schema.libraryFile.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Library file not found: ${id}`);
+			return row;
+		},
+
+		async moveLibraryFile(id, folderId) {
+			const row = db
+				.update(schema.libraryFile)
+				.set({ folderId, updatedAt: new Date() })
+				.where(eq(schema.libraryFile.id, id))
+				.returning()
+				.get();
+			if (!row) throw new Error(`Library file not found: ${id}`);
+			return row;
+		},
+
+		async deleteLibraryFile(id) {
+			db.delete(schema.libraryFile).where(eq(schema.libraryFile.id, id)).run();
+		},
+
 		async createSeoProject({ workspaceId, extensionId, domain, repoPath }) {
 			const now = new Date();
 			const row = db

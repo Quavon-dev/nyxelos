@@ -34,6 +34,16 @@ import {
 	listKnowledgeBaseDocuments,
 	runDocsAgentForWorkspace,
 } from "../knowledge-base";
+import {
+	createLibraryFolder,
+	deleteLibraryFile,
+	deleteLibraryFolder,
+	listLibrary,
+	moveLibraryFile,
+	moveLibraryFolder,
+	renameLibraryFile,
+	renameLibraryFolder,
+} from "../library";
 import { MCP_CONNECTOR_CATALOG } from "../mcp-connectors";
 import { EXTENSION_CATALOG, getExtensionCatalogEntry } from "../extensions";
 import {
@@ -673,6 +683,50 @@ export const appRouter = router({
 						status: "success",
 					});
 				}
+				return { ok: true };
+			}),
+	}),
+
+	// Document & Image Library — folder metadata + file metadata CRUD live
+	// here; the actual bytes go over plain Hono routes instead of tRPC (see
+	// routes/library.ts's registerLibraryRoutes: POST /api/library/upload,
+	// GET /api/library/files/:id/content) since multipart upload and file
+	// streaming don't fit tRPC's JSON shape well.
+	library: router({
+		list: publicProcedure
+			.input(z.object({ workspaceId: z.string() }))
+			.query(({ input }) => listLibrary(input.workspaceId)),
+		createFolder: publicProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					parentId: z.string().nullable(),
+					name: z.string().min(1),
+				}),
+			)
+			.mutation(({ input }) => createLibraryFolder(input)),
+		renameFolder: publicProcedure
+			.input(z.object({ id: z.string(), name: z.string().min(1) }))
+			.mutation(({ input }) => renameLibraryFolder(input.id, input.name)),
+		moveFolder: publicProcedure
+			.input(z.object({ id: z.string(), parentId: z.string().nullable() }))
+			.mutation(({ input }) => moveLibraryFolder(input.id, input.parentId)),
+		deleteFolder: publicProcedure
+			.input(z.object({ id: z.string() }))
+			.mutation(async ({ input }) => {
+				await deleteLibraryFolder(input.id);
+				return { ok: true };
+			}),
+		renameFile: publicProcedure
+			.input(z.object({ id: z.string(), name: z.string().min(1) }))
+			.mutation(({ input }) => renameLibraryFile(input.id, input.name)),
+		moveFile: publicProcedure
+			.input(z.object({ id: z.string(), folderId: z.string().nullable() }))
+			.mutation(({ input }) => moveLibraryFile(input.id, input.folderId)),
+		deleteFile: publicProcedure
+			.input(z.object({ id: z.string() }))
+			.mutation(async ({ input }) => {
+				await deleteLibraryFile(input.id);
 				return { ok: true };
 			}),
 	}),

@@ -131,6 +131,9 @@ export type ToolKind =
 export type AutomationTriggerType = "cron" | "file_watch";
 export type AutomationRunStatus = "success" | "error" | "pending_approval";
 
+/** See ../pg/app.ts. */
+export type LibraryItemKind = "image" | "document" | "other";
+
 /** A sub-agent bundled in an installed plugin's `agents/*.md` directory
  * (Claude Code plugin format) — parsed and stored for display; not wired
  * into NyxelOS's own agent runtime automatically. See ../pg/app.ts. */
@@ -707,6 +710,35 @@ export const seoBlogPost = sqliteTable("seo_blog_post", {
 		.$type<SeoBlogPostStatus>(),
 	taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
 	errorMessage: text("error_message"),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+/** See ../pg/app.ts. */
+export const libraryFolder = sqliteTable("library_folder", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	parentId: text("parent_id"),
+	name: text("name").notNull(),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+/** See ../pg/app.ts. */
+export const libraryFile = sqliteTable("library_file", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	folderId: text("folder_id").references(() => libraryFolder.id, {
+		onDelete: "set null",
+	}),
+	name: text("name").notNull(),
+	mimeType: text("mime_type").notNull(),
+	sizeBytes: integer("size_bytes").notNull(),
+	kind: text("kind").notNull().default("other").$type<LibraryItemKind>(),
+	storageKey: text("storage_key").notNull(),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });

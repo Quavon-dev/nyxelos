@@ -71,6 +71,8 @@ export type AgentRunStatus =
 	| "failed"
 	| "cancelled";
 
+export type LibraryItemKind = "image" | "document" | "other";
+
 export interface ChatToolPolicy {
 	mode: ChatToolMode;
 	approveFileWrites: boolean;
@@ -430,6 +432,27 @@ export interface PluginRecord {
 	installDir: string;
 	enabled: boolean;
 	createdAt: Date;
+}
+
+export interface LibraryFolderRecord {
+	id: string;
+	workspaceId: string;
+	parentId: string | null;
+	name: string;
+	createdAt: Date;
+}
+
+export interface LibraryFileRecord {
+	id: string;
+	workspaceId: string;
+	folderId: string | null;
+	name: string;
+	mimeType: string;
+	sizeBytes: number;
+	kind: LibraryItemKind;
+	storageKey: string;
+	createdAt: Date;
+	updatedAt: Date;
 }
 
 export interface SeoProjectRecord {
@@ -955,6 +978,32 @@ export interface DbRepository {
 	getPluginBySlug(workspaceId: string, slug: string): Promise<PluginRecord | null>;
 	setPluginEnabled(id: string, enabled: boolean): Promise<PluginRecord>;
 	deletePlugin(id: string): Promise<void>;
+
+	createLibraryFolder(input: {
+		workspaceId: string;
+		parentId: string | null;
+		name: string;
+	}): Promise<LibraryFolderRecord>;
+	listLibraryFoldersByWorkspace(workspaceId: string): Promise<LibraryFolderRecord[]>;
+	getLibraryFolder(id: string): Promise<LibraryFolderRecord | null>;
+	renameLibraryFolder(id: string, name: string): Promise<LibraryFolderRecord>;
+	moveLibraryFolder(id: string, parentId: string | null): Promise<LibraryFolderRecord>;
+	deleteLibraryFolder(id: string): Promise<void>;
+
+	createLibraryFile(input: {
+		workspaceId: string;
+		folderId: string | null;
+		name: string;
+		mimeType: string;
+		sizeBytes: number;
+		kind: LibraryItemKind;
+		storageKey: string;
+	}): Promise<LibraryFileRecord>;
+	listLibraryFilesByWorkspace(workspaceId: string): Promise<LibraryFileRecord[]>;
+	getLibraryFile(id: string): Promise<LibraryFileRecord | null>;
+	renameLibraryFile(id: string, name: string): Promise<LibraryFileRecord>;
+	moveLibraryFile(id: string, folderId: string | null): Promise<LibraryFileRecord>;
+	deleteLibraryFile(id: string): Promise<void>;
 
 	createSeoProject(input: {
 		workspaceId: string;

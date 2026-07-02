@@ -75,6 +75,10 @@ Access at `https://NYXEL_DOMAIN`. Caddy handles TLS certificates, health checks 
 | --- | --- |
 | ![Agents](docs/screenshots/agents.png) | ![Skills catalog](docs/screenshots/skills.png) |
 
+| Document & Image Library | Folder navigation |
+| --- | --- |
+| ![Document & Image Library](docs/screenshots/library-overview.png) | ![Library folder navigation](docs/screenshots/library-folder.png) |
+
 ---
 ### 📂 Project Structure Deep Dive
 ```
