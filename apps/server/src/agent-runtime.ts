@@ -125,6 +125,7 @@ async function planTask(
   task: TaskRecord,
   instructionOverride?: string,
   abortSignal?: AbortSignal,
+  workingDirectory?: string | null,
 ): Promise<ExecutionPlan> {
   const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
   const systemPrompt = await buildSystemPrompt(agent, true);
@@ -143,6 +144,7 @@ async function planTask(
     installedProviders,
     messages: [{ role: "user", content: planningPrompt }],
     abortSignal,
+    cwd: workingDirectory ?? undefined,
   });
   const raw = await result.text;
   return toExecutionPlan(task, raw);
@@ -363,7 +365,13 @@ async function runManagedTask(
     completedAt: null,
     errorMessage: null,
   };
-  const plan = await planTask(input.agent, activeTask, input.instructionOverride, abortSignal);
+  const plan = await planTask(
+    input.agent,
+    activeTask,
+    input.instructionOverride,
+    abortSignal,
+    input.workingDirectory,
+  );
   await db.updateTask(task.id, {
     status: "running",
     plan: plan as unknown as Record<string, unknown>,
