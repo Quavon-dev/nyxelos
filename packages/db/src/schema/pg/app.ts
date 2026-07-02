@@ -360,7 +360,9 @@ export type ToolKind =
 	| "github_code_search"
 	| "generate_image"
 	| "generate_video"
-	| "edit_video";
+	| "edit_video"
+	| "generate_speech"
+	| "transcribe_audio";
 
 /** A user-defined tool, built from a declarative `kind` instead of
  * hand-written TypeScript. Complements the process-wide hardcoded skills in

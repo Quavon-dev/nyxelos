@@ -129,7 +129,9 @@ export type ToolKind =
 	| "github_code_search"
 	| "generate_image"
 	| "generate_video"
-	| "edit_video";
+	| "edit_video"
+	| "generate_speech"
+	| "transcribe_audio";
 
 export type AutomationTriggerType = "cron" | "file_watch";
 export type AutomationRunStatus = "success" | "error" | "pending_approval";

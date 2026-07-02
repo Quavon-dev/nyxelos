@@ -12,6 +12,9 @@ import {
 	fetchOpenRouterModels,
 	getModelCapabilities,
 	listAvailableModels,
+	OPENAI_IMAGE_MODELS,
+	OPENAI_SPEECH_MODELS,
+	OPENAI_TRANSCRIPTION_MODELS,
 	OPENAI_VIDEO_MODELS,
 	OPENROUTER_BASE_URL,
 	probeOpenAiCompatibleEndpoint,
@@ -428,6 +431,16 @@ export const appRouter = router({
 					: [];
 				return listAvailableModels(providers);
 			}),
+		// Fixed catalogs (OpenAI only today) for generation model kinds that
+		// aren't chat LanguageModels and so don't show up in `list` above —
+		// exposed over tRPC the same way video.models does, so the Models
+		// settings page can surface gpt-image-1/tts/whisper etc. without
+		// duplicating the list as a frontend constant.
+		generationCatalog: publicProcedure.query(() => ({
+			image: OPENAI_IMAGE_MODELS,
+			speech: OPENAI_SPEECH_MODELS,
+			transcription: OPENAI_TRANSCRIPTION_MODELS,
+		})),
 		installations: publicProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.query(({ input }) =>

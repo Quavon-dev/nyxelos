@@ -269,6 +269,22 @@ export const BUILTIN_TOOL_SEEDS: BuiltinToolSeed[] = [
 		sensitive: true,
 		config: {},
 	},
+	{
+		kind: "generate_speech",
+		name: "Generate speech",
+		description:
+			"Convert text to spoken audio using an OpenAI TTS model (gpt-4o-mini-tts, tts-1, or tts-1-hd) and return it for playback in the chat.",
+		sensitive: false,
+		config: {},
+	},
+	{
+		kind: "transcribe_audio",
+		name: "Transcribe audio",
+		description:
+			"Transcribe an audio file to text using an OpenAI speech-to-text model (gpt-4o-transcribe, gpt-4o-mini-transcribe, or whisper-1).",
+		sensitive: false,
+		config: WORKSPACE_DIR_CONFIG,
+	},
 ];
 
 /** Idempotent — only inserts seeds whose `kind` isn't already present for

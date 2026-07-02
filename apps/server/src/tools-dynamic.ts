@@ -3,6 +3,7 @@ import type { ToolRecord } from "@nyxel/db";
 import { createSkillContext, type SkillDefinition } from "@nyxel/skills-sdk";
 import { z } from "zod";
 import { listKnowledgeBaseDocuments } from "./knowledge-base";
+import { buildGenerateSpeechTool, buildTranscribeAudioTool } from "./tools-builtin/audio";
 import {
 	buildBrowserClickTool,
 	buildBrowserDragTool,
@@ -304,6 +305,10 @@ export function buildDynamicToolDefinition(
 			return buildGenerateVideoTool(record);
 		case "edit_video":
 			return buildEditVideoTool(record);
+		case "generate_speech":
+			return buildGenerateSpeechTool(record);
+		case "transcribe_audio":
+			return buildTranscribeAudioTool(record);
 
 		default:
 			// Exhaustiveness guard — a future ToolKind added to the DB schema
@@ -371,4 +376,6 @@ export const TOOL_KIND_CATEGORY: Record<
 	generate_image: "web",
 	generate_video: "web",
 	edit_video: "web",
+	generate_speech: "web",
+	transcribe_audio: "web",
 };

@@ -282,7 +282,9 @@ export type ToolKind =
 	| "github_code_search"
 	| "generate_image"
 	| "generate_video"
-	| "edit_video";
+	| "edit_video"
+	| "generate_speech"
+	| "transcribe_audio";
 
 export type ToolCategory = "edit" | "read" | "search" | "execute" | "browser" | "web";
 
@@ -333,6 +335,8 @@ export const TOOL_KIND_CATEGORY: Record<ToolKind, ToolCategory> = {
 	generate_image: "web",
 	generate_video: "web",
 	edit_video: "web",
+	generate_speech: "web",
+	transcribe_audio: "web",
 };
 
 /** A DB-backed, workspace-configurable tool (the old "Skills" tab concept —

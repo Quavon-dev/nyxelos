@@ -271,6 +271,16 @@ const TOOL_KINDS: { value: ToolKind; label: string; description: string }[] = [
     label: "Edit video",
     description: "Trim, concatenate, mute, adjust volume/speed, extract a frame, or GIF a library video.",
   },
+  {
+    value: "generate_speech",
+    label: "Generate speech",
+    description: "Convert text to spoken audio (OpenAI gpt-4o-mini-tts, tts-1, or tts-1-hd).",
+  },
+  {
+    value: "transcribe_audio",
+    label: "Transcribe audio",
+    description: "Transcribe an audio file to text (OpenAI gpt-4o-transcribe or whisper-1).",
+  },
 ];
 
 const DEFAULT_SENSITIVE_KINDS = new Set<ToolKind>([
@@ -323,6 +333,7 @@ const NEEDS_DIRS = new Set<ToolKind>([
   "usages",
   "codebase_search",
   "changes",
+  "transcribe_audio",
 ]);
 const NEEDS_COMMAND = new Set<ToolKind>(["task_run", "test_run", "problems"]);
 

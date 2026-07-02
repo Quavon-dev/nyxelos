@@ -10,11 +10,13 @@ import {
   Image as ImageIcon,
   Lightbulb,
   Loader2,
+  Mic,
   Move,
   Pencil,
   Scissors,
   Trash2,
   Users,
+  Volume2,
   Wrench,
 } from "lucide-react";
 import { useState } from "react";
@@ -37,6 +39,8 @@ const STEP_META: Record<string, { verb: string; icon: typeof FileText }> = {
   generate_image: { verb: "Image generated", icon: ImageIcon },
   generate_video: { verb: "Video generated", icon: Film },
   edit_video: { verb: "Video edited", icon: Scissors },
+  generate_speech: { verb: "Speech generated", icon: Volume2 },
+  transcribe_audio: { verb: "Audio transcribed", icon: Mic },
 };
 
 /** Matches the `{ mimeType, base64 }` shape shared by generate_image,
@@ -49,6 +53,23 @@ function generatedImageFromOutput(output: unknown): { mimeType: string; base64: 
   if (
     typeof record.mimeType === "string" &&
     record.mimeType.startsWith("image/") &&
+    typeof record.base64 === "string" &&
+    record.base64.length > 0
+  ) {
+    return { mimeType: record.mimeType, base64: record.base64 };
+  }
+  return null;
+}
+
+/** Matches the `{ mimeType, base64 }` shape generate_speech's tool output
+ * carries — same reasoning as generatedImageFromOutput, but for an
+ * `audio/*` mimeType instead of `image/*`. */
+function generatedAudioFromOutput(output: unknown): { mimeType: string; base64: string } | null {
+  if (!output || typeof output !== "object") return null;
+  const record = output as Record<string, unknown>;
+  if (
+    typeof record.mimeType === "string" &&
+    record.mimeType.startsWith("audio/") &&
     typeof record.base64 === "string" &&
     record.base64.length > 0
   ) {
@@ -135,11 +156,13 @@ function ToolStepRow({ step }: { step: AgentActivityStep }) {
   const running = step.output === undefined && !step.error;
   const isImageGeneration = step.name === "generate_image";
   const isVideoStep = step.name === "generate_video" || step.name === "edit_video";
+  const isSpeechGeneration = step.name === "generate_speech";
   const generatedImage = generatedImageFromOutput(step.output);
   const generatedMedia = generatedMediaFromOutput(step.output);
+  const generatedAudio = generatedAudioFromOutput(step.output);
   const detail = step.error
     ? step.error
-    : step.output !== undefined && !generatedImage && !generatedMedia
+    : step.output !== undefined && !generatedImage && !generatedMedia && !generatedAudio
       ? JSON.stringify(step.output, null, 2)
       : null;
 
@@ -220,6 +243,25 @@ function ToolStepRow({ step }: { step: AgentActivityStep }) {
             src={libraryFileUrl(generatedMedia.libraryFileId)}
             alt={target}
             className="max-h-80 w-full max-w-56 rounded-lg border border-border/60 object-contain"
+          />
+        </div>
+      )}
+
+      {isSpeechGeneration && running && (
+        <div className="border-t border-border/60 p-2.5">
+          <div className="flex h-12 w-full max-w-72 animate-pulse items-center justify-center rounded-lg border border-border/60 bg-background/50">
+            <Volume2 className="size-5 text-muted-foreground/40" />
+          </div>
+        </div>
+      )}
+
+      {generatedAudio && (
+        <div className="border-t border-border/60 p-2.5">
+          {/* biome-ignore lint/a11y/useMediaCaption: generated speech has no caption track to attach */}
+          <audio
+            src={`data:${generatedAudio.mimeType};base64,${generatedAudio.base64}`}
+            controls
+            className="w-full max-w-72"
           />
         </div>
       )}
