@@ -61,6 +61,21 @@ docker compose -f docker-compose.server.yml up --build -d
 Access at `https://NYXEL_DOMAIN`. Caddy handles TLS certificates, health checks (`/healthz`), and routing.
 
 ---
+### 🖼️ Screenshots
+
+| First-run setup | Overview dashboard |
+| --- | --- |
+| ![First-run setup wizard](docs/screenshots/setup-wizard.png) | ![Overview dashboard](docs/screenshots/overview-dashboard.png) |
+
+| Chat | Workspace settings |
+| --- | --- |
+| ![Chat interface](docs/screenshots/chat.png) | ![Workspace settings](docs/screenshots/workspace-settings.png) |
+
+| Agents | Skills catalog |
+| --- | --- |
+| ![Agents](docs/screenshots/agents.png) | ![Skills catalog](docs/screenshots/skills.png) |
+
+---
 ### 📂 Project Structure Deep Dive
 ```
 apps/
