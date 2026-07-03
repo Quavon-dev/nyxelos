@@ -15,6 +15,7 @@ import {
   Images,
   LayoutDashboard,
   Library,
+  MapPin,
   MessageSquare,
   Package,
   Plug,
@@ -56,6 +57,7 @@ import { useInstallation } from "@/lib/use-installation";
 const EXTENSION_ICON_MAP: Record<string, typeof Puzzle> = {
   TrendingUp,
   Film,
+  MapPin,
 };
 
 export function AppSidebar() {

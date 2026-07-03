@@ -47,6 +47,15 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
 		icon: "Film",
 		route: "video-studio",
 	},
+	{
+		key: "local-lead-scout",
+		name: "Local Lead Scout",
+		description:
+			"Finds local businesses with no website via compliant sources (CSV import, OSM Overpass, official Places API), then drafts a prototype and outreach email for you to review and approve before anything is sent.",
+		category: "Growth",
+		icon: "MapPin",
+		route: "local-lead-scout",
+	},
 ];
 
 export function getExtensionCatalogEntry(
