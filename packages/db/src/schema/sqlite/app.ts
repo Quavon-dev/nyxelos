@@ -1017,19 +1017,18 @@ export const leadScoutSourceConfig = sqliteTable(
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
     provider: text("provider").notNull().$type<LeadScoutProvider>(),
-    config: text("config", { mode: "json" })
-      .notNull()
-      .default({})
-      .$type<Record<string, unknown>>(),
+    config: text("config", { mode: "json" }).notNull().default({}).$type<Record<string, unknown>>(),
     apiKey: text("api_key"),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
-  (table) => [uniqueIndex("lead_scout_source_config_workspace_provider_idx").on(
-    table.workspaceId,
-    table.provider,
-  )],
+  (table) => [
+    uniqueIndex("lead_scout_source_config_workspace_provider_idx").on(
+      table.workspaceId,
+      table.provider,
+    ),
+  ],
 );
 
 /** See ../pg/app.ts. */
@@ -1088,11 +1087,13 @@ export const leadScoutLead = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
-  (table) => [uniqueIndex("lead_scout_lead_campaign_source_idx").on(
-    table.campaignId,
-    table.sourceProvider,
-    table.sourceId,
-  )],
+  (table) => [
+    uniqueIndex("lead_scout_lead_campaign_source_idx").on(
+      table.campaignId,
+      table.sourceProvider,
+      table.sourceId,
+    ),
+  ],
 );
 
 /** See ../pg/app.ts. */

@@ -152,10 +152,10 @@ describe("lead status gating for prototype dispatch", () => {
   });
 
   test("approving a prototype that isn't ready is rejected", async () => {
-    const { db, workspace } = await setupCampaign();
+    const { db, workspace, campaign } = await setupCampaign();
     const lead = await db.createLeadScoutLead({
       workspaceId: workspace.id,
-      campaignId: (await db.listLeadScoutCampaignsByWorkspace(workspace.id))[0]!.id,
+      campaignId: campaign.id,
       sourceProvider: "manual_csv",
       sourceId: "row-3",
       businessName: "Pending Co",

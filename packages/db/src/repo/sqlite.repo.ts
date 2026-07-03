@@ -3046,7 +3046,11 @@ export function createSqliteRepository(filePath: string): DbRepository {
     },
 
     async getLeadScoutLead(id) {
-      const row = db.select().from(schema.leadScoutLead).where(eq(schema.leadScoutLead.id, id)).get();
+      const row = db
+        .select()
+        .from(schema.leadScoutLead)
+        .where(eq(schema.leadScoutLead.id, id))
+        .get();
       return row ?? null;
     },
 
@@ -3223,7 +3227,9 @@ export function createSqliteRepository(filePath: string): DbRepository {
         .from(schema.leadScoutEmailSettings)
         .where(eq(schema.leadScoutEmailSettings.workspaceId, workspaceId))
         .get();
-      return row ? { ...row, credentials: decryptJsonNullable<Record<string, string>>(row.credentials) } : null;
+      return row
+        ? { ...row, credentials: decryptJsonNullable<Record<string, string>>(row.credentials) }
+        : null;
     },
 
     async upsertLeadScoutEmailSettings({
@@ -3265,7 +3271,10 @@ export function createSqliteRepository(filePath: string): DbRepository {
           .returning()
           .get();
         if (!row) throw new Error(`Lead scout email settings not found: ${existing.id}`);
-        return { ...row, credentials: decryptJsonNullable<Record<string, string>>(row.credentials) };
+        return {
+          ...row,
+          credentials: decryptJsonNullable<Record<string, string>>(row.credentials),
+        };
       }
 
       const now = new Date();

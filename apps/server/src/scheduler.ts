@@ -408,7 +408,10 @@ async function checkDueLeadScoutCampaigns(): Promise<void> {
         : null;
       await db.updateLeadScoutCampaign(campaign.id, { nextScanAt });
     } catch (err) {
-      console.error(`Scheduler: lead scout scan for "${campaign.name}" (${campaign.id}) failed:`, err);
+      console.error(
+        `Scheduler: lead scout scan for "${campaign.name}" (${campaign.id}) failed:`,
+        err,
+      );
     }
   }
 }

@@ -2902,7 +2902,13 @@ export function createPgRepository(connectionString: string): DbRepository {
     async createLeadScoutSuppression({ workspaceId, email, domain, reason }) {
       const [row] = await db
         .insert(schema.leadScoutSuppression)
-        .values({ id: randomUUID(), workspaceId, email: email ?? null, domain: domain ?? null, reason })
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          email: email ?? null,
+          domain: domain ?? null,
+          reason,
+        })
         .returning();
       if (!row) throw new Error("Failed to create lead scout suppression");
       return row;
@@ -2972,7 +2978,10 @@ export function createPgRepository(connectionString: string): DbRepository {
           .where(eq(schema.leadScoutEmailSettings.id, existing.id))
           .returning();
         if (!row) throw new Error(`Lead scout email settings not found: ${existing.id}`);
-        return { ...row, credentials: decryptJsonNullable<Record<string, string>>(row.credentials) };
+        return {
+          ...row,
+          credentials: decryptJsonNullable<Record<string, string>>(row.credentials),
+        };
       }
 
       const [row] = await db

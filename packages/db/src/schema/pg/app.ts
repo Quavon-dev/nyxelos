@@ -1142,10 +1142,12 @@ export const leadScoutSourceConfig = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (table) => [uniqueIndex("lead_scout_source_config_workspace_provider_idx").on(
-    table.workspaceId,
-    table.provider,
-  )],
+  (table) => [
+    uniqueIndex("lead_scout_source_config_workspace_provider_idx").on(
+      table.workspaceId,
+      table.provider,
+    ),
+  ],
 );
 
 export const leadScoutScanRun = pgTable("lead_scout_scan_run", {
@@ -1205,11 +1207,13 @@ export const leadScoutLead = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (table) => [uniqueIndex("lead_scout_lead_campaign_source_idx").on(
-    table.campaignId,
-    table.sourceProvider,
-    table.sourceId,
-  )],
+  (table) => [
+    uniqueIndex("lead_scout_lead_campaign_source_idx").on(
+      table.campaignId,
+      table.sourceProvider,
+      table.sourceId,
+    ),
+  ],
 );
 
 /** One AI-generated website concept for a lead, produced by dispatching a
