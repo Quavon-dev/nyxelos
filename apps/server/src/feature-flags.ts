@@ -33,3 +33,19 @@ export function isRemotePluginInstallEnabled(): boolean {
 export function isCustomCodeSkillsEnabled(): boolean {
   return readFlag("ENABLE_CUSTOM_CODE_SKILLS", !isProduction());
 }
+
+/**
+ * The workflow builder's HTTP Request node (workflow-runner.ts) can reach
+ * any URL the workflow's own config names — safe-fetch.ts blocks SSRF
+ * targets (private/loopback/link-local/metadata addresses), but there's
+ * still no human present to notice an unattended run (a cron/file-watch
+ * automation, or `run_workflow` called from an autonomous/super_agent
+ * agent) making outbound requests to whatever public URL it was configured
+ * with. Disabled by default in production for the same "unattended +
+ * network-capable" reason as the two flags above; a manual "Run" click in
+ * the builder (an attended, authenticated human action) is never gated by
+ * this. Set ENABLE_WORKFLOW_AUTOMATION_HTTP=true to opt in explicitly.
+ */
+export function isWorkflowAutomationHttpEnabled(): boolean {
+  return readFlag("ENABLE_WORKFLOW_AUTOMATION_HTTP", !isProduction());
+}

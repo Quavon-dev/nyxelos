@@ -155,7 +155,11 @@ async function runWorkflowAutomation(
   let status: "success" | "error" | "pending_approval";
   let runId = "";
   try {
-    const { run, nodes } = await runWorkflowAndWait(automation.workflowId, automation.workspaceId);
+    const { run, nodes } = await runWorkflowAndWait(
+      automation.workflowId,
+      automation.workspaceId,
+      "automation",
+    );
     runId = run.id;
     const failedCount = nodes.filter((n) => n.status === "failed").length;
     status = run.status === "failed" ? "error" : "success";

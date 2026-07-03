@@ -1,8 +1,18 @@
 import { randomUUID } from "node:crypto";
 import type { AgentRecord, AgentRunRecord, TaskRecord } from "@nyxel/db";
 import { getDb } from "@nyxel/db";
-import { getModelCapabilities, streamChat } from "@nyxel/model-providers";
-import { createAutonomyBudgetTracker, resolveAutonomyBudget } from "./autonomy-budget";
+import {
+  DEFAULT_MAX_OUTPUT_TOKENS,
+  getModelCapabilities,
+  streamChat,
+} from "@nyxel/model-providers";
+import {
+  type AutonomyBudgetTracker,
+  checkModelCallCostBudget,
+  createAutonomyBudgetTracker,
+  recordModelCallCost,
+  resolveAutonomyBudget,
+} from "./autonomy-budget";
 import { emitNyxelEvent } from "./event-bus";
 import { NyxelEvent } from "./events";
 import { getKnowledgeBaseContextForPrompt } from "./knowledge-base";
@@ -145,12 +155,23 @@ function effectiveModelId(agent: AgentRecord, task: TaskRecord): string {
 async function planTask(
   agent: AgentRecord,
   task: TaskRecord,
+  budgetTracker: AutonomyBudgetTracker,
   instructionOverride?: string,
   abortSignal?: AbortSignal,
   workingDirectory?: string | null,
 ): Promise<ExecutionPlan> {
+  const modelId = effectiveModelId(agent, task);
+  // Autonomy Budgets v1 (see ./autonomy-budget.ts) — planning is a real
+  // model call like any other; skip it (falling back to the same
+  // best-effort plan toExecutionPlan already builds when parsing fails)
+  // rather than spending against a budget that's already exhausted or
+  // can't cover it.
+  if (!checkModelCallCostBudget(budgetTracker, modelId, DEFAULT_MAX_OUTPUT_TOKENS).allowed) {
+    return toExecutionPlan(task, "");
+  }
+
   const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
-  const systemPrompt = await buildSystemPrompt(agent, true, effectiveModelId(agent, task));
+  const systemPrompt = await buildSystemPrompt(agent, true, modelId);
   const planningPrompt = [
     "Create a compact JSON execution plan for this task.",
     "Return JSON only with keys: goal, successCriteria, steps, neededCapabilities, delegationCandidates, completionCheck.",
@@ -161,12 +182,13 @@ async function planTask(
       : "Delegate candidates available: none",
   ].join("\n");
   const result = streamChat({
-    modelId: effectiveModelId(agent, task),
+    modelId,
     systemPrompt,
     installedProviders,
     messages: [{ role: "user", content: planningPrompt }],
     abortSignal,
     cwd: workingDirectory ?? undefined,
+    onFinish: ({ usage }) => recordModelCallCost(budgetTracker, modelId, usage),
   });
   const raw = await result.text;
   return toExecutionPlan(task, raw);
@@ -282,23 +304,27 @@ async function runDirectExecution(
   agent: AgentRecord,
   task: TaskRecord,
   run: AgentRunRecord,
+  budgetTracker: AutonomyBudgetTracker,
   instructionOverride?: string,
   abortSignal?: AbortSignal,
   workingDirectory?: string | null,
 ): Promise<{ text: string; toolStepCount: number; budgetBlockedReason: string | null }> {
-  const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
   const modelId = effectiveModelId(agent, task);
-  const systemPrompt = await buildSystemPrompt(agent, true, modelId);
   const modelParams = await getDb().getModelParameter(agent.workspaceId, modelId);
+  const maxOutputTokens = modelParams?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  // Autonomy Budgets v1 (see ./autonomy-budget.ts) — checked before this
+  // call is made (not just after, via checkAndConsumeRunBudget's tool-call
+  // boundary check), so a run whose cost budget can't cover even the
+  // planned model call never spends against it in the first place.
+  if (!checkModelCallCostBudget(budgetTracker, modelId, maxOutputTokens).allowed) {
+    return { text: "", toolStepCount: 0, budgetBlockedReason: budgetTracker.blockedReason };
+  }
+
+  const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
+  const systemPrompt = await buildSystemPrompt(agent, true, modelId);
   // Models with no tool-use-capable endpoint (e.g. OpenRouter image
   // generation models) 404 outright if a tools array is sent at all.
   const modelCapabilities = await getModelCapabilities(modelId, installedProviders);
-  // Autonomy Budgets v1 (see ./autonomy-budget.ts) — created here (rather
-  // than left to buildToolsForAgent's own fallback) so this function can
-  // report whether the run got stopped by its own budget once streaming
-  // finishes, letting runManagedTask pause the task cleanly instead of
-  // marking it completed.
-  const budgetTracker = createAutonomyBudgetTracker(resolveAutonomyBudget(agent));
   const tools = modelCapabilities.toolCalling
     ? await buildToolsForAgent(agent, {
         taskId: task.id,
@@ -333,6 +359,7 @@ async function runDirectExecution(
       // stuck presenting a plan instead of applying it.
       toolMode: toolPolicyForAutonomyLevel(agent.autonomyLevel).mode,
       messages: [{ role: "user", content: buildTaskPrompt(task, instructionOverride) }],
+      onFinish: ({ usage }) => recordModelCallCost(budgetTracker, modelId, usage),
     },
     run.id,
     { taskId: task.id, workspaceId: task.workspaceId, agentId: agent.id },
@@ -516,9 +543,15 @@ async function runManagedTask(
     completedAt: null,
     errorMessage: null,
   };
+  // Autonomy Budgets v1 (see ./autonomy-budget.ts) — one tracker for the
+  // whole run, shared across planning, direct execution/tool calls, and a
+  // super-agent's synthesis call, so a cost budget is judged against total
+  // spend across every model call the run makes, not reset per call.
+  const budgetTracker = createAutonomyBudgetTracker(resolveAutonomyBudget(input.agent));
   const plan = await planTask(
     input.agent,
     activeTask,
+    budgetTracker,
     input.instructionOverride,
     abortSignal,
     input.workingDirectory,
@@ -540,10 +573,11 @@ async function runManagedTask(
 
   let output: string;
   let toolStepCount = 0;
-  // Autonomy Budgets v1 — only set by the direct-execution path below (the
-  // super-agent delegation branch doesn't call tools itself, so nothing to
-  // report; each delegated child task tracks its own budget independently
-  // via its own executeManagedTask call).
+  // Autonomy Budgets v1 — set from the shared `budgetTracker` after either
+  // branch below: direct execution's own tool calls, or (for a super-agent)
+  // the synthesis call's cost preflight. Each delegated child task tracks
+  // its own budget independently via its own executeManagedTask call, so a
+  // delegate exceeding its own budget doesn't directly set this one.
   let budgetBlockedReason: string | null = null;
 
   if (
@@ -612,31 +646,45 @@ async function runManagedTask(
       });
     }
 
-    const synthesisPrompt = [
-      "Merge the delegated task results into one final response.",
-      `Original task: ${buildTaskPrompt(task, input.instructionOverride)}`,
-      "Delegated outputs:",
-      ...children.map((child) => `- ${child.agentId}: ${child.resultSummary.slice(0, 4000)}`),
-    ].join("\n");
-    const installedProviders = await getInstalledProvidersForWorkspace(input.agent.workspaceId);
-    const systemPrompt = await buildSystemPrompt(input.agent, true);
-    const synthesis = await streamWithLiveUpdates(
-      {
-        modelId: effectiveModelId(input.agent, task),
-        systemPrompt,
-        installedProviders,
-        reasoningEffort: "medium",
-        messages: [{ role: "user", content: synthesisPrompt }],
-        abortSignal,
-      },
-      run.id,
+    const synthesisModelId = effectiveModelId(input.agent, task);
+    const synthesisCostCheck = checkModelCallCostBudget(
+      budgetTracker,
+      synthesisModelId,
+      DEFAULT_MAX_OUTPUT_TOKENS,
     );
-    output = synthesis.text;
+    if (!synthesisCostCheck.allowed) {
+      output = "";
+      budgetBlockedReason = budgetTracker.blockedReason;
+    } else {
+      const synthesisPrompt = [
+        "Merge the delegated task results into one final response.",
+        `Original task: ${buildTaskPrompt(task, input.instructionOverride)}`,
+        "Delegated outputs:",
+        ...children.map((child) => `- ${child.agentId}: ${child.resultSummary.slice(0, 4000)}`),
+      ].join("\n");
+      const installedProviders = await getInstalledProvidersForWorkspace(input.agent.workspaceId);
+      const systemPrompt = await buildSystemPrompt(input.agent, true);
+      const synthesis = await streamWithLiveUpdates(
+        {
+          modelId: synthesisModelId,
+          systemPrompt,
+          installedProviders,
+          reasoningEffort: "medium",
+          messages: [{ role: "user", content: synthesisPrompt }],
+          abortSignal,
+          onFinish: ({ usage }) => recordModelCallCost(budgetTracker, synthesisModelId, usage),
+        },
+        run.id,
+      );
+      output = synthesis.text;
+      budgetBlockedReason = budgetTracker.blockedReason;
+    }
   } else {
     const execution = await runDirectExecution(
       input.agent,
       task,
       run,
+      budgetTracker,
       input.instructionOverride,
       abortSignal,
       input.workingDirectory,

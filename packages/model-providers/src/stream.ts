@@ -58,8 +58,11 @@ const ANTHROPIC_THINKING_BUDGET_TOKENS: Record<ReasoningEffort, number> = {
 const DEFAULT_MAX_TOOL_STEPS = 12;
 
 /** Applied whenever a caller doesn't set `maxOutputTokens` explicitly — see
- * the field doc on StreamChatInput. */
-const DEFAULT_MAX_OUTPUT_TOKENS = 8_192;
+ * the field doc on StreamChatInput. Exported so callers that need to
+ * *predict* a call's cost before making it (autonomy-budget.ts's cost
+ * preflight) use the exact same default this module actually applies,
+ * rather than a duplicated magic number that could drift out of sync. */
+export const DEFAULT_MAX_OUTPUT_TOKENS = 8_192;
 
 export interface StreamChatInput {
   modelId: string;

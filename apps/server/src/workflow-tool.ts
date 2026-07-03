@@ -39,7 +39,11 @@ export async function buildRunWorkflowTool(
     execute: async ({ workflowId }) => {
       const workflowName = labelById.get(workflowId) ?? workflowId;
       try {
-        const { run, nodes } = await runWorkflowAndWait(workflowId, agent.workspaceId);
+        const { run, nodes } = await runWorkflowAndWait(
+          workflowId,
+          agent.workspaceId,
+          ctx.automationId ? "automation" : "manual",
+        );
         const summary = {
           runId: run.id,
           status: run.status,

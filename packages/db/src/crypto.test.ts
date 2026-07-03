@@ -66,4 +66,17 @@ describe("crypto", () => {
     expect(encrypted).not.toContain("at-123");
     expect(decryptJsonNullable<typeof oauthState>(encrypted)).toEqual(oauthState);
   });
+
+  test("decryptJsonNullable rejects a malformed v1-prefixed value instead of returning garbage", () => {
+    expect(() => decryptJsonNullable("v1:not-enough-parts")).toThrow();
+  });
+
+  test("decryptJsonNullable throws on a v1-prefixed value whose plaintext isn't valid JSON", () => {
+    // A real ciphertext, but not one produced by encryptJsonNullable — decrypts
+    // to plain text, not JSON, so JSON.parse must fail rather than silently
+    // returning something the caller would misread as parsed OAuth state.
+    const encryptedPlainString = encryptNullable("not-json");
+    expect(encryptedPlainString).not.toBeNull();
+    expect(() => decryptJsonNullable(encryptedPlainString)).toThrow();
+  });
 });
