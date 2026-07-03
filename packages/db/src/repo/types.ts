@@ -65,6 +65,19 @@ export type AgentRunTrigger =
 	| "delegate"
 	| "extension";
 
+export type GoalStatus =
+	| "active"
+	| "paused"
+	| "blocked"
+	| "completed"
+	| "archived";
+export type GoalMilestoneStatus = "pending" | "completed";
+export type GoalEventKind =
+	| "created"
+	| "status_changed"
+	| "milestone_added"
+	| "milestone_status_changed";
+
 export type SeoAnalysisRunStatus = "running" | "completed" | "failed";
 export type SeoFindingCategory = "seo" | "geo" | "aeo";
 export type SeoFindingSeverity = "info" | "warning" | "critical";
@@ -285,6 +298,38 @@ export interface TaskEventRecord {
 	agentRunId: string | null;
 	agentId: string | null;
 	kind: TaskEventKind;
+	message: string;
+	payload: Record<string, unknown> | null;
+	createdAt: Date;
+}
+
+export interface GoalRecord {
+	id: string;
+	workspaceId: string;
+	title: string;
+	description: string | null;
+	status: GoalStatus;
+	priority: TaskPriority;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+export interface GoalMilestoneRecord {
+	id: string;
+	goalId: string;
+	workspaceId: string;
+	title: string;
+	status: GoalMilestoneStatus;
+	order: number;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+export interface GoalProgressEventRecord {
+	id: string;
+	goalId: string;
+	workspaceId: string;
+	kind: GoalEventKind;
 	message: string;
 	payload: Record<string, unknown> | null;
 	createdAt: Date;
@@ -1021,6 +1066,42 @@ export interface DbRepository {
 		payload?: Record<string, unknown> | null;
 	}): Promise<TaskEventRecord>;
 	listTaskEvents(taskId: string): Promise<TaskEventRecord[]>;
+
+	/** No agent acts on a goal automatically — it is purely a record for the
+	 * user to track long-term outcomes. Linking goals to tasks/runs/workflows
+	 * is future work (see ADR/roadmap, not implemented in v1). */
+	createGoal(input: {
+		workspaceId: string;
+		title: string;
+		description?: string | null;
+		status?: GoalStatus;
+		priority?: TaskPriority;
+	}): Promise<GoalRecord>;
+	listGoalsByWorkspace(workspaceId: string): Promise<GoalRecord[]>;
+	getGoal(goalId: string): Promise<GoalRecord | null>;
+	updateGoalStatus(goalId: string, status: GoalStatus): Promise<GoalRecord>;
+
+	addMilestone(input: {
+		goalId: string;
+		workspaceId: string;
+		title: string;
+		order?: number;
+	}): Promise<GoalMilestoneRecord>;
+	listMilestonesByGoal(goalId: string): Promise<GoalMilestoneRecord[]>;
+	getMilestone(milestoneId: string): Promise<GoalMilestoneRecord | null>;
+	updateMilestoneStatus(
+		milestoneId: string,
+		status: GoalMilestoneStatus,
+	): Promise<GoalMilestoneRecord>;
+
+	createGoalProgressEvent(input: {
+		goalId: string;
+		workspaceId: string;
+		kind: GoalEventKind;
+		message: string;
+		payload?: Record<string, unknown> | null;
+	}): Promise<GoalProgressEventRecord>;
+	listGoalProgressEvents(goalId: string): Promise<GoalProgressEventRecord[]>;
 
 	createAgentRun(input: {
 		workspaceId: string;

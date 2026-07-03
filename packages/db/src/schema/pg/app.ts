@@ -112,6 +112,24 @@ export const agentRunTrigger = pgEnum("agent_run_trigger", [
 	"extension",
 ]);
 
+export const goalStatus = pgEnum("goal_status", [
+	"active",
+	"paused",
+	"blocked",
+	"completed",
+	"archived",
+]);
+export const goalMilestoneStatus = pgEnum("goal_milestone_status", [
+	"pending",
+	"completed",
+]);
+export const goalEventKind = pgEnum("goal_event_kind", [
+	"created",
+	"status_changed",
+	"milestone_added",
+	"milestone_status_changed",
+]);
+
 export const seoAnalysisRunStatus = pgEnum("seo_analysis_run_status", [
 	"running",
 	"completed",
@@ -1161,4 +1179,52 @@ export const workflowRunNode = pgTable("workflow_run_node", {
 	completedAt: timestamp("completed_at"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** A long-term outcome the workspace is tracking. Purely a record — no
+ * agent acts on a goal automatically. Tasks/runs/workflows may reference a
+ * goal later, but that linking is out of scope for v1. */
+export const goal = pgTable("goal", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	title: text("title").notNull(),
+	description: text("description"),
+	status: goalStatus("status").notNull().default("active"),
+	priority: taskPriority("priority").notNull().default("normal"),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const goalMilestone = pgTable("goal_milestone", {
+	id: text("id").primaryKey(),
+	goalId: text("goal_id")
+		.notNull()
+		.references(() => goal.id, { onDelete: "cascade" }),
+	// Denormalized from goal.workspaceId (same pattern as taskEvent.workspaceId)
+	// so milestone lookups can be workspace-scoped without joining through goal.
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	title: text("title").notNull(),
+	status: goalMilestoneStatus("status").notNull().default("pending"),
+	order: integer("order").notNull().default(0),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** Append-only activity log for a goal, mirrors taskEvent. */
+export const goalProgressEvent = pgTable("goal_progress_event", {
+	id: text("id").primaryKey(),
+	goalId: text("goal_id")
+		.notNull()
+		.references(() => goal.id, { onDelete: "cascade" }),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	kind: goalEventKind("kind").notNull(),
+	message: text("message").notNull(),
+	payload: jsonb("payload").$type<Record<string, unknown> | null>(),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
 });

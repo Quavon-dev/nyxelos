@@ -109,6 +109,18 @@ export function createPgRepository(connectionString: string): DbRepository {
 		return row;
 	}
 
+	function mapGoal(row: typeof schema.goal.$inferSelect) {
+		return row;
+	}
+
+	function mapGoalMilestone(row: typeof schema.goalMilestone.$inferSelect) {
+		return row;
+	}
+
+	function mapGoalProgressEvent(row: typeof schema.goalProgressEvent.$inferSelect) {
+		return row;
+	}
+
 	function mapAgentRun(row: typeof schema.agentRun.$inferSelect) {
 		return row;
 	}
@@ -1037,6 +1049,117 @@ export function createPgRepository(connectionString: string): DbRepository {
 				.where(eq(schema.taskEvent.taskId, taskId))
 				.orderBy(schema.taskEvent.createdAt);
 			return rows.map(mapTaskEvent);
+		},
+
+		async createGoal({ workspaceId, title, description, status, priority }) {
+			const [row] = await db
+				.insert(schema.goal)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					title,
+					description: description ?? null,
+					status: status ?? "active",
+					priority: priority ?? "normal",
+					updatedAt: new Date(),
+				})
+				.returning();
+			if (!row) throw new Error("Failed to create goal");
+			return mapGoal(row);
+		},
+
+		async listGoalsByWorkspace(workspaceId) {
+			const rows = await db
+				.select()
+				.from(schema.goal)
+				.where(eq(schema.goal.workspaceId, workspaceId))
+				.orderBy(desc(schema.goal.createdAt));
+			return rows.map(mapGoal);
+		},
+
+		async getGoal(goalId) {
+			const row = await db.query.goal.findFirst({
+				where: eq(schema.goal.id, goalId),
+			});
+			return row ? mapGoal(row) : null;
+		},
+
+		async updateGoalStatus(goalId, status) {
+			const [row] = await db
+				.update(schema.goal)
+				.set({ status, updatedAt: new Date() })
+				.where(eq(schema.goal.id, goalId))
+				.returning();
+			if (!row) throw new Error(`Goal not found: ${goalId}`);
+			return mapGoal(row);
+		},
+
+		async addMilestone({ goalId, workspaceId, title, order }) {
+			const [row] = await db
+				.insert(schema.goalMilestone)
+				.values({
+					id: randomUUID(),
+					goalId,
+					workspaceId,
+					title,
+					status: "pending",
+					order: order ?? 0,
+					updatedAt: new Date(),
+				})
+				.returning();
+			if (!row) throw new Error("Failed to create milestone");
+			return mapGoalMilestone(row);
+		},
+
+		async listMilestonesByGoal(goalId) {
+			const rows = await db
+				.select()
+				.from(schema.goalMilestone)
+				.where(eq(schema.goalMilestone.goalId, goalId))
+				.orderBy(asc(schema.goalMilestone.order), asc(schema.goalMilestone.createdAt));
+			return rows.map(mapGoalMilestone);
+		},
+
+		async getMilestone(milestoneId) {
+			const row = await db.query.goalMilestone.findFirst({
+				where: eq(schema.goalMilestone.id, milestoneId),
+			});
+			return row ? mapGoalMilestone(row) : null;
+		},
+
+		async updateMilestoneStatus(milestoneId, status) {
+			const [row] = await db
+				.update(schema.goalMilestone)
+				.set({ status, updatedAt: new Date() })
+				.where(eq(schema.goalMilestone.id, milestoneId))
+				.returning();
+			if (!row) throw new Error(`Milestone not found: ${milestoneId}`);
+			return mapGoalMilestone(row);
+		},
+
+		async createGoalProgressEvent({ goalId, workspaceId, kind, message, payload }) {
+			const [row] = await db
+				.insert(schema.goalProgressEvent)
+				.values({
+					id: randomUUID(),
+					goalId,
+					workspaceId,
+					kind,
+					message,
+					payload: payload ?? null,
+				})
+				.returning();
+			if (!row) throw new Error("Failed to create goal progress event");
+			return mapGoalProgressEvent(row);
+		},
+
+		async listGoalProgressEvents(goalId) {
+			const rows = await db
+				.select()
+				.from(schema.goalProgressEvent)
+				.where(eq(schema.goalProgressEvent.goalId, goalId))
+				.orderBy(schema.goalProgressEvent.createdAt);
+			return rows.map(mapGoalProgressEvent);
 		},
 
 		async createAgentRun({

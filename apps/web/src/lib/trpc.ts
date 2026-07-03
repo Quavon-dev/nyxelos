@@ -161,6 +161,9 @@ export type AgentRunStatus =
   | "failed"
   | "cancelled";
 
+export type GoalStatus = "active" | "paused" | "blocked" | "completed" | "archived";
+export type GoalMilestoneStatus = "pending" | "completed";
+
 export type TaskSummary = {
   id: string;
   workspaceId: string;
@@ -223,6 +226,29 @@ export type TaskDetail = {
   children: TaskSummary[];
   events: TaskEventSummary[];
   runs: AgentRunSummary[];
+};
+
+export type GoalMilestoneSummary = {
+  id: string;
+  goalId: string;
+  workspaceId: string;
+  title: string;
+  status: GoalMilestoneStatus;
+  order: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type GoalSummary = {
+  id: string;
+  workspaceId: string;
+  title: string;
+  description: string | null;
+  status: GoalStatus;
+  priority: TaskPriority;
+  createdAt: Date;
+  updatedAt: Date;
+  milestones: GoalMilestoneSummary[];
 };
 
 export type ModelCapabilities = {
@@ -1633,6 +1659,35 @@ type NyxelTrpcClient = {
     };
     events: {
       query(input: { taskId: string }): Promise<TaskEventSummary[]>;
+    };
+  };
+  goals: {
+    list: {
+      query(input: { workspaceId: string }): Promise<GoalSummary[]>;
+    };
+    create: {
+      mutate(input: {
+        workspaceId: string;
+        title: string;
+        description?: string | null;
+        priority?: TaskPriority;
+      }): Promise<Omit<GoalSummary, "milestones">>;
+    };
+    updateStatus: {
+      mutate(input: { goalId: string; status: GoalStatus }): Promise<Omit<GoalSummary, "milestones">>;
+    };
+    addMilestone: {
+      mutate(input: {
+        goalId: string;
+        title: string;
+        order?: number;
+      }): Promise<GoalMilestoneSummary>;
+    };
+    updateMilestoneStatus: {
+      mutate(input: {
+        milestoneId: string;
+        status: GoalMilestoneStatus;
+      }): Promise<GoalMilestoneSummary>;
     };
   };
   agentRuns: {
