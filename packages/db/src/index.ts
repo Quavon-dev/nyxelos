@@ -40,6 +40,8 @@ export type {
 	ModelInstallationRecord,
 	ModelParameterRecord,
 	ModelProviderKind,
+	NyxelEventRecord,
+	NyxelEventType,
 	PluginAgentDefinition,
 	PluginRecord,
 	ProjectRecord,

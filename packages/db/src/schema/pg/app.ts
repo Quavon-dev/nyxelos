@@ -196,6 +196,21 @@ export const automationRunStatus = pgEnum("automation_run_status", [
 	"pending_approval",
 ]);
 
+/** Stable event-bus v1 event types (event bus fundament) — append new kinds
+ * here, never rename/remove existing ones since automations may already key
+ * off these strings. */
+export const nyxelEventType = pgEnum("nyxel_event_type", [
+	"agent.run.started",
+	"agent.run.completed",
+	"agent.run.failed",
+	"approval.created",
+	"approval.resolved",
+	"workflow.completed",
+	"task.failed",
+	"library.file.created",
+	"automation.triggered",
+]);
+
 export const memoryType = pgEnum("memory_type", [
 	"user_preference",
 	"workspace_fact",
@@ -772,6 +787,24 @@ export const auditLog = pgTable("audit_log", {
 	// required) so "why was this allowed" survives later policy changes.
 	inputHash: text("input_hash"),
 	permissionSnapshot: jsonb("permission_snapshot").$type<Record<string, unknown>>(),
+});
+
+/** Minimal internal event bus (v1) — an append-only, workspace-wide feed of
+ * system occurrences (agent runs, approvals, workflows, ...) that
+ * automations/agents can later subscribe to. Deliberately separate from
+ * `auditLog` (compliance record of tool/agent actions) and `taskEvent` (a
+ * per-task timeline) — this is keyed by event `type` plus the entity it
+ * happened to, not by task. */
+export const nyxelEvent = pgTable("nyxel_event", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	type: nyxelEventType("type").notNull(),
+	entityType: text("entity_type").notNull(),
+	entityId: text("entity_id").notNull(),
+	payload: jsonb("payload").$type<Record<string, unknown> | null>(),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 /** A single unit of controlled, workspace-scoped agent memory (ADR-0017).

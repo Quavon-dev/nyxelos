@@ -1,6 +1,8 @@
 import type { AgentRecord, AgentRunRecord, TaskRecord } from "@nyxel/db";
 import { getDb } from "@nyxel/db";
 import { getModelCapabilities, streamChat } from "@nyxel/model-providers";
+import { emitNyxelEvent } from "./event-bus";
+import { NyxelEvent } from "./events";
 import { getKnowledgeBaseContextForPrompt } from "./knowledge-base";
 import { getInstalledProvidersForWorkspace } from "./models";
 import { notifyWorkspaceOwner } from "./push";
@@ -336,6 +338,13 @@ export async function executeManagedTask(input: {
     status: "running",
     startedAt: new Date(),
   });
+  await emitNyxelEvent({
+    workspaceId: task.workspaceId,
+    type: NyxelEvent.AgentRunStarted,
+    entityType: "agent_run",
+    entityId: run.id,
+    payload: { taskId: task.id, agentId: input.agent.id, trigger: input.trigger },
+  });
 
   const controller = new AbortController();
   activeRunControllers.set(run.id, controller);
@@ -352,6 +361,20 @@ export async function executeManagedTask(input: {
         output: cancelledRun.finalOutput ?? "",
       };
     }
+    const message = err instanceof Error ? err.message : String(err);
+    await emitNyxelEvent({
+      workspaceId: task.workspaceId,
+      type: NyxelEvent.AgentRunFailed,
+      entityType: "agent_run",
+      entityId: run.id,
+      payload: { taskId: task.id, agentId: input.agent.id, error: message },
+    });
+    // task.failed is emitted where task.status actually transitions to
+    // "failed" — today that's scheduler.ts's automation catch, the only
+    // place that writes that status. Not every executeManagedTask caller
+    // marks its task failed on error (see scheduler.ts's runAgentAutomation
+    // for the rationale), so emitting it here would claim a state change
+    // that may not have happened.
     throw err;
   } finally {
     activeRunControllers.delete(run.id);
@@ -559,6 +582,15 @@ async function runManagedTask(
         ? "Run paused pending approval."
         : "Run completed.",
   });
+  if (!isPaused) {
+    await emitNyxelEvent({
+      workspaceId: task.workspaceId,
+      type: NyxelEvent.AgentRunCompleted,
+      entityType: "agent_run",
+      entityId: run.id,
+      payload: { taskId: task.id, agentId: input.agent.id, stepCount: run.stepCount },
+    });
+  }
 
   // pausedOnApproval already notified when the approval was created
   // (tools.ts) — only question-pauses and real completions need one here.

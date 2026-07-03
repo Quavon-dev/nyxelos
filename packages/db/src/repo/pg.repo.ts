@@ -1616,6 +1616,31 @@ export function createPgRepository(connectionString: string): DbRepository {
 				.limit(limit);
 		},
 
+		async createNyxelEvent({ workspaceId, type, entityType, entityId, payload }) {
+			const [row] = await db
+				.insert(schema.nyxelEvent)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					type,
+					entityType,
+					entityId,
+					payload: payload ?? null,
+				})
+				.returning();
+			if (!row) throw new Error("Failed to create nyxel event");
+			return row;
+		},
+
+		async listNyxelEventsByWorkspace(workspaceId, limit = 100) {
+			return db
+				.select()
+				.from(schema.nyxelEvent)
+				.where(eq(schema.nyxelEvent.workspaceId, workspaceId))
+				.orderBy(desc(schema.nyxelEvent.createdAt))
+				.limit(limit);
+		},
+
 		async createMemoryEntry({
 			workspaceId,
 			type,

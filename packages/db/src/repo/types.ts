@@ -20,6 +20,16 @@ export type ApprovalStatus = "pending" | "approved" | "rejected";
 export type ApprovalKind = "skill" | "tool" | "mcp";
 export type AuditActor = "chat" | "automation" | "approval" | "delegate" | "extension";
 export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
+export type NyxelEventType =
+	| "agent.run.started"
+	| "agent.run.completed"
+	| "agent.run.failed"
+	| "approval.created"
+	| "approval.resolved"
+	| "workflow.completed"
+	| "task.failed"
+	| "library.file.created"
+	| "automation.triggered";
 export type ChatToolMode = "default" | "automatic" | "auto";
 export type TaskStatus =
 	| "pending"
@@ -382,6 +392,16 @@ export interface AuditLogRecord {
 	createdAt: Date;
 	inputHash: string | null;
 	permissionSnapshot: Record<string, unknown> | null;
+}
+
+export interface NyxelEventRecord {
+	id: string;
+	workspaceId: string;
+	type: NyxelEventType;
+	entityType: string;
+	entityId: string;
+	payload: Record<string, unknown> | null;
+	createdAt: Date;
 }
 
 export type MemoryType =
@@ -1192,6 +1212,18 @@ export interface DbRepository {
 		workspaceId: string,
 		limit?: number,
 	): Promise<AuditLogRecord[]>;
+
+	createNyxelEvent(input: {
+		workspaceId: string;
+		type: NyxelEventType;
+		entityType: string;
+		entityId: string;
+		payload?: Record<string, unknown> | null;
+	}): Promise<NyxelEventRecord>;
+	listNyxelEventsByWorkspace(
+		workspaceId: string,
+		limit?: number,
+	): Promise<NyxelEventRecord[]>;
 
 	createMemoryEntry(input: {
 		workspaceId: string;

@@ -24,6 +24,17 @@ export type ApprovalStatus = "pending" | "approved" | "rejected";
 export type ApprovalKind = "skill" | "tool" | "mcp";
 export type AuditActor = "chat" | "automation" | "approval" | "delegate" | "extension";
 export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
+/** See ../pg/app.ts — event bus v1 stable event types. */
+export type NyxelEventType =
+	| "agent.run.started"
+	| "agent.run.completed"
+	| "agent.run.failed"
+	| "approval.created"
+	| "approval.resolved"
+	| "workflow.completed"
+	| "task.failed"
+	| "library.file.created"
+	| "automation.triggered";
 export type ChatToolMode = "default" | "automatic" | "auto";
 export type TaskStatus =
 	| "pending"
@@ -696,6 +707,19 @@ export const auditLog = sqliteTable("audit_log", {
 	permissionSnapshot: text("permission_snapshot", { mode: "json" }).$type<
 		Record<string, unknown>
 	>(),
+});
+
+/** See ../pg/app.ts. */
+export const nyxelEvent = sqliteTable("nyxel_event", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	type: text("type").notNull().$type<NyxelEventType>(),
+	entityType: text("entity_type").notNull(),
+	entityId: text("entity_id").notNull(),
+	payload: text("payload", { mode: "json" }).$type<Record<string, unknown> | null>(),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
 /** See ../pg/app.ts. */

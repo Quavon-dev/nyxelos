@@ -9,6 +9,8 @@ import {
 import { resolveImageModel } from "@nyxel/model-providers";
 import { generateImage, NoImageGeneratedError } from "ai";
 import { executeManagedTask } from "./agent-runtime";
+import { emitNyxelEvent } from "./event-bus";
+import { NyxelEvent } from "./events";
 import { libraryFileDiskPath, saveLibraryUpload } from "./library";
 import { getInstalledProvidersForWorkspace } from "./models";
 import { generateVideo } from "./video";
@@ -409,6 +411,15 @@ async function executeWorkflowRun(run: WorkflowRunRecord, workflow: WorkflowReco
     completedAt: new Date(),
     errorMessage: failedCount > 0 ? `${failedCount} node(s) failed.` : null,
   });
+  if (status === "completed") {
+    await emitNyxelEvent({
+      workspaceId: workflow.workspaceId,
+      type: NyxelEvent.WorkflowCompleted,
+      entityType: "workflow_run",
+      entityId: run.id,
+      payload: { workflowId: workflow.id, nodeCount: finalNodes.length },
+    });
+  }
 }
 
 async function createWorkflowRunRow(workflow: WorkflowRecord): Promise<WorkflowRunRecord> {
