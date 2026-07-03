@@ -1,0 +1,1 @@
+ALTER TABLE `agent` ADD `autonomy_budget` text;

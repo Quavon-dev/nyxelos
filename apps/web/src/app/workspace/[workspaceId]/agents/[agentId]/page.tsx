@@ -304,6 +304,37 @@ export default function AgentDetailPage() {
             )}
           </div>
 
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Autonomy budget
+            </p>
+            {agent.autonomyBudget ? (
+              <p className="text-sm text-muted-foreground">
+                {[
+                  agent.autonomyBudget.maxToolCallsPerRun != null
+                    ? `${agent.autonomyBudget.maxToolCallsPerRun} tool calls/run`
+                    : null,
+                  agent.autonomyBudget.maxRuntimeMinutes != null
+                    ? `${agent.autonomyBudget.maxRuntimeMinutes} min/run`
+                    : null,
+                  agent.autonomyBudget.maxFileWritesPerRun != null
+                    ? `${agent.autonomyBudget.maxFileWritesPerRun} file writes/run`
+                    : null,
+                  agent.autonomyBudget.maxEstimatedCostUsd != null
+                    ? `$${agent.autonomyBudget.maxEstimatedCostUsd} cost/run (not yet enforced mid-run)`
+                    : null,
+                  agent.autonomyBudget.requiresApprovalAboveRisk
+                    ? `approval required above ${agent.autonomyBudget.requiresApprovalAboveRisk} risk`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "No limits set"}
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">Not configured — no limits.</p>
+            )}
+          </div>
+
           <p className="border-t pt-3 text-xs text-muted-foreground">
             Created {formatDate(agent.createdAt)}
           </p>

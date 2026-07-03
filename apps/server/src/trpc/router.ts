@@ -194,6 +194,20 @@ const toolKindSchema = z.enum([
 	"generate_video",
 	"edit_video",
 ]);
+const autonomyBudgetRiskLevelSchema = z.enum(["low", "medium", "high"]);
+/** Autonomy Budgets v1 — see apps/server/src/autonomy-budget.ts's doc
+ * comment for which of these are actually enforced today vs. only
+ * prepared. Every field is nullable ("no limit") so a partial or empty
+ * budget object never hard-breaks an existing agent. */
+const autonomyBudgetSchema = z.object({
+	maxToolCallsPerRun: z.number().int().positive().nullable(),
+	maxRuntimeMinutes: z.number().int().positive().nullable(),
+	maxEstimatedCostUsd: z.number().positive().nullable(),
+	maxFileWritesPerRun: z.number().int().positive().nullable(),
+	allowedToolKinds: z.array(toolKindSchema).nullable(),
+	blockedToolKinds: z.array(toolKindSchema).nullable(),
+	requiresApprovalAboveRisk: autonomyBudgetRiskLevelSchema.nullable(),
+});
 /** Kinds that default to `sensitive: false` (pure reads/lookups) when a
  * caller doesn't explicitly pass `sensitive` — mirrors the read-vs-write
  * split already used for file_read vs file_write. Everything else defaults
@@ -1605,6 +1619,10 @@ export const appRouter = router({
 					autoAttachWorkspaceTools: z.boolean().optional(),
 					// Only meaningful for autonomyLevel "super_agent" — see ADR-0011.
 					delegateAgentIds: z.array(z.string()).optional(),
+					// Autonomy Budgets v1 — omitted/null means "no budget configured,"
+					// which keeps the agent running exactly like one created before
+					// this feature existed. See autonomyBudgetSchema above.
+					autonomyBudget: autonomyBudgetSchema.nullable().optional(),
 				}),
 			)
 			.mutation(async ({ input }) => {
@@ -1640,6 +1658,7 @@ export const appRouter = router({
 					mcpServerIds: z.array(z.string()).optional(),
 					mcpToolFilter: z.array(z.string()).nullable().optional(),
 					delegateAgentIds: z.array(z.string()).optional(),
+					autonomyBudget: autonomyBudgetSchema.nullable().optional(),
 				}),
 			)
 			.mutation(async ({ input: { id, ...input }, ctx }) => {

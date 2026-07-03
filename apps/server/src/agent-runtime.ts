@@ -1,6 +1,7 @@
 import type { AgentRecord, AgentRunRecord, TaskRecord } from "@nyxel/db";
 import { getDb } from "@nyxel/db";
 import { getModelCapabilities, streamChat } from "@nyxel/model-providers";
+import { createAutonomyBudgetTracker, resolveAutonomyBudget } from "./autonomy-budget";
 import { getKnowledgeBaseContextForPrompt } from "./knowledge-base";
 import { getInstalledProvidersForWorkspace } from "./models";
 import { notifyWorkspaceOwner } from "./push";
@@ -265,7 +266,7 @@ async function runDirectExecution(
   instructionOverride?: string,
   abortSignal?: AbortSignal,
   workingDirectory?: string | null,
-): Promise<{ text: string; toolStepCount: number }> {
+): Promise<{ text: string; toolStepCount: number; budgetBlockedReason: string | null }> {
   const installedProviders = await getInstalledProvidersForWorkspace(agent.workspaceId);
   const modelId = effectiveModelId(agent, task);
   const systemPrompt = await buildSystemPrompt(agent, true, modelId);
@@ -273,14 +274,21 @@ async function runDirectExecution(
   // Models with no tool-use-capable endpoint (e.g. OpenRouter image
   // generation models) 404 outright if a tools array is sent at all.
   const modelCapabilities = await getModelCapabilities(modelId, installedProviders);
+  // Autonomy Budgets v1 (see ./autonomy-budget.ts) — created here (rather
+  // than left to buildToolsForAgent's own fallback) so this function can
+  // report whether the run got stopped by its own budget once streaming
+  // finishes, letting runManagedTask pause the task cleanly instead of
+  // marking it completed.
+  const budgetTracker = createAutonomyBudgetTracker(resolveAutonomyBudget(agent));
   const tools = modelCapabilities.toolCalling
     ? await buildToolsForAgent(agent, {
         taskId: task.id,
         agentRunId: run.id,
         chatToolPolicy: toolPolicyForAutonomyLevel(agent.autonomyLevel),
+        budgetTracker,
       })
     : undefined;
-  return streamWithLiveUpdates(
+  const result = await streamWithLiveUpdates(
     {
       modelId,
       systemPrompt,
@@ -310,6 +318,7 @@ async function runDirectExecution(
     run.id,
     { taskId: task.id, workspaceId: task.workspaceId, agentId: agent.id },
   );
+  return { ...result, budgetBlockedReason: budgetTracker.blockedReason };
 }
 
 export async function executeManagedTask(input: {
@@ -340,6 +349,47 @@ export async function executeManagedTask(input: {
   const controller = new AbortController();
   activeRunControllers.set(run.id, controller);
 
+  // Autonomy Budgets v1 (see ./autonomy-budget.ts) — the tool-call-boundary
+  // runtime check inside buildToolsForAgent only fires between tool calls,
+  // so a run that never calls a tool (or sits inside one very long model
+  // call) would otherwise ignore maxRuntimeMinutes entirely. This hard
+  // timeout owns the same AbortController "Stop agent" already uses, so a
+  // budget timeout is indistinguishable from a clean stop from the model's
+  // perspective — no crash, just an aborted stream. The DB is updated
+  // *before* aborting so the catch block below (which re-reads task/run
+  // once aborted) picks up the budget-specific status/message rather than a
+  // generic cancellation.
+  let budgetTimeout: ReturnType<typeof setTimeout> | undefined;
+  const budget = resolveAutonomyBudget(input.agent);
+  if (budget.maxRuntimeMinutes != null && budget.maxRuntimeMinutes > 0) {
+    budgetTimeout = setTimeout(() => {
+      void (async () => {
+        const reason = `Autonomy budget exceeded: max runtime of ${budget.maxRuntimeMinutes} minute(s) per run.`;
+        await db
+          .updateAgentRun(run.id, {
+            status: "failed",
+            errorMessage: reason,
+            completedAt: new Date(),
+          })
+          .catch(() => {});
+        await db
+          .updateTask(task.id, { status: "blocked", errorMessage: reason })
+          .catch(() => {});
+        await db
+          .createTaskEvent({
+            taskId: task.id,
+            workspaceId: task.workspaceId,
+            agentRunId: run.id,
+            agentId: input.agent.id,
+            kind: "failed",
+            message: reason,
+          })
+          .catch(() => {});
+        controller.abort();
+      })();
+    }, budget.maxRuntimeMinutes * 60_000);
+  }
+
   try {
     return await runManagedTask(input, task, run, controller.signal);
   } catch (err) {
@@ -354,6 +404,7 @@ export async function executeManagedTask(input: {
     }
     throw err;
   } finally {
+    if (budgetTimeout) clearTimeout(budgetTimeout);
     activeRunControllers.delete(run.id);
   }
 }
@@ -422,6 +473,11 @@ async function runManagedTask(
 
   let output: string;
   let toolStepCount = 0;
+  // Autonomy Budgets v1 — only set by the direct-execution path below (the
+  // super-agent delegation branch doesn't call tools itself, so nothing to
+  // report; each delegated child task tracks its own budget independently
+  // via its own executeManagedTask call).
+  let budgetBlockedReason: string | null = null;
 
   if (
     input.agent.autonomyLevel === "super_agent" &&
@@ -520,16 +576,22 @@ async function runManagedTask(
     );
     output = execution.text;
     toolStepCount = execution.toolStepCount;
+    budgetBlockedReason = execution.budgetBlockedReason;
   }
 
   const pausedOnQuestion = output.includes("pending_question");
   const pausedOnApproval = !pausedOnQuestion && output.includes("pending_approval");
-  const isPaused = pausedOnQuestion || pausedOnApproval;
+  // Detected from the tracker's own state rather than string-matching the
+  // model's final text (unlike the two checks above) — more robust, since
+  // it doesn't depend on the model actually repeating the tool result back.
+  const pausedOnBudget =
+    !pausedOnQuestion && !pausedOnApproval && budgetBlockedReason !== null;
+  const isPaused = pausedOnQuestion || pausedOnApproval || pausedOnBudget;
   // AgentRunStatus has no "blocked" state (a question-pause is still an
   // agent run that's technically waiting on the human) — only TaskStatus
-  // distinguishes "blocked" (question) from "waiting_approval" (tool
-  // approval).
-  const taskStatus = pausedOnQuestion
+  // distinguishes "blocked" (question or budget) from "waiting_approval"
+  // (tool approval).
+  const taskStatus = pausedOnQuestion || pausedOnBudget
     ? ("blocked" as const)
     : pausedOnApproval
       ? ("waiting_approval" as const)
@@ -546,26 +608,44 @@ async function runManagedTask(
     status: taskStatus,
     resultSummary: output,
     completedAt: isPaused ? null : new Date(),
+    ...(pausedOnBudget
+      ? { errorMessage: `Autonomy budget exceeded: ${budgetBlockedReason}` }
+      : {}),
   });
   await db.createTaskEvent({
     taskId: task.id,
     workspaceId: task.workspaceId,
     agentRunId: run.id,
     agentId: input.agent.id,
-    kind: pausedOnQuestion ? "status_changed" : pausedOnApproval ? "approval_waiting" : "completed",
+    kind:
+      pausedOnQuestion || pausedOnBudget
+        ? "status_changed"
+        : pausedOnApproval
+          ? "approval_waiting"
+          : "completed",
     message: pausedOnQuestion
       ? "Run paused pending the user's answer."
       : pausedOnApproval
         ? "Run paused pending approval."
-        : "Run completed.",
+        : pausedOnBudget
+          ? `Run paused: autonomy budget exceeded (${budgetBlockedReason}).`
+          : "Run completed.",
   });
 
   // pausedOnApproval already notified when the approval was created
-  // (tools.ts) — only question-pauses and real completions need one here.
+  // (tools.ts) — only question-pauses, budget-pauses, and real completions
+  // need one here.
   if (pausedOnQuestion) {
     await notifyWorkspaceOwner(task.workspaceId, {
       title: "Agent has a question",
       body: `${input.agent.name} needs input on "${task.title}"`,
+      url: `/workspace/${task.workspaceId}/tasks/${task.id}`,
+      tag: `task-${task.id}`,
+    });
+  } else if (pausedOnBudget) {
+    await notifyWorkspaceOwner(task.workspaceId, {
+      title: "Agent hit its autonomy budget",
+      body: `${input.agent.name} paused on "${task.title}": ${budgetBlockedReason}`,
       url: `/workspace/${task.workspaceId}/tasks/${task.id}`,
       tag: `task-${task.id}`,
     });

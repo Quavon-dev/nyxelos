@@ -923,6 +923,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			skillIds,
 			mcpToolFilter,
 			delegateAgentIds,
+			autonomyBudget,
 		}) {
 			const row = db
 				.insert(schema.agent)
@@ -940,6 +941,7 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					skillIds: skillIds ?? [],
 					mcpToolFilter: mcpToolFilter ?? null,
 					delegateAgentIds: delegateAgentIds ?? [],
+					autonomyBudget: autonomyBudget ?? null,
 					createdAt: new Date(),
 				})
 				.returning()
@@ -990,6 +992,9 @@ export function createSqliteRepository(filePath: string): DbRepository {
 						: {}),
 					...(input.delegateAgentIds !== undefined
 						? { delegateAgentIds: input.delegateAgentIds }
+						: {}),
+					...(input.autonomyBudget !== undefined
+						? { autonomyBudget: input.autonomyBudget }
 						: {}),
 				})
 				.where(eq(schema.agent.id, agentId))

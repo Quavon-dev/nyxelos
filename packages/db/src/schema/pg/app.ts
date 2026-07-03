@@ -319,6 +319,20 @@ export const modelParameter = pgTable(
 	],
 );
 
+/** Autonomy Budgets v1 — see ../sqlite/app.ts and
+ * packages/db/src/repo/types.ts's AutonomyBudget for the enforcement
+ * rationale. Every field null means "no limit," matching pre-existing agent
+ * behavior exactly. */
+export type AutonomyBudget = {
+	maxToolCallsPerRun: number | null;
+	maxRuntimeMinutes: number | null;
+	maxEstimatedCostUsd: number | null;
+	maxFileWritesPerRun: number | null;
+	allowedToolKinds: ToolKind[] | null;
+	blockedToolKinds: ToolKind[] | null;
+	requiresApprovalAboveRisk: "low" | "medium" | "high" | null;
+};
+
 /** A saved agent configuration: system prompt, model, and which runtime
  * skills, workspace tools, and MCP servers it may call. See ARCHITECTURE.md
  * sections 5-6. */
@@ -346,6 +360,9 @@ export const agent = pgTable("agent", {
 		.notNull()
 		.default([])
 		.$type<string[]>(),
+	// Null (the default) means "no autonomy budget configured" — every limit
+	// off, identical to pre-existing behavior. See AutonomyBudget above.
+	autonomyBudget: jsonb("autonomy_budget").$type<AutonomyBudget>(),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
