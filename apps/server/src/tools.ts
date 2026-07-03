@@ -23,6 +23,8 @@ import { z } from "zod";
 import { isAutoAssistant } from "./auto-agent";
 import { logAudit } from "./audit";
 import { buildDelegateToAgentTool } from "./delegation";
+import { emitNyxelEvent } from "./event-bus";
+import { NyxelEvent } from "./events";
 import { buildWorkspaceManagementTools } from "./management-tools";
 import { ensureMcpServerConnected, mcpManager } from "./mcp-runtime";
 import { notifyWorkspaceOwner } from "./push";
@@ -325,6 +327,13 @@ export async function buildToolsForAgent(
 						toolLabel: skill.id,
 						input: input as Record<string, unknown>,
 					});
+					await emitNyxelEvent({
+						workspaceId: agent.workspaceId,
+						type: NyxelEvent.ApprovalCreated,
+						entityType: "approval_request",
+						entityId: approval.id,
+						payload: { kind: "skill", toolLabel: skill.id },
+					});
 					await logToolAudit({
 						workspaceId: agent.workspaceId,
 						agentId: agent.id,
@@ -454,6 +463,13 @@ export async function buildToolsForAgent(
 						toolId: workspaceTool.id,
 						toolLabel: workspaceTool.id,
 						input: input as Record<string, unknown>,
+					});
+					await emitNyxelEvent({
+						workspaceId: agent.workspaceId,
+						type: NyxelEvent.ApprovalCreated,
+						entityType: "approval_request",
+						entityId: approval.id,
+						payload: { kind: "tool", toolLabel: workspaceTool.id },
 					});
 					await logToolAudit({
 						workspaceId: agent.workspaceId,
@@ -610,6 +626,13 @@ export async function buildToolsForAgent(
 							mcpToolName: mcpTool.name,
 							toolLabel: toolKey,
 							input: input as Record<string, unknown>,
+						});
+						await emitNyxelEvent({
+							workspaceId: agent.workspaceId,
+							type: NyxelEvent.ApprovalCreated,
+							entityType: "approval_request",
+							entityId: approval.id,
+							payload: { kind: "mcp", toolLabel: toolKey },
 						});
 						await logToolAudit({
 							workspaceId: agent.workspaceId,

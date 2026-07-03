@@ -1828,6 +1828,33 @@ export function createSqliteRepository(filePath: string): DbRepository {
 				.all();
 		},
 
+		async createNyxelEvent({ workspaceId, type, entityType, entityId, payload }) {
+			const row = db
+				.insert(schema.nyxelEvent)
+				.values({
+					id: randomUUID(),
+					workspaceId,
+					type,
+					entityType,
+					entityId,
+					payload: payload ?? null,
+					createdAt: new Date(),
+				})
+				.returning()
+				.get();
+			return row;
+		},
+
+		async listNyxelEventsByWorkspace(workspaceId, limit = 100) {
+			return db
+				.select()
+				.from(schema.nyxelEvent)
+				.where(eq(schema.nyxelEvent.workspaceId, workspaceId))
+				.orderBy(desc(schema.nyxelEvent.createdAt))
+				.limit(limit)
+				.all();
+		},
+
 		async createMemoryEntry({
 			workspaceId,
 			type,

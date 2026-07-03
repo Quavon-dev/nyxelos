@@ -7,6 +7,8 @@ import {
 	type LibraryFolderRecord,
 	type LibraryItemKind,
 } from "@nyxel/db";
+import { emitNyxelEvent } from "./event-bus";
+import { NyxelEvent } from "./events";
 import { workspaceRootDir } from "./skills-registry";
 
 /**
@@ -202,15 +204,24 @@ export async function saveLibraryUpload(input: {
 	await Bun.write(path.join(dir, storageKey), input.bytes);
 
 	const mimeType = input.mimeType || "application/octet-stream";
-	return getDb().createLibraryFile({
+	const kind = classifyLibraryItemKind(mimeType);
+	const file = await getDb().createLibraryFile({
 		workspaceId: input.workspaceId,
 		folderId: input.folderId,
 		name,
 		mimeType,
 		sizeBytes: input.bytes.byteLength,
-		kind: classifyLibraryItemKind(mimeType),
+		kind,
 		storageKey,
 	});
+	await emitNyxelEvent({
+		workspaceId: input.workspaceId,
+		type: NyxelEvent.LibraryFileCreated,
+		entityType: "library_file",
+		entityId: file.id,
+		payload: { kind, mimeType, sizeBytes: input.bytes.byteLength },
+	});
+	return file;
 }
 
 export async function renameLibraryFile(id: string, name: string): Promise<LibraryFileRecord> {

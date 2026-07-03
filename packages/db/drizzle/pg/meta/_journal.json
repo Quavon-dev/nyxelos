@@ -260,6 +260,13 @@
       "when": 1783020001601,
       "tag": "0036_colorful_cammi",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1783025879499,
+      "tag": "0037_next_baron_strucker",
+      "breakpoints": true
     }
   ]
 }

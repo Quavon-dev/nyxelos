@@ -8,6 +8,8 @@ import type { ApprovalRequestRecord } from "@nyxel/db";
 import { getDb } from "@nyxel/db";
 import { createSkillContext } from "@nyxel/skills-sdk";
 import { logAudit } from "./audit";
+import { emitNyxelEvent } from "./event-bus";
+import { NyxelEvent } from "./events";
 import { ensureMcpServerConnected, mcpManager } from "./mcp-runtime";
 import { resolveSkillDefinition } from "./skills-resolve";
 import { resolveToolDefinition } from "./tools-resolve";
@@ -94,6 +96,13 @@ export async function resolveApprovalDecision(
       status: "rejected",
       ...(await approvalPermissionFields(approval)),
     });
+    await emitNyxelEvent({
+      workspaceId: approval.workspaceId,
+      type: NyxelEvent.ApprovalResolved,
+      entityType: "approval_request",
+      entityId: approval.id,
+      payload: { decision: "rejected", toolLabel: approval.toolLabel },
+    });
     return updated;
   }
 
@@ -166,6 +175,13 @@ export async function resolveApprovalDecision(
       status: "success",
       ...(await approvalPermissionFields(approval)),
     });
+    await emitNyxelEvent({
+      workspaceId: approval.workspaceId,
+      type: NyxelEvent.ApprovalResolved,
+      entityType: "approval_request",
+      entityId: approval.id,
+      payload: { decision: "approved", toolLabel: approval.toolLabel },
+    });
     return updated;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -207,6 +223,13 @@ export async function resolveApprovalDecision(
       output: { error: message },
       status: "error",
       ...(await approvalPermissionFields(approval)),
+    });
+    await emitNyxelEvent({
+      workspaceId: approval.workspaceId,
+      type: NyxelEvent.ApprovalResolved,
+      entityType: "approval_request",
+      entityId: approval.id,
+      payload: { decision: "approved", toolLabel: approval.toolLabel, error: message },
     });
     return updated;
   }

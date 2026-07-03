@@ -5,6 +5,8 @@ import { getDb } from "@nyxel/db";
 import { CronExpressionParser } from "cron-parser";
 import { executeManagedTask } from "./agent-runtime";
 import { logAudit } from "./audit";
+import { emitNyxelEvent } from "./event-bus";
+import { NyxelEvent } from "./events";
 import { notifyWorkspaceOwner } from "./push";
 import { runSeoAnalysis } from "./seo-analyzer";
 import { runWorkflowAndWait } from "./workflow-runner";
@@ -111,6 +113,13 @@ async function runAgentAutomation(
       completedAt: new Date(),
     });
     status = "error";
+    await emitNyxelEvent({
+      workspaceId: automation.workspaceId,
+      type: NyxelEvent.TaskFailed,
+      entityType: "task",
+      entityId: task.id,
+      payload: { automationId: automation.id, agentId: agent.id, error: outputText },
+    });
     await notifyWorkspaceOwner(automation.workspaceId, {
       title: "Automation failed",
       body: `"${automation.name}" failed: ${outputText.slice(0, 120)}`,
@@ -190,6 +199,13 @@ async function runWorkflowAutomation(
 export async function runAutomation(
   automation: AutomationRecord,
 ): Promise<{ taskId: string; runId: string; output: string }> {
+  await emitNyxelEvent({
+    workspaceId: automation.workspaceId,
+    type: NyxelEvent.AutomationTriggered,
+    entityType: "automation",
+    entityId: automation.id,
+    payload: { triggerType: automation.triggerType, targetKind: automation.targetKind },
+  });
   return automation.targetKind === "workflow"
     ? runWorkflowAutomation(automation)
     : runAgentAutomation(automation);
