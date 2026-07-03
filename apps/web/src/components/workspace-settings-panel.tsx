@@ -251,9 +251,9 @@ function CliProviderCard({
     refetchInterval: (query) => (query.state.data?.status === "running" ? 1500 : false),
   });
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only re-run when the CLI login process's status changes, not on every statusQuery.refetch identity change (that would refire on every statusQuery re-render).
   useEffect(() => {
     if (loginOutputQuery.data?.status === "exited") statusQuery.refetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loginOutputQuery.data?.status]);
 
   const startLogin = useMutation({
@@ -369,19 +369,23 @@ function CliProviderCard({
             className="h-8"
           />
           <div className="flex flex-wrap gap-3">
-            {presets.map((preset) => (
-              <label key={preset} className="flex items-center gap-1.5 text-xs">
-                <Checkbox
-                  checked={selectedModels.includes(preset)}
-                  onCheckedChange={(checked) =>
-                    setSelectedModels((current) =>
-                      checked ? [...current, preset] : current.filter((m) => m !== preset),
-                    )
-                  }
-                />
-                {preset === "default" ? "Default (CLI's own configured model)" : preset}
-              </label>
-            ))}
+            {presets.map((preset) => {
+              const inputId = `${kind}-preset-${preset}`;
+              return (
+                <label key={preset} htmlFor={inputId} className="flex items-center gap-1.5 text-xs">
+                  <Checkbox
+                    id={inputId}
+                    checked={selectedModels.includes(preset)}
+                    onCheckedChange={(checked) =>
+                      setSelectedModels((current) =>
+                        checked ? [...current, preset] : current.filter((m) => m !== preset),
+                      )
+                    }
+                  />
+                  {preset === "default" ? "Default (CLI's own configured model)" : preset}
+                </label>
+              );
+            })}
           </div>
           <Input
             placeholder="Custom model id (optional)"
@@ -685,19 +689,24 @@ function OpenRouterProviderCard({
 
       {models && models.length > 0 && (
         <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2">
-          {models.map((model) => (
-            <label
-              key={model.id}
-              className="flex items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-muted/60"
-            >
-              <Checkbox
-                checked={selectedModelIds.has(model.id)}
-                onCheckedChange={(checked) => toggleModel(model.id, checked === true)}
-              />
-              <span className="min-w-0 flex-1 truncate">{model.label}</span>
-              <span className="shrink-0 text-muted-foreground">{model.id}</span>
-            </label>
-          ))}
+          {models.map((model) => {
+            const inputId = `openrouter-model-${model.id}`;
+            return (
+              <label
+                key={model.id}
+                htmlFor={inputId}
+                className="flex items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-muted/60"
+              >
+                <Checkbox
+                  id={inputId}
+                  checked={selectedModelIds.has(model.id)}
+                  onCheckedChange={(checked) => toggleModel(model.id, checked === true)}
+                />
+                <span className="min-w-0 flex-1 truncate">{model.label}</span>
+                <span className="shrink-0 text-muted-foreground">{model.id}</span>
+              </label>
+            );
+          })}
         </div>
       )}
 

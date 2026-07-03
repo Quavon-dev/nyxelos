@@ -26,7 +26,12 @@ function DropdownMenuContent({
   align = "start",
   sideOffset = 4,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Content> & {
+  // Consumed at runtime by the underlying Menu content impl (composed into
+  // its focus-scope mount handler) but omitted from this Radix version's
+  // public prop type — see @radix-ui/react-menu's MenuContentImplPrivateProps.
+  onOpenAutoFocus?: (event: Event) => void;
+}) {
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
