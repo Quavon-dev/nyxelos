@@ -20,6 +20,7 @@ import {
   Puzzle,
   ScrollText,
   Settings,
+  Target,
   TrendingUp,
   Workflow,
   Wrench,
@@ -150,6 +151,7 @@ export function AppSidebar() {
         {
           label: "Automate",
           items: [
+            { href: `/workspace/${workspaceId}/goals`, label: "Goals", icon: Target },
             { href: `/workspace/${workspaceId}/tasks`, label: "Tasks", icon: CheckSquare },
             { href: `/workspace/${workspaceId}/automations`, label: "Automations", icon: Clock },
             {

@@ -59,6 +59,19 @@ export type AgentRunTrigger =
 	| "delegate"
 	| "extension";
 
+export type GoalStatus =
+	| "active"
+	| "paused"
+	| "blocked"
+	| "completed"
+	| "archived";
+export type GoalMilestoneStatus = "pending" | "completed";
+export type GoalEventKind =
+	| "created"
+	| "status_changed"
+	| "milestone_added"
+	| "milestone_status_changed";
+
 export type SeoAnalysisRunStatus = "running" | "completed" | "failed";
 export type SeoFindingCategory = "seo" | "geo" | "aeo";
 export type SeoFindingSeverity = "info" | "warning" | "critical";
@@ -1000,4 +1013,49 @@ export const workflowRunNode = sqliteTable("workflow_run_node", {
 	completedAt: integer("completed_at", { mode: "timestamp" }),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+/** See ../pg/app.ts. */
+export const goal = sqliteTable("goal", {
+	id: text("id").primaryKey(),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	title: text("title").notNull(),
+	description: text("description"),
+	status: text("status").notNull().default("active").$type<GoalStatus>(),
+	priority: text("priority").notNull().default("normal").$type<TaskPriority>(),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+/** See ../pg/app.ts. */
+export const goalMilestone = sqliteTable("goal_milestone", {
+	id: text("id").primaryKey(),
+	goalId: text("goal_id")
+		.notNull()
+		.references(() => goal.id, { onDelete: "cascade" }),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	title: text("title").notNull(),
+	status: text("status").notNull().default("pending").$type<GoalMilestoneStatus>(),
+	order: integer("order").notNull().default(0),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+/** See ../pg/app.ts. */
+export const goalProgressEvent = sqliteTable("goal_progress_event", {
+	id: text("id").primaryKey(),
+	goalId: text("goal_id")
+		.notNull()
+		.references(() => goal.id, { onDelete: "cascade" }),
+	workspaceId: text("workspace_id")
+		.notNull()
+		.references(() => workspace.id, { onDelete: "cascade" }),
+	kind: text("kind").notNull().$type<GoalEventKind>(),
+	message: text("message").notNull(),
+	payload: text("payload", { mode: "json" }).$type<Record<string, unknown> | null>(),
+	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });

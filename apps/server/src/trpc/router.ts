@@ -272,6 +272,8 @@ const taskStatusSchema = z.enum([
 	"cancelled",
 ]);
 const taskPrioritySchema = z.enum(["low", "normal", "high", "urgent"]);
+const goalStatusSchema = z.enum(["active", "paused", "blocked", "completed", "archived"]);
+const goalMilestoneStatusSchema = z.enum(["pending", "completed"]);
 const AUTOMATABLE_LEVELS = new Set(["autonomous", "super_agent"]);
 
 function resolveChatToolPolicy(
@@ -2003,6 +2005,121 @@ export const appRouter = router({
 					"Task not found",
 				);
 				return getDb().listTaskEvents(input.taskId);
+			}),
+	}),
+
+	// Goal Manager v1 — long-term outcomes the workspace tracks. Pure record
+	// keeping: no agent reads or acts on goals automatically. Linking goals to
+	// tasks/runs/workflows is future work.
+	goals: router({
+		list: workspaceProcedure
+			.input(z.object({ workspaceId: z.string() }))
+			.query(async ({ input }) => {
+				const db = getDb();
+				const goals = await db.listGoalsByWorkspace(input.workspaceId);
+				return Promise.all(
+					goals.map(async (goal) => ({
+						...goal,
+						milestones: await db.listMilestonesByGoal(goal.id),
+					})),
+				);
+			}),
+		create: workspaceProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					title: z.string().min(1),
+					description: z.string().nullable().optional(),
+					priority: taskPrioritySchema.optional(),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				const goal = await getDb().createGoal(input);
+				await getDb().createGoalProgressEvent({
+					goalId: goal.id,
+					workspaceId: goal.workspaceId,
+					kind: "created",
+					message: `Goal created: ${goal.title}`,
+				});
+				return goal;
+			}),
+		updateStatus: protectedProcedure
+			.input(
+				z.object({
+					goalId: z.string(),
+					status: goalStatusSchema,
+				}),
+			)
+			.mutation(async ({ input, ctx }) => {
+				const db = getDb();
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getGoal(input.goalId),
+					"Goal not found",
+				);
+				const goal = await db.updateGoalStatus(input.goalId, input.status);
+				await db.createGoalProgressEvent({
+					goalId: goal.id,
+					workspaceId: goal.workspaceId,
+					kind: "status_changed",
+					message: `Goal status changed to ${input.status}.`,
+					payload: { status: input.status },
+				});
+				return goal;
+			}),
+		addMilestone: protectedProcedure
+			.input(
+				z.object({
+					goalId: z.string(),
+					title: z.string().min(1),
+					order: z.number().int().optional(),
+				}),
+			)
+			.mutation(async ({ input, ctx }) => {
+				const db = getDb();
+				const goal = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getGoal(input.goalId),
+					"Goal not found",
+				);
+				const milestone = await db.addMilestone({
+					goalId: goal.id,
+					workspaceId: goal.workspaceId,
+					title: input.title,
+					order: input.order,
+				});
+				await db.createGoalProgressEvent({
+					goalId: goal.id,
+					workspaceId: goal.workspaceId,
+					kind: "milestone_added",
+					message: `Milestone added: ${milestone.title}`,
+					payload: { milestoneId: milestone.id },
+				});
+				return milestone;
+			}),
+		updateMilestoneStatus: protectedProcedure
+			.input(
+				z.object({
+					milestoneId: z.string(),
+					status: goalMilestoneStatusSchema,
+				}),
+			)
+			.mutation(async ({ input, ctx }) => {
+				const db = getDb();
+				const milestone = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getMilestone(input.milestoneId),
+					"Milestone not found",
+				);
+				const updated = await db.updateMilestoneStatus(milestone.id, input.status);
+				await db.createGoalProgressEvent({
+					goalId: milestone.goalId,
+					workspaceId: milestone.workspaceId,
+					kind: "milestone_status_changed",
+					message: `Milestone "${milestone.title}" marked ${input.status}.`,
+					payload: { milestoneId: milestone.id, status: input.status },
+				});
+				return updated;
 			}),
 	}),
 
