@@ -152,7 +152,7 @@ export type TaskEventKind =
   | "question_answered"
   | "completed"
   | "failed";
-export type AgentRunTrigger = "chat" | "task" | "automation" | "delegate";
+export type AgentRunTrigger = "chat" | "task" | "automation" | "delegate" | "extension";
 export type AgentRunStatus =
   | "pending"
   | "running"
@@ -1602,6 +1602,9 @@ type NyxelTrpcClient = {
     };
   };
   agentRuns: {
+    list: {
+      query(input: { workspaceId: string }): Promise<AgentRunSummary[]>;
+    };
     listByTask: {
       query(input: { taskId: string }): Promise<AgentRunSummary[]>;
     };

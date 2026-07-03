@@ -2017,6 +2017,12 @@ export const appRouter = router({
 	}),
 
 	agentRuns: router({
+		/** All runs in a workspace regardless of status — powers the
+		 * standalone Runs board (as opposed to `listActive`, which only
+		 * surfaces the in-flight subset for the Tasks page's live strip). */
+		list: workspaceProcedure
+			.input(z.object({ workspaceId: z.string() }))
+			.query(({ input }) => getDb().listAgentRunsByWorkspace(input.workspaceId)),
 		listByTask: protectedProcedure
 			.input(z.object({ taskId: z.string() }))
 			.query(async ({ input, ctx }) => {
