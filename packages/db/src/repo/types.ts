@@ -78,6 +78,35 @@ export type SeoAnalysisRunStatus = "running" | "completed" | "failed";
 export type SeoFindingCategory = "seo" | "geo" | "aeo";
 export type SeoFindingSeverity = "info" | "warning" | "critical";
 export type SeoBlogPostStatus = "suggested" | "generating" | "written" | "failed";
+
+export type LeadScoutProvider = "manual_csv" | "google_places_api" | "osm_overpass" | "custom_api";
+export type LeadScoutOutreachMode = "draft_only" | "review_and_send";
+export type LeadScoutWebsiteStatus =
+  | "unknown"
+  | "has_website"
+  | "missing_website"
+  | "invalid_website";
+export type LeadScoutLeadStatus =
+  | "new"
+  | "reviewed"
+  | "prototype_requested"
+  | "prototype_ready"
+  | "email_drafted"
+  | "approved_to_send"
+  | "sending"
+  | "sent"
+  | "rejected"
+  | "suppressed";
+export type LeadScoutScanRunStatus = "running" | "completed" | "failed";
+export type LeadScoutPrototypeStatus = "pending" | "ready" | "failed";
+export type LeadScoutDraftStatus =
+  | "draft"
+  | "approved"
+  | "rejected"
+  | "sending"
+  | "sent"
+  | "failed";
+export type LeadScoutEmailProvider = "smtp" | "resend" | "mailgun" | "custom";
 export type AgentRunStatus =
   | "pending"
   | "running"
@@ -851,6 +880,158 @@ export interface SeoBlogPostRecord {
   status: SeoBlogPostStatus;
   taskId: string | null;
   errorMessage: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LeadScoutCampaignRecord {
+  id: string;
+  workspaceId: string;
+  extensionId: string;
+  name: string;
+  postalCode: string;
+  country: string;
+  radiusKm: number;
+  niches: string[];
+  maxResultsPerRun: number;
+  provider: LeadScoutProvider;
+  minConfidence: number;
+  outreachMode: LeadScoutOutreachMode;
+  scheduleEnabled: boolean;
+  scheduleCronExpression: string | null;
+  nextScanAt: Date | null;
+  lastScanAt: Date | null;
+  autoGeneratePrototype: boolean;
+  autoDraftEmail: boolean;
+  autoSendAfterApproval: boolean;
+  requireApprovalBeforePrototype: boolean;
+  requireApprovalBeforeEmailSend: boolean;
+  prototypeAgentId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LeadScoutSourceConfigRecord {
+  id: string;
+  workspaceId: string;
+  provider: LeadScoutProvider;
+  config: Record<string, unknown>;
+  /** Decrypted at the repo layer (see modelInstallation.apiKey) — callers
+   * must redact this before it ever reaches the browser. */
+  apiKey: string | null;
+  enabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LeadScoutScanRunRecord {
+  id: string;
+  campaignId: string;
+  workspaceId: string;
+  provider: LeadScoutProvider;
+  status: LeadScoutScanRunStatus;
+  resultCount: number;
+  newLeadCount: number;
+  missingWebsiteCount: number;
+  summary: string | null;
+  errorMessage: string | null;
+  startedAt: Date;
+  completedAt: Date | null;
+}
+
+export interface LeadScoutLeadRecord {
+  id: string;
+  workspaceId: string;
+  campaignId: string;
+  scanRunId: string | null;
+  sourceProvider: LeadScoutProvider;
+  sourceId: string;
+  businessName: string;
+  category: string | null;
+  niche: string | null;
+  formattedAddress: string | null;
+  postalCode: string | null;
+  city: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  websiteStatus: LeadScoutWebsiteStatus;
+  confidence: number;
+  evidenceSummary: string | null;
+  missingReason: string | null;
+  status: LeadScoutLeadStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LeadScoutPrototypeRecord {
+  id: string;
+  workspaceId: string;
+  leadId: string;
+  taskId: string | null;
+  status: LeadScoutPrototypeStatus;
+  concept: string | null;
+  heroCopy: string | null;
+  sections: string[];
+  callToAction: string | null;
+  styleDirection: string | null;
+  artifactMarkdown: string | null;
+  approved: boolean;
+  errorMessage: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LeadScoutOutreachDraftRecord {
+  id: string;
+  workspaceId: string;
+  leadId: string;
+  prototypeId: string | null;
+  taskId: string | null;
+  subject: string | null;
+  bodyText: string | null;
+  bodyHtml: string | null;
+  status: LeadScoutDraftStatus;
+  errorMessage: string | null;
+  approvedAt: Date | null;
+  sentAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LeadScoutSuppressionRecord {
+  id: string;
+  workspaceId: string;
+  email: string | null;
+  domain: string | null;
+  reason: string;
+  createdAt: Date;
+}
+
+/** Provider-shaped secret bag: SMTP holds host/port/username/password;
+ * resend/mailgun hold apiKey; custom holds whatever a compliant adapter
+ * needs (e.g. webhookUrl/secret). Kept as a flat string map (like
+ * mcpServer.env) rather than a per-provider type since only the email
+ * module (lead-scout-email.ts) ever reads specific keys out of it. */
+export type LeadScoutEmailCredentials = Record<string, string>;
+
+export interface LeadScoutEmailSettingsRecord {
+  id: string;
+  workspaceId: string;
+  provider: LeadScoutEmailProvider;
+  fromName: string;
+  fromEmail: string;
+  replyTo: string | null;
+  /** Decrypted at the repo layer (see mcpServer.env) — callers must redact
+   * this before it ever reaches the browser. */
+  credentials: LeadScoutEmailCredentials | null;
+  dailySendLimit: number;
+  perCampaignSendLimit: number;
+  dryRunMode: boolean;
+  legalFooter: string | null;
+  unsubscribeText: string;
+  sendCountToday: number;
+  sendCountDate: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -1669,4 +1850,239 @@ export interface DbRepository {
       errorMessage?: string | null;
     },
   ): Promise<SeoBlogPostRecord>;
+
+  createLeadScoutCampaign(input: {
+    workspaceId: string;
+    extensionId: string;
+    name: string;
+    postalCode: string;
+    country?: string;
+    radiusKm?: number;
+    niches?: string[];
+    maxResultsPerRun?: number;
+    provider: LeadScoutProvider;
+    minConfidence?: number;
+    outreachMode?: LeadScoutOutreachMode;
+  }): Promise<LeadScoutCampaignRecord>;
+  listLeadScoutCampaignsByWorkspace(workspaceId: string): Promise<LeadScoutCampaignRecord[]>;
+  getLeadScoutCampaign(id: string): Promise<LeadScoutCampaignRecord | null>;
+  updateLeadScoutCampaign(
+    id: string,
+    patch: Partial<{
+      name: string;
+      postalCode: string;
+      country: string;
+      radiusKm: number;
+      niches: string[];
+      maxResultsPerRun: number;
+      provider: LeadScoutProvider;
+      minConfidence: number;
+      outreachMode: LeadScoutOutreachMode;
+      scheduleEnabled: boolean;
+      scheduleCronExpression: string | null;
+      nextScanAt: Date | null;
+      lastScanAt: Date | null;
+      autoGeneratePrototype: boolean;
+      autoDraftEmail: boolean;
+      autoSendAfterApproval: boolean;
+      requireApprovalBeforePrototype: boolean;
+      requireApprovalBeforeEmailSend: boolean;
+      prototypeAgentId: string | null;
+    }>,
+  ): Promise<LeadScoutCampaignRecord>;
+  deleteLeadScoutCampaign(id: string): Promise<void>;
+  /** Enabled recurring scans whose nextScanAt has passed — polled by the
+   * scheduler's tick alongside due automations/SEO projects. */
+  listDueLeadScoutCampaigns(now: Date): Promise<LeadScoutCampaignRecord[]>;
+
+  /** One row per workspace+provider (unique constraint) — `upsert` since a
+   * user editing provider settings should update in place, not accumulate
+   * duplicate rows. */
+  upsertLeadScoutSourceConfig(input: {
+    workspaceId: string;
+    provider: LeadScoutProvider;
+    config?: Record<string, unknown>;
+    apiKey?: string | null;
+    enabled?: boolean;
+  }): Promise<LeadScoutSourceConfigRecord>;
+  listLeadScoutSourceConfigsByWorkspace(
+    workspaceId: string,
+  ): Promise<LeadScoutSourceConfigRecord[]>;
+  getLeadScoutSourceConfig(
+    workspaceId: string,
+    provider: LeadScoutProvider,
+  ): Promise<LeadScoutSourceConfigRecord | null>;
+
+  createLeadScoutScanRun(input: {
+    campaignId: string;
+    workspaceId: string;
+    provider: LeadScoutProvider;
+  }): Promise<LeadScoutScanRunRecord>;
+  getLeadScoutScanRun(id: string): Promise<LeadScoutScanRunRecord | null>;
+  /** Most recent first. */
+  listLeadScoutScanRunsByCampaign(campaignId: string): Promise<LeadScoutScanRunRecord[]>;
+  updateLeadScoutScanRun(
+    id: string,
+    patch: Partial<{
+      status: LeadScoutScanRunStatus;
+      resultCount: number;
+      newLeadCount: number;
+      missingWebsiteCount: number;
+      summary: string | null;
+      errorMessage: string | null;
+      completedAt: Date | null;
+    }>,
+  ): Promise<LeadScoutScanRunRecord>;
+
+  createLeadScoutLead(input: {
+    workspaceId: string;
+    campaignId: string;
+    scanRunId?: string | null;
+    sourceProvider: LeadScoutProvider;
+    sourceId: string;
+    businessName: string;
+    category?: string | null;
+    niche?: string | null;
+    formattedAddress?: string | null;
+    postalCode?: string | null;
+    city?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    website?: string | null;
+    websiteStatus?: LeadScoutWebsiteStatus;
+    confidence?: number;
+    evidenceSummary?: string | null;
+    missingReason?: string | null;
+  }): Promise<LeadScoutLeadRecord>;
+  /** Looks up a previously-ingested lead by its provider identity (unique
+   * per campaign+provider+sourceId) so a re-run scan reconciles instead of
+   * inserting a duplicate row for the same business. */
+  getLeadScoutLeadBySource(
+    campaignId: string,
+    sourceProvider: LeadScoutProvider,
+    sourceId: string,
+  ): Promise<LeadScoutLeadRecord | null>;
+  listLeadScoutLeadsByCampaign(campaignId: string): Promise<LeadScoutLeadRecord[]>;
+  getLeadScoutLead(id: string): Promise<LeadScoutLeadRecord | null>;
+  updateLeadScoutLead(
+    id: string,
+    patch: Partial<{
+      scanRunId: string | null;
+      category: string | null;
+      niche: string | null;
+      formattedAddress: string | null;
+      postalCode: string | null;
+      city: string | null;
+      phone: string | null;
+      email: string | null;
+      website: string | null;
+      websiteStatus: LeadScoutWebsiteStatus;
+      confidence: number;
+      evidenceSummary: string | null;
+      missingReason: string | null;
+      status: LeadScoutLeadStatus;
+    }>,
+  ): Promise<LeadScoutLeadRecord>;
+  /** Atomic compare-and-swap on lead.status — the sole guard against a lead
+   * being approved/sent twice from a concurrent request (same pattern as
+   * claimApprovalRequest). Returns null (not an error) if `fromStatus` no
+   * longer matches, so callers can distinguish "someone else already moved
+   * this" from a real failure. */
+  claimLeadScoutLeadStatus(input: {
+    id: string;
+    fromStatus: LeadScoutLeadStatus;
+    toStatus: LeadScoutLeadStatus;
+  }): Promise<LeadScoutLeadRecord | null>;
+
+  createLeadScoutPrototype(input: {
+    workspaceId: string;
+    leadId: string;
+    taskId?: string | null;
+  }): Promise<LeadScoutPrototypeRecord>;
+  getLeadScoutPrototype(id: string): Promise<LeadScoutPrototypeRecord | null>;
+  /** Most recent first. */
+  listLeadScoutPrototypesByLead(leadId: string): Promise<LeadScoutPrototypeRecord[]>;
+  updateLeadScoutPrototype(
+    id: string,
+    patch: Partial<{
+      status: LeadScoutPrototypeStatus;
+      concept: string | null;
+      heroCopy: string | null;
+      sections: string[];
+      callToAction: string | null;
+      styleDirection: string | null;
+      artifactMarkdown: string | null;
+      approved: boolean;
+      errorMessage: string | null;
+    }>,
+  ): Promise<LeadScoutPrototypeRecord>;
+
+  createLeadScoutOutreachDraft(input: {
+    workspaceId: string;
+    leadId: string;
+    prototypeId?: string | null;
+    taskId?: string | null;
+  }): Promise<LeadScoutOutreachDraftRecord>;
+  getLeadScoutOutreachDraft(id: string): Promise<LeadScoutOutreachDraftRecord | null>;
+  /** Most recent first. */
+  listLeadScoutOutreachDraftsByLead(leadId: string): Promise<LeadScoutOutreachDraftRecord[]>;
+  updateLeadScoutOutreachDraft(
+    id: string,
+    patch: Partial<{
+      subject: string | null;
+      bodyText: string | null;
+      bodyHtml: string | null;
+      status: LeadScoutDraftStatus;
+      errorMessage: string | null;
+      approvedAt: Date | null;
+      sentAt: Date | null;
+    }>,
+  ): Promise<LeadScoutOutreachDraftRecord>;
+  /** Atomic compare-and-swap on outreach_draft.status — the actual guard
+   * against sending the same draft twice from a race (approve-then-send and
+   * a duplicate click, or two concurrent send workers). Returns null if
+   * `fromStatus` no longer matches. */
+  claimLeadScoutOutreachDraftStatus(input: {
+    id: string;
+    fromStatus: LeadScoutDraftStatus;
+    toStatus: LeadScoutDraftStatus;
+  }): Promise<LeadScoutOutreachDraftRecord | null>;
+
+  createLeadScoutSuppression(input: {
+    workspaceId: string;
+    email?: string | null;
+    domain?: string | null;
+    reason: string;
+  }): Promise<LeadScoutSuppressionRecord>;
+  listLeadScoutSuppressionsByWorkspace(workspaceId: string): Promise<LeadScoutSuppressionRecord[]>;
+  /** Looks up a matching suppression row by exact email or domain — checked
+   * before every send (per-domain/per-email opt-out enforcement). */
+  getLeadScoutSuppressionMatch(
+    workspaceId: string,
+    email: string | null,
+    domain: string | null,
+  ): Promise<LeadScoutSuppressionRecord | null>;
+
+  getLeadScoutEmailSettings(workspaceId: string): Promise<LeadScoutEmailSettingsRecord | null>;
+  /** Creates the workspace's one settings row if it doesn't exist yet,
+   * otherwise updates it in place (unique constraint on workspaceId). */
+  upsertLeadScoutEmailSettings(input: {
+    workspaceId: string;
+    provider?: LeadScoutEmailProvider;
+    fromName: string;
+    fromEmail: string;
+    replyTo?: string | null;
+    credentials?: LeadScoutEmailCredentials | null;
+    dailySendLimit?: number;
+    perCampaignSendLimit?: number;
+    dryRunMode?: boolean;
+    legalFooter?: string | null;
+    unsubscribeText?: string;
+  }): Promise<LeadScoutEmailSettingsRecord>;
+  /** Resets sendCountToday to 0 first if sendCountDate isn't `today`, then
+   * increments it by one — the daily send-limit counter. */
+  incrementLeadScoutEmailSendCount(
+    workspaceId: string,
+    today: string,
+  ): Promise<LeadScoutEmailSettingsRecord>;
 }
