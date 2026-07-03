@@ -2006,6 +2006,7 @@ export interface DbRepository {
     id: string,
     patch: Partial<{
       status: LeadScoutPrototypeStatus;
+      taskId: string | null;
       concept: string | null;
       heroCopy: string | null;
       sections: string[];
@@ -2029,6 +2030,7 @@ export interface DbRepository {
   updateLeadScoutOutreachDraft(
     id: string,
     patch: Partial<{
+      taskId: string | null;
       subject: string | null;
       bodyText: string | null;
       bodyHtml: string | null;
