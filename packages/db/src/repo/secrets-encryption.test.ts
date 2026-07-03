@@ -3,6 +3,23 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createTestSqliteRepository, createTestUser } from "../test-utils";
 import type { DbRepository } from "./types";
 
+function writeRawColumn(
+  path: string,
+  table: string,
+  column: string,
+  value: string,
+  where: { column: string; value: string },
+): void {
+  const sqlite = new Database(path);
+  try {
+    sqlite
+      .query(`UPDATE ${table} SET ${column} = ? WHERE ${where.column} = ?`)
+      .run(value, where.value);
+  } finally {
+    sqlite.close();
+  }
+}
+
 let ctx: Awaited<ReturnType<typeof createTestSqliteRepository>>;
 let db: DbRepository;
 
@@ -141,5 +158,26 @@ describe("secrets are encrypted at rest (SECURITY_AUDIT.md SEC-01)", () => {
     const fetched = await db.getMcpServer(server.id);
     expect(fetched?.env).toBeNull();
     expect(fetched?.oauthState).toBeNull();
+  });
+
+  test("a corrupted oauth_state column value fails closed instead of returning garbage", async () => {
+    const user = createTestUser(ctx.path);
+    const workspace = await db.createWorkspace({ userId: user.id, name: "Test workspace" });
+    const server = await db.createMcpServer({
+      workspaceId: workspace.id,
+      name: "Remote http server",
+      transport: "http",
+      url: "https://example.test/mcp",
+    });
+    await db.updateMcpServerOAuthState(server.id, { accessToken: "at-live-secret" });
+
+    // Simulate bit-rot/truncation/a hand-edited row — not a value encrypt()
+    // ever produced.
+    writeRawColumn(ctx.path, "mcp_server", "oauth_state", "v1:corrupted:not:valid", {
+      column: "id",
+      value: server.id,
+    });
+
+    await expect(db.getMcpServer(server.id)).rejects.toThrow();
   });
 });

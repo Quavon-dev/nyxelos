@@ -11,10 +11,19 @@ import { generateImage, NoImageGeneratedError } from "ai";
 import { executeManagedTask } from "./agent-runtime";
 import { emitNyxelEvent } from "./event-bus";
 import { NyxelEvent } from "./events";
+import { isWorkflowAutomationHttpEnabled } from "./feature-flags";
 import { libraryFileDiskPath, saveLibraryUpload } from "./library";
 import { getInstalledProvidersForWorkspace } from "./models";
+import { safeFetch } from "./safe-fetch";
 import { generateVideo } from "./video";
 import { editVideo, type VideoEditOperation } from "./video-edit";
+
+/** "manual" is an attended human action (the builder page's Run button);
+ * "automation" is unattended (a cron/file-watch automation, or the
+ * `run_workflow` agent tool called from an automation context) — see
+ * isWorkflowAutomationHttpEnabled's doc comment for why the HTTP Request
+ * node treats the two differently. */
+export type WorkflowRunTrigger = "manual" | "automation";
 
 type WorkflowNode = WorkflowDefinition["nodes"][number];
 type NodeOutput = { kind: "text"; text: string } | { kind: "file"; libraryFileId: string };
@@ -204,22 +213,29 @@ async function runOutputNode(inputs: NodeOutput[]): Promise<NodeOutput> {
 async function runHttpRequestNode(
   data: Record<string, unknown>,
   inputs: NodeOutput[],
+  trigger: WorkflowRunTrigger,
 ): Promise<NodeOutput> {
   const url = (data.url as string) || "";
   if (!url) throw new Error("No URL set for this node.");
+  if (trigger === "automation" && !isWorkflowAutomationHttpEnabled()) {
+    throw new Error(
+      "This workflow's HTTP Request node was blocked: unattended automation runs can't make " +
+        "outbound requests on this server unless an operator opts in. Set " +
+        "ENABLE_WORKFLOW_AUTOMATION_HTTP=true to allow it, or run this workflow manually instead.",
+    );
+  }
   const method = ((data.method as string) || "GET").toUpperCase();
   const body = method === "GET" ? undefined : textInputs(inputs);
 
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     method,
     headers: body ? { "content-type": "text/plain" } : undefined,
     body,
   });
-  const text = await res.text();
   if (!res.ok) {
     throw new Error(`Request to ${url} failed: ${res.status} ${res.statusText}`);
   }
-  return { kind: "text", text };
+  return { kind: "text", text: res.text };
 }
 
 async function runDelayNode(
@@ -253,6 +269,7 @@ async function executeNode(
   node: WorkflowNode,
   inputs: NodeOutput[],
   workspaceId: string,
+  trigger: WorkflowRunTrigger,
 ): Promise<{ output: NodeOutput; branch?: ConditionBranch }> {
   switch (node.type) {
     case "text_prompt":
@@ -269,7 +286,7 @@ async function executeNode(
     case "agent":
       return { output: await runAgentNode(node.data, inputs, workspaceId) };
     case "http_request":
-      return { output: await runHttpRequestNode(node.data, inputs) };
+      return { output: await runHttpRequestNode(node.data, inputs, trigger) };
     case "delay":
       return { output: await runDelayNode(node.data, inputs) };
     case "condition":
@@ -289,7 +306,11 @@ async function executeNode(
  * reached (a cycle, which the builder's UI doesn't prevent client-side) is
  * swept up as "skipped" too so the run always terminates.
  */
-async function executeWorkflowRun(run: WorkflowRunRecord, workflow: WorkflowRecord): Promise<void> {
+async function executeWorkflowRun(
+  run: WorkflowRunRecord,
+  workflow: WorkflowRecord,
+  trigger: WorkflowRunTrigger,
+): Promise<void> {
   const db = getDb();
   await db.updateWorkflowRun(run.id, { status: "running", startedAt: new Date() });
 
@@ -359,7 +380,7 @@ async function executeWorkflowRun(run: WorkflowRunRecord, workflow: WorkflowReco
           await db.updateWorkflowRunNode(runNodeId, { status: "running", startedAt: new Date() });
         }
         try {
-          const { output, branch } = await executeNode(node, inputs, workflow.workspaceId);
+          const { output, branch } = await executeNode(node, inputs, workflow.workspaceId, trigger);
           resolved.set(nodeId, output);
           if (branch) branchByNodeId.set(nodeId, branch);
           if (runNodeId) {
@@ -448,7 +469,9 @@ export async function startWorkflowRun(workflowId: string): Promise<WorkflowRunR
   if (!workflow) throw new Error(`Workflow not found: ${workflowId}`);
 
   const run = await createWorkflowRunRow(workflow);
-  void executeWorkflowRun(run, workflow).catch((err) => {
+  // Always an attended, authenticated human action (the builder page's Run
+  // button) — see WorkflowRunTrigger's doc comment.
+  void executeWorkflowRun(run, workflow, "manual").catch((err) => {
     console.error(`Workflow run ${run.id} failed:`, err);
   });
 
@@ -466,6 +489,7 @@ export async function startWorkflowRun(workflowId: string): Promise<WorkflowRunR
 export async function runWorkflowAndWait(
   workflowId: string,
   workspaceId: string,
+  trigger: WorkflowRunTrigger = "automation",
 ): Promise<{ run: WorkflowRunRecord; nodes: WorkflowRunNodeRecord[] }> {
   const db = getDb();
   const workflow = await db.getWorkflow(workflowId);
@@ -474,7 +498,7 @@ export async function runWorkflowAndWait(
   }
 
   const run = await createWorkflowRunRow(workflow);
-  await executeWorkflowRun(run, workflow);
+  await executeWorkflowRun(run, workflow, trigger);
 
   const [finalRun, nodes] = await Promise.all([
     db.getWorkflowRun(run.id),

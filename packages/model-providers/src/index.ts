@@ -1,3 +1,20 @@
+export type {
+  ResolvedSpeechModel,
+  ResolvedTranscriptionModel,
+  SpeechModelDefinition,
+  SpeechToTextModelDefinition,
+} from "./audio";
+export {
+  DEFAULT_SPEECH_MODEL_ID,
+  DEFAULT_SPEECH_VOICE,
+  DEFAULT_TRANSCRIPTION_MODEL_ID,
+  OPENAI_SPEECH_MODELS,
+  OPENAI_SPEECH_VOICES,
+  OPENAI_TRANSCRIPTION_MODELS,
+  resolveSpeechModel,
+  resolveTranscriptionModel,
+  supportsSpeechInstructions,
+} from "./audio";
 export type { ChatStreamPart, ChatStreamResult, CliPermissionMode } from "./cli";
 export type {
   DetectedLocalModel,
@@ -22,23 +39,6 @@ export {
   probeOpenAiCompatibleEndpoint,
   probeOpenAiCompatibleEndpointDetailed,
 } from "./detect";
-export type {
-  ResolvedSpeechModel,
-  ResolvedTranscriptionModel,
-  SpeechModelDefinition,
-  SpeechToTextModelDefinition,
-} from "./audio";
-export {
-  DEFAULT_SPEECH_MODEL_ID,
-  DEFAULT_SPEECH_VOICE,
-  DEFAULT_TRANSCRIPTION_MODEL_ID,
-  OPENAI_SPEECH_MODELS,
-  OPENAI_SPEECH_VOICES,
-  OPENAI_TRANSCRIPTION_MODELS,
-  resolveSpeechModel,
-  resolveTranscriptionModel,
-  supportsSpeechInstructions,
-} from "./audio";
 export type { ImageModelDefinition, ResolvedImageModel } from "./image";
 export { DEFAULT_IMAGE_MODEL_ID, OPENAI_IMAGE_MODELS, resolveImageModel } from "./image";
 export type { ProviderImportSource } from "./import-sources";
@@ -68,7 +68,7 @@ export type {
   ReasoningEffort,
   StreamChatInput,
 } from "./stream";
-export { streamChat } from "./stream";
+export { DEFAULT_MAX_OUTPUT_TOKENS, streamChat } from "./stream";
 export type { ResolvedVideoProvider, VideoGenerationPlan, VideoModelDefinition } from "./video";
 export {
   DEFAULT_VIDEO_MODEL_ID,
