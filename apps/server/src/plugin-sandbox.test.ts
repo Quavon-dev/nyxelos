@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { PluginSandboxError, runIsolatedCustomCode } from "./plugin-sandbox";
+import { PluginSandboxError, runIsolatedCustomCode, runVmSandboxedCode } from "./plugin-sandbox";
 
 /**
  * Regression tests for the isolated-execution boundary (ADR-0007) —
@@ -199,6 +199,117 @@ describe("runIsolatedCustomCode — output size cap", () => {
         { network: [], filesystem: [] },
         { maxOutputChars: 200 },
       ),
+    ).rejects.toThrow(/\[truncated\]$/);
+  });
+});
+
+/**
+ * `runVmSandboxedCode` — the same-process vm-only sandbox used for
+ * `browser_run_playwright_code` (tools-builtin/browser.ts), where the
+ * sandboxed code needs a live, non-serializable object (a Playwright
+ * `Page`) that can't cross runIsolatedCustomCode's subprocess boundary.
+ * These tests use a plain stand-in object in place of a real Page — the
+ * mechanism under test is the vm sandboxing itself (no require/process/Bun,
+ * a real global still reachable, timeout, output cap), not Playwright.
+ */
+describe("runVmSandboxedCode — basic execution", () => {
+  it("runs code that uses a passed-in global and returns its value", async () => {
+    const page = { title: async () => "Example Page" };
+    const result = await runVmSandboxedCode("return await page.title();", { page });
+    expect(result).toBe("Example Page");
+  });
+
+  it("returns null for code with no explicit return", async () => {
+    const result = await runVmSandboxedCode("1 + 1;", {});
+    expect(result).toBeNull();
+  });
+
+  it("surfaces a thrown error from the sandboxed code as a PluginSandboxError", async () => {
+    await expect(runVmSandboxedCode("throw new Error('boom');", {})).rejects.toThrow(
+      PluginSandboxError,
+    );
+    await expect(runVmSandboxedCode("throw new Error('boom');", {})).rejects.toThrow(/boom/);
+  });
+});
+
+describe("runVmSandboxedCode — ambient API isolation", () => {
+  it("never sees the caller's real process.env, even when the server has real secrets set", async () => {
+    const previous = process.env.NYXEL_TEST_SECRET;
+    process.env.NYXEL_TEST_SECRET = "super-secret-value";
+    try {
+      const result = await runVmSandboxedCode("return typeof process;", {});
+      expect(result).toBe("undefined");
+    } finally {
+      if (previous === undefined) delete process.env.NYXEL_TEST_SECRET;
+      else process.env.NYXEL_TEST_SECRET = previous;
+    }
+  });
+
+  it("blocks direct require('node:fs') access", async () => {
+    const result = await runVmSandboxedCode(
+      "try { require('node:fs'); return 'leaked'; } catch (e) { return 'blocked: ' + e.message; }",
+      {},
+    );
+    expect(result).toContain("blocked");
+    expect(result).not.toBe("leaked");
+  });
+
+  it("blocks direct require('node:child_process') access", async () => {
+    const result = await runVmSandboxedCode(
+      "try { require('node:child_process'); return 'leaked'; } catch (e) { return 'blocked: ' + e.message; }",
+      {},
+    );
+    expect(result).toContain("blocked");
+    expect(result).not.toBe("leaked");
+  });
+
+  it("blocks Bun-global access", async () => {
+    const result = await runVmSandboxedCode("return typeof Bun;", {});
+    expect(result).toBe("undefined");
+  });
+
+  it("blocks ambient fetch access", async () => {
+    const result = await runVmSandboxedCode("return typeof fetch;", {});
+    expect(result).toBe("undefined");
+  });
+});
+
+describe("runVmSandboxedCode — timeout", () => {
+  it("rejects a call that runs longer than the configured timeout", async () => {
+    await expect(
+      runVmSandboxedCode(
+        "await new Promise((resolve) => setTimeout(resolve, 5000)); return 'done';",
+        {},
+        { timeoutMs: 200 },
+      ),
+    ).rejects.toThrow(PluginSandboxError);
+  });
+});
+
+describe("runVmSandboxedCode — output size cap", () => {
+  it("returns a value under the cap unchanged", async () => {
+    const result = await runVmSandboxedCode(
+      "return 'x'.repeat(100);",
+      {},
+      { maxOutputChars: 1000 },
+    );
+    expect(result).toBe("x".repeat(100));
+  });
+
+  it("truncates an oversized return value instead of passing it through whole", async () => {
+    const result = (await runVmSandboxedCode(
+      "return 'x'.repeat(10000);",
+      {},
+      { maxOutputChars: 500 },
+    )) as { truncated: boolean; originalChars: number; preview: string };
+    expect(result.truncated).toBe(true);
+    expect(result.originalChars).toBeGreaterThan(500);
+    expect(result.preview.length).toBeLessThanOrEqual(500);
+  });
+
+  it("truncates an oversized thrown error message rather than leaking it whole", async () => {
+    await expect(
+      runVmSandboxedCode("throw new Error('x'.repeat(10000));", {}, { maxOutputChars: 200 }),
     ).rejects.toThrow(/\[truncated\]$/);
   });
 });

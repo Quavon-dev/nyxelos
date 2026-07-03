@@ -992,6 +992,21 @@ export function createPgRepository(connectionString: string): DbRepository {
       return this.updateTask(row.id, { status: "running", startedAt: new Date() });
     },
 
+    async claimTaskForRetry(taskId) {
+      const [row] = await db
+        .update(schema.task)
+        .set({
+          status: "ready",
+          startedAt: new Date(),
+          completedAt: null,
+          errorMessage: null,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(schema.task.id, taskId), eq(schema.task.status, "failed")))
+        .returning();
+      return row ? mapTask(row) : null;
+    },
+
     async createTaskEvent({ taskId, workspaceId, agentRunId, agentId, kind, message, payload }) {
       const [row] = await db
         .insert(schema.taskEvent)
@@ -1709,6 +1724,15 @@ export function createPgRepository(connectionString: string): DbRepository {
         .returning();
       if (!row) throw new Error(`Approval request not found: ${id}`);
       return row;
+    },
+
+    async claimApprovalRequest({ id, status }) {
+      const [row] = await db
+        .update(schema.approvalRequest)
+        .set({ status, resolvedAt: new Date() })
+        .where(and(eq(schema.approvalRequest.id, id), eq(schema.approvalRequest.status, "pending")))
+        .returning();
+      return row ?? null;
     },
 
     async createAuditLog({

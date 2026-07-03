@@ -55,6 +55,7 @@ const RUN_STATUS_BADGE: Record<AgentRunStatus, string> = {
   completed: "border-0 bg-green-500/15 text-green-700 dark:bg-green-500/10 dark:text-green-400",
   failed: "border-0 bg-rose-500/15 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400",
   cancelled: "border-0 bg-muted text-muted-foreground line-through",
+  dead_letter: "border-0 bg-rose-700/20 text-rose-800 dark:bg-rose-700/15 dark:text-rose-300",
 };
 
 function formatDate(d: Date | string | null | undefined) {
@@ -74,9 +75,7 @@ export default function TaskDetailPage() {
     // output (agent-runtime.ts progressively persists it) actually feels
     // live instead of updating in 8-second jumps.
     refetchInterval: (query) =>
-      RUNNING_TASK_STATUSES.has(query.state.data?.task?.status as TaskStatus)
-        ? 1_500
-        : 8_000,
+      RUNNING_TASK_STATUSES.has(query.state.data?.task?.status as TaskStatus) ? 1_500 : 8_000,
   });
   const agentsQuery = useQuery({
     queryKey: ["agents", workspaceId],
@@ -121,6 +120,10 @@ export default function TaskDetailPage() {
     mutationFn: () => trpcClient.tasks.start.mutate({ taskId }),
     onSuccess: invalidate,
   });
+  const retryTask = useMutation({
+    mutationFn: () => trpcClient.tasks.retry.mutate({ taskId }),
+    onSuccess: invalidate,
+  });
   const setTaskModel = useMutation({
     mutationFn: (modelId: string | null) => trpcClient.tasks.setModel.mutate({ taskId, modelId }),
     onSuccess: invalidate,
@@ -138,8 +141,8 @@ export default function TaskDetailPage() {
       invalidate();
     },
   });
-  const followUpError =
-    followUpTask.error instanceof Error ? followUpTask.error.message : null;
+  const followUpError = followUpTask.error instanceof Error ? followUpTask.error.message : null;
+  const retryError = retryTask.error instanceof Error ? retryTask.error.message : null;
 
   const [actingApprovalId, setActingApprovalId] = useState<string | null>(null);
   const invalidateApprovals = () => {
@@ -258,6 +261,16 @@ export default function TaskDetailPage() {
           </div>
           {canResolve && (
             <div className="flex shrink-0 gap-2">
+              {task.status === "failed" && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => retryTask.mutate()}
+                  disabled={retryTask.isPending}
+                >
+                  {retryTask.isPending ? "Retrying…" : "Retry"}
+                </Button>
+              )}
               {task.status !== "completed" && task.status !== "cancelled" && (
                 <Button
                   variant="secondary"
@@ -298,12 +311,25 @@ export default function TaskDetailPage() {
           {isBlockedOnQuestion ? (
             <div className="rounded-lg border border-orange-500/25 bg-orange-500/10 p-3 text-sm text-orange-700 dark:text-orange-400">
               <p className="font-medium">The agent paused to ask a question:</p>
-              <p className="mt-1">
-                {latestQuestionEvent?.message ?? "Waiting for an answer."}
-              </p>
+              <p className="mt-1">{latestQuestionEvent?.message ?? "Waiting for an answer."}</p>
               <p className="mt-1 text-xs opacity-80">
                 Answer it below in "Continue with agent" to resume the run.
               </p>
+            </div>
+          ) : task.status === "failed" ? (
+            <div className="rounded-lg border border-rose-500/25 bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-400">
+              <p className="font-medium">This task failed.</p>
+              {task.errorMessage && <p className="mt-1">{task.errorMessage}</p>}
+              {runs.some((r) => r.status === "dead_letter") && (
+                <p className="mt-1 text-xs opacity-80">
+                  The last run exhausted its automatic transient-error retries and landed in
+                  dead-letter.
+                </p>
+              )}
+              <p className="mt-1 text-xs opacity-80">
+                Use the Retry button above to run the same instruction again.
+              </p>
+              {retryError && <p className="mt-1 text-xs">Retry failed: {retryError}</p>}
             </div>
           ) : (
             isBlocked && (
@@ -333,9 +359,7 @@ export default function TaskDetailPage() {
                 {task.errorMessage ? "Error" : "Result"}
               </p>
               {task.errorMessage ? (
-                <p className="whitespace-pre-wrap text-sm text-destructive">
-                  {task.errorMessage}
-                </p>
+                <p className="whitespace-pre-wrap text-sm text-destructive">{task.errorMessage}</p>
               ) : (
                 <div className="text-sm">
                   <MarkdownContent content={task.resultSummary ?? ""} />
@@ -461,11 +485,11 @@ export default function TaskDetailPage() {
               <ListTree className="size-4" /> Child tasks
               {children.filter((c) => c.status === "running" || c.status === "planning").length >
                 1 && (
-                <Badge variant="outline" className="border-0 bg-violet-500/15 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300">
-                  {
-                    children.filter((c) => c.status === "running" || c.status === "planning")
-                      .length
-                  }{" "}
+                <Badge
+                  variant="outline"
+                  className="border-0 bg-violet-500/15 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"
+                >
+                  {children.filter((c) => c.status === "running" || c.status === "planning").length}{" "}
                   running in parallel
                 </Badge>
               )}

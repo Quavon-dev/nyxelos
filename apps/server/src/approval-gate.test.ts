@@ -420,4 +420,66 @@ describe("approval gate — reject prevents execution, approve resumes safely", 
     const updatedRun = await db.getAgentRun(run.id);
     expect(updatedRun?.status).toBe("failed");
   });
+
+  it("two concurrent resolutions of the same approval execute the sensitive action at most once", async () => {
+    const workspace = await seedWorkspace();
+    const filePath = path.join(workDir, "race-me.txt");
+    await writeFile(filePath, "bye", "utf-8");
+    const tool = await seedTool(workspace.id, "file_delete", { allowedDirs: [workDir] });
+    const agent = await seedAgent(workspace.id, "autonomous", { toolIds: [tool.id] });
+    const { task, run } = await seedTaskRun(workspace.id, agent.id);
+
+    const tools = await buildToolsForAgent(agent, {
+      taskId: task.id,
+      agentRunId: run.id,
+      chatToolPolicy: toolPolicyForAutonomyLevel(agent.autonomyLevel),
+    });
+    const execute = toolByDescription(tools, tool.description);
+    const deferred = (await execute(
+      { path: filePath },
+      { toolCallId: "call-1", messages: [] },
+    )) as { approvalId: string };
+
+    // Simulates a double-click / replayed request: both calls race for the
+    // same pending approval row. The atomic claimApprovalRequest CAS (not a
+    // check-then-write) guarantees only one wins.
+    const results = await Promise.allSettled([
+      resolveApprovalDecision(deferred.approvalId, "approved"),
+      resolveApprovalDecision(deferred.approvalId, "approved"),
+    ]);
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/already/);
+    await expect(readFile(filePath, "utf-8")).rejects.toThrow();
+  });
+
+  it("does not let a duplicate approval resolution revive an already-terminal agent run", async () => {
+    const workspace = await seedWorkspace();
+    const tool = await seedTool(workspace.id, "custom_code", { code: "return 1;" });
+    const agent = await seedAgent(workspace.id, "autonomous", { toolIds: [tool.id] });
+    const { task, run } = await seedTaskRun(workspace.id, agent.id);
+
+    const tools = await buildToolsForAgent(agent, {
+      taskId: task.id,
+      agentRunId: run.id,
+      chatToolPolicy: toolPolicyForAutonomyLevel(agent.autonomyLevel),
+    });
+    const execute = toolByDescription(tools, tool.description);
+    const deferred = (await execute({}, { toolCallId: "call-1", messages: [] })) as {
+      approvalId: string;
+    };
+
+    // The run finishes (e.g. cancelled) independently of the pending
+    // approval, landing in a terminal status before the approval is
+    // resolved — a late approve must not stomp that terminal status back
+    // to something active.
+    await db.updateAgentRun(run.id, { status: "cancelled", completedAt: new Date() });
+
+    await resolveApprovalDecision(deferred.approvalId, "approved");
+
+    const updatedRun = await db.getAgentRun(run.id);
+    expect(updatedRun?.status).toBe("cancelled");
+  });
 });

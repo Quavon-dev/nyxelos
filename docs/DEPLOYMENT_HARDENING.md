@@ -30,30 +30,27 @@ If you expose PC mode beyond `localhost` (LAN, Tailscale, port-forward), you're 
 
 ## Caddy headers: present vs. still missing
 
-`Caddyfile` currently sets:
+`Caddyfile` now sets:
 ```
 X-Content-Type-Options nosniff
 Referrer-Policy strict-origin-when-cross-origin
 X-Frame-Options SAMEORIGIN
+Strict-Transport-Security "max-age=31536000; includeSubDomains"
+Permissions-Policy "microphone=(self), camera=()"
 ```
 
-Not currently set, worth adding for server mode specifically (PC mode has no Caddy layer to add them to — see above):
+**Done**: HSTS (server mode is TLS-only by design, so this is unconditionally safe) and `Permissions-Policy` (restricts microphone to same-origin, given the in-browser Whisper dictation feature; camera is denied entirely since nothing in the app requests it).
 
-- **`Strict-Transport-Security`** (HSTS) — Caddy auto-provisions TLS but doesn't add HSTS by default; since server mode is TLS-only by design, this is a low-risk, high-value addition: `header Strict-Transport-Security "max-age=31536000; includeSubDomains"`.
-- **`Content-Security-Policy`** — no CSP is set today. This is the highest-effort item on this list (needs auditing every inline script/style, font, and third-party asset the Next.js app actually loads — `apps/web` uses `@xyflow/react`, `recharts`, `katex`, syntax highlighting, and a WASM-based Whisper model via `@huggingface/transformers`, several of which may need specific `script-src`/`worker-src`/`connect-src` allowances). Don't ship a copy-pasted generic CSP without testing against the real app; a wrong CSP silently breaks the Whisper WASM path or chart rendering. Recommend scoping this as its own backlog item with a real testing pass, not a drive-by header add.
-- **`Permissions-Policy`** — worth restricting `microphone`/`camera` to `self` given the in-browser Whisper dictation feature explicitly requests mic access; an explicit policy documents intent even though the browser's own permission prompt is the real gate.
+Still not set, intentionally:
+- **`Content-Security-Policy`** — no CSP is set today. This remains the highest-effort item on this list (needs auditing every inline script/style, font, and third-party asset the Next.js app actually loads — `apps/web` uses `@xyflow/react`, `recharts`, `katex`, syntax highlighting, and a WASM-based Whisper model via `@huggingface/transformers`, several of which may need specific `script-src`/`worker-src`/`connect-src` allowances). Don't ship a copy-pasted generic CSP without testing against the real app; a wrong CSP silently breaks the Whisper WASM path or chart rendering. Recommend scoping this as its own backlog item with a real testing pass against a running instance, not a drive-by header add — see backlog `BL-21`.
 
-These are Caddyfile-only changes (not application code) and were left undone in this audit rather than applied blind, given the CSP caveat above — see backlog `BL-10`.
+These are Caddyfile-only changes (not application code); PC mode still has no Caddy layer to add them to (see the network-exposure table above).
 
 ## Docker image hardening (both `Dockerfile`s)
 
-Neither `apps/server/Dockerfile` nor `apps/web/Dockerfile` sets a `USER` directive — both run as root inside the container by default (the `oven/bun:1` base image's default user). Also, `apps/server/Dockerfile` does a single-stage `bun install` with no `--production`/`--frozen-lockfile` distinction from the dev install, and copies the full monorepo context in (`COPY packages ./packages`, `COPY apps/web/package.json ...`) rather than a pruned production subset — larger image and attack surface than strictly necessary, though not a direct vulnerability.
+**Done**: both `apps/server/Dockerfile` and `apps/web/Dockerfile` now switch to the `oven/bun:1` base image's built-in `bun` user (uid/gid 1000, created by the upstream image but not activated by default) via a `USER bun` directive before the final `CMD`. Files copied into the image use `COPY --chown=bun:bun` so they stay readable by that user, and `apps/server/Dockerfile` additionally pre-creates `/data` (the SQLite volume mount point used by `docker-compose.pc.yml`'s `nyxel-data` volume) and `chown`s it to `bun:bun` before the user switch — Docker seeds a fresh named volume from whatever is already at its mount path in the image on first use, so this keeps `/data` writable once the container is running as a non-root user. `apps/web/Dockerfile`'s runtime stage has no volumes, so no equivalent step was needed there.
 
-Recommended, not applied in this audit (Docker/deployment files are explicitly in scope for documentation-only per this audit's mandate when the change touches build output correctness, which a `USER` directive change does — needs a real build+run verification pass, not a blind edit):
-- Add a non-root `USER bun` (the `oven/bun` base image ships a `bun` user) after `RUN bun install` in both Dockerfiles, provided file permissions on mounted volumes (`nyxel-data`, `nyxel-postgres`) are compatible — needs a real test against `docker-compose.pc.yml`'s volume mount, since a permission mismatch here would break the running container in a way this audit can't verify without executing Docker builds.
-- Consider `bun install --frozen-lockfile` in the Dockerfile (already used in CI, `ci.yml`) for reproducible image builds, matching what CI already enforces.
-
-Backlog `BL-11`.
+Not changed: `apps/server/Dockerfile` still does a single-stage `bun install` (no `--frozen-lockfile`) and copies the full monorepo context in — out of scope for this pass, tracked separately if it becomes worth doing.
 
 ## `.env.example` changes
 

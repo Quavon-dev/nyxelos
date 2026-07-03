@@ -166,7 +166,8 @@ Prioritized backlog from this audit session. Every item below traces back to a c
 - **Problem:** No HSTS, CSP, or Permissions-Policy set for server mode. See `DEPLOYMENT_HARDENING.md`.
 - **Ziel:** Server-mode deployments get standard hardening headers without breaking the app's actual asset/script loading (WASM Whisper, charts, KaTeX, etc.).
 - **Akzeptanzkriterien:** HSTS added immediately (low risk, no functional dependency). CSP added only after an explicit test pass confirming it doesn't break `@huggingface/transformers` WASM loading, `@xyflow/react`, `recharts`, KaTeX, or syntax highlighting — this needs to be verified against a running instance, not assumed. Permissions-Policy restricts `microphone`/`camera` to `self`.
-- **Risiko:** Low for HSTS/Permissions-Policy. Medium for CSP — a wrong policy silently breaks features rather than erroring loudly.
+- **Status:** HSTS and Permissions-Policy **done** — `Caddyfile` now sets `Strict-Transport-Security: max-age=31536000; includeSubDomains` and `Permissions-Policy: microphone=(self), camera=()`. CSP intentionally still not added — see `BL-21`.
+- **Risiko:** Low for HSTS/Permissions-Policy (shipped). Medium for CSP — a wrong policy silently breaks features rather than erroring loudly.
 - **Betroffene Dateien:** `Caddyfile`.
 - **Aufwand:** Small (HSTS, Permissions-Policy) + Medium (CSP, needs real testing).
 - **Abhängigkeiten:** None.
@@ -179,6 +180,7 @@ Prioritized backlog from this audit session. Every item below traces back to a c
 - **Problem:** Neither image sets a `USER` directive; both run as root inside the container by default. See `DEPLOYMENT_HARDENING.md`.
 - **Ziel:** Both containers run as an unprivileged user without breaking volume-mounted data access.
 - **Akzeptanzkriterien:** `USER bun` (or equivalent) added after dependency install; a real `docker compose -f docker-compose.pc.yml up --build` run confirms the SQLite volume mount (`nyxel-data:/data`) remains writable by the new non-root user.
+- **Status:** **Done.** Both Dockerfiles now run as `USER bun` (confirmed present in the upstream `oven/bun:1` image via its own Dockerfile source — created via `useradd`/`adduser`, uid/gid 1000, just never activated by default). Copies use `COPY --chown=bun:bun`; `apps/server/Dockerfile` pre-creates and `chown`s `/data` before the user switch so the `nyxel-data` named volume (which Docker seeds from the image's mount-path contents on first use) stays writable. No Docker daemon was available in this session's sandbox to run a live `build`/`up` — verified instead via `docker compose -f docker-compose.{pc,server}.yml config` (both parse cleanly) and by confirming the `bun` user's existence against the base image's own Dockerfile source. A real build+run pass is still worth doing before relying on this in production.
 - **Risiko:** Medium — a permission mismatch on the volume mount would break the running container in a way only a real Docker build+run catches, not a source review.
 - **Betroffene Dateien:** `apps/server/Dockerfile`, `apps/web/Dockerfile`.
 - **Aufwand:** Small implementation, but requires real build+run verification — budget accordingly.
@@ -345,6 +347,7 @@ This audit reviewed the actual route structure (`apps/web/src/app/workspace/[wor
 - **Priorität:** P5 (by effort/risk — this is the "real" fix for `PLUGIN_SECURITY.md`'s core gap, but is a genuine runtime redesign)
 - **Bereich:** `packages/skills-sdk` (Skill Runtime — explicitly out of scope for direct changes in this audit)
 - **Problem/Ziel:** See `PLUGIN_SECURITY.md` stage 5.
+- **Status:** `custom_code` (subprocess) and, as of this session, `browser_run_playwright_code` (same-process `node:vm`, via the new `runVmSandboxedCode` in `apps/server/src/plugin-sandbox.ts`) are the two arbitrary-code execution points now isolated. See `PLUGIN_SECURITY.md` stage 5 for the exact trade-off of the vm-only path. **Still open:** hand-written builtin skills and DB-backed tools of every other kind still run in-process with full server access (though, per this session's investigation, plugin-contributed `SKILL.md` bodies are declarative text only today — they don't execute code, so there's no live gap there yet, only the install-time static scan of files that aren't themselves executed).
 - **Akzeptanzkriterien:** TBD by whoever designs the ADR-0007 implementation — this audit intentionally didn't prescribe a specific technical approach (Bun `Worker` vs. subprocess vs. container), since that's a real architectural decision deserving its own design doc.
 - **Risiko:** High — touches the Skill Runtime, the exact area this audit was told to avoid.
 - **Betroffene Dateien:** `packages/skills-sdk/src/runtime.ts` and everything that constructs a `SkillContext`.

@@ -1,4 +1,5 @@
 import {
+  assertAgentRunTransitionAllowed,
   buildPermissionSnapshot,
   hashToolInput,
   permissionForSource,
@@ -44,6 +45,33 @@ async function approvalPermissionFields(approval: ApprovalRequestRecord) {
 }
 
 /**
+ * Writes an agentRun's status, skipping the write (instead of throwing) if
+ * it would revive an already-terminal run (see run-transitions.ts) — e.g. a
+ * late approval resolution racing a run that was independently cancelled or
+ * that already failed for an unrelated reason. This is bookkeeping, not the
+ * security boundary against double execution (that's `claimApprovalRequest`'s
+ * atomic CAS below); it only keeps the run's terminal status from being
+ * silently clobbered by a stale write, so it fails soft rather than
+ * aborting the rest of `resolveApprovalDecision`'s own bookkeeping.
+ */
+async function updateAgentRunStatusGuarded(
+  db: ReturnType<typeof getDb>,
+  agentRunId: string,
+  update: Parameters<ReturnType<typeof getDb>["updateAgentRun"]>[1],
+): Promise<void> {
+  const current = await db.getAgentRun(agentRunId);
+  if (!current) return;
+  if (update.status) {
+    try {
+      assertAgentRunTransitionAllowed(current.status, update.status);
+    } catch {
+      return;
+    }
+  }
+  await db.updateAgentRun(agentRunId, update);
+}
+
+/**
  * Runs the real action behind a pending approval once a human decides on it.
  * See ADR-0009: the model's tool call already returned a "pending approval"
  * placeholder and moved on — this function is the other half of that
@@ -57,12 +85,22 @@ export async function resolveApprovalDecision(
   const db = getDb();
   const approval = await db.getApprovalRequest(id);
   if (!approval) throw new Error(`Unknown approval request: ${id}`);
-  if (approval.status !== "pending") {
-    throw new Error(`Approval request ${id} was already ${approval.status}.`);
+
+  // Atomic compare-and-swap on the approval row itself: only one of two
+  // concurrent resolve calls for the same id can win this update, since it's
+  // a single conditional UPDATE (not a check-then-write race). The loser
+  // gets null back and never reaches the action-execution code below.
+  const claimed = await db.claimApprovalRequest({
+    id,
+    status: decision === "approved" ? "approved" : "rejected",
+  });
+  if (!claimed) {
+    const current = await db.getApprovalRequest(id);
+    throw new Error(`Approval request ${id} was already ${current?.status ?? approval.status}.`);
   }
 
   if (decision === "rejected") {
-    const updated = await db.resolveApprovalRequest({ id, status: "rejected" });
+    const updated = claimed;
     if (approval.taskId) {
       await db.updateTask(approval.taskId, {
         status: "blocked",
@@ -79,7 +117,7 @@ export async function resolveApprovalDecision(
       });
     }
     if (approval.agentRunId) {
-      await db.updateAgentRun(approval.agentRunId, {
+      await updateAgentRunStatusGuarded(db, approval.agentRunId, {
         status: "failed",
         errorMessage: `Approval rejected for ${approval.toolLabel}.`,
         completedAt: new Date(),
@@ -116,17 +154,11 @@ export async function resolveApprovalDecision(
       output = await skill.run(parsedInput, createSkillContext(skill.permissions));
     } else if (approval.kind === "tool") {
       if (!approval.toolId) throw new Error("Approval request is missing toolId.");
-      const workspaceTool = await resolveToolDefinition(
-        approval.workspaceId,
-        approval.toolId,
-      );
+      const workspaceTool = await resolveToolDefinition(approval.workspaceId, approval.toolId);
       if (!workspaceTool)
         throw new Error(`Tool no longer exists or is disabled: ${approval.toolId}`);
       const parsedInput = workspaceTool.inputSchema.parse(approval.input);
-      output = await workspaceTool.run(
-        parsedInput,
-        createSkillContext(workspaceTool.permissions),
-      );
+      output = await workspaceTool.run(parsedInput, createSkillContext(workspaceTool.permissions));
     } else {
       if (!approval.mcpServerId || !approval.mcpToolName) {
         throw new Error("Approval request is missing its MCP server/tool.");
@@ -158,7 +190,7 @@ export async function resolveApprovalDecision(
       });
     }
     if (approval.agentRunId) {
-      await db.updateAgentRun(approval.agentRunId, {
+      await updateAgentRunStatusGuarded(db, approval.agentRunId, {
         status: "pending",
         errorMessage: null,
       });
@@ -206,7 +238,7 @@ export async function resolveApprovalDecision(
       });
     }
     if (approval.agentRunId) {
-      await db.updateAgentRun(approval.agentRunId, {
+      await updateAgentRunStatusGuarded(db, approval.agentRunId, {
         status: "failed",
         errorMessage: message,
         completedAt: new Date(),

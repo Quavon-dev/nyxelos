@@ -3,6 +3,7 @@ import {
   canDelegateDeeper,
   createRunOutcomeSignal,
   filterCyclicCandidates,
+  isTerminalAgentRunStatus,
   type RunOutcomeSignal,
   resolveRunOutcome,
 } from "@nyxel/core-agent-engine";
@@ -83,6 +84,25 @@ export interface ExecutionPlan {
  * process-local, so a run started before a server restart can no longer be
  * aborted in-flight (cancelAgentRun still marks it cancelled in the DB). */
 const activeRunControllers = new Map<string, AbortController>();
+
+/** Every real model call this module makes (planning, direct execution,
+ * delegation synthesis, the verifier step) goes through this single
+ * swappable reference instead of calling the imported `streamChat` directly
+ * — the only way tests can exercise the plan → execute → complete state
+ * machine, tool-call persistence, retries, etc. without hitting a real
+ * local/cloud model. Production code never calls the setters below; the
+ * default is the real `streamChat` from `@nyxel/model-providers`. */
+let streamChatImpl: typeof streamChat = streamChat;
+
+/** Test-only seam — see `streamChatImpl` above. Not exported from the
+ * package's public surface (this module has none), only imported directly
+ * by agent-runtime.test.ts. */
+export function __setStreamChatImplForTests(impl: typeof streamChat): void {
+  streamChatImpl = impl;
+}
+export function __resetStreamChatImplForTests(): void {
+  streamChatImpl = streamChat;
+}
 
 /** Identifies this process as the owner of whatever runs it currently holds
  * a lease on — written to agentRun.workerId, purely informational (nothing
@@ -251,7 +271,7 @@ async function planTask(
       ? `Delegate candidates available: ${agent.delegateAgentIds.join(", ")}`
       : "Delegate candidates available: none",
   ].join("\n");
-  const result = streamChat({
+  const result = streamChatImpl({
     modelId,
     systemPrompt,
     installedProviders,
@@ -301,7 +321,7 @@ async function streamWithLiveUpdates(
   eventContext?: { taskId: string; workspaceId: string; agentId: string },
 ): Promise<{ text: string; toolStepCount: number }> {
   const db = getDb();
-  const result = streamChat(input);
+  const result = streamChatImpl(input);
   let acc = "";
   let toolStepCount = 0;
   let lastFlush = 0;
@@ -900,7 +920,7 @@ async function runManagedTask(
             `Final answer: ${output.slice(0, 4000)}`,
             "Does the final answer satisfy the completion check? Reply with exactly one line: VERIFIED or NOT_VERIFIED, followed by a one-sentence reason.",
           ].join("\n");
-          const verification = await streamChat({
+          const verification = await streamChatImpl({
             modelId: synthesisModelId,
             installedProviders: await getInstalledProvidersForWorkspace(input.agent.workspaceId),
             messages: [{ role: "user", content: verifyPrompt }],
@@ -966,6 +986,16 @@ async function runManagedTask(
       : pausedOnApproval
         ? ("waiting_approval" as const)
         : ("completed" as const);
+
+  // A concurrent cancelAgentRun (or the budget-runtime timeout) may have
+  // already landed this run in a terminal status while the stream above was
+  // still finishing up — don't let this completion write stomp that back to
+  // "waiting_approval"/"completed" (see core-agent-engine's run-transitions.ts).
+  const preWriteRun = await db.getAgentRun(run.id);
+  if (preWriteRun && isTerminalAgentRunStatus(preWriteRun.status)) {
+    const currentTask = (await db.getTask(task.id)) ?? task;
+    return { task: currentTask, run: preWriteRun, output: preWriteRun.finalOutput ?? output };
+  }
 
   run = await db.updateAgentRun(run.id, {
     status: isPaused ? "waiting_approval" : "completed",
