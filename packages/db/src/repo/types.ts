@@ -397,6 +397,17 @@ export interface AgentRunRecord {
   startedAt: Date | null;
   completedAt: Date | null;
   updatedAt: Date;
+  /** Process id that currently owns this run — see agent-runtime.ts. */
+  workerId: string | null;
+  /** Last time the owning process renewed its lease on this run. */
+  heartbeatAt: Date | null;
+  /** Run is considered stale (owning process presumed dead) once this
+   * passes without a renewed heartbeat. */
+  leaseUntil: Date | null;
+  /** Set by cancelAgentRun regardless of whether the owning process's
+   * in-memory AbortController was reachable — a DB-visible cancellation
+   * signal that survives a process restart. */
+  cancelRequestedAt: Date | null;
 }
 
 export interface UserRecord {
@@ -1188,6 +1199,9 @@ export interface DbRepository {
     errorMessage?: string | null;
     startedAt?: Date | null;
     completedAt?: Date | null;
+    workerId?: string | null;
+    heartbeatAt?: Date | null;
+    leaseUntil?: Date | null;
   }): Promise<AgentRunRecord>;
   getAgentRun(id: string): Promise<AgentRunRecord | null>;
   /** Every run in the workspace regardless of status, newest first —
@@ -1203,6 +1217,10 @@ export interface DbRepository {
   /** Runs with status "pending" | "running" | "waiting_approval" — powers
    * the "currently running" indicator on the agents list page. */
   listActiveAgentRunsByWorkspace(workspaceId: string): Promise<AgentRunRecord[]>;
+  /** Every run still "running" whose lease has expired (or was never
+   * granted a lease at all, e.g. pre-dates this feature) — the stale-run
+   * sweep's input, across every workspace, not scoped to one. */
+  listStaleRunningAgentRuns(now: Date): Promise<AgentRunRecord[]>;
   updateAgentRun(
     id: string,
     input: {
@@ -1212,6 +1230,10 @@ export interface DbRepository {
       errorMessage?: string | null;
       startedAt?: Date | null;
       completedAt?: Date | null;
+      workerId?: string | null;
+      heartbeatAt?: Date | null;
+      leaseUntil?: Date | null;
+      cancelRequestedAt?: Date | null;
     },
   ): Promise<AgentRunRecord>;
 

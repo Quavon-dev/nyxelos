@@ -1,0 +1,2 @@
+ALTER TABLE "mcp_server" ALTER COLUMN "env" SET DATA TYPE text USING "env"::text;--> statement-breakpoint
+ALTER TABLE "mcp_server" ALTER COLUMN "oauth_state" SET DATA TYPE text USING "oauth_state"::text;

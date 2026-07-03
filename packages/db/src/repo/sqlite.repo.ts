@@ -2,7 +2,12 @@ import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { decryptNullable, encryptNullable } from "../crypto";
+import {
+  decryptJsonNullable,
+  decryptNullable,
+  encryptJsonNullable,
+  encryptNullable,
+} from "../crypto";
 import * as schema from "../schema/sqlite";
 import { normalizeChatWorkingDirectory } from "../working-directory";
 import type { DbRepository } from "./types";
@@ -147,6 +152,14 @@ export function createSqliteRepository(filePath: string): DbRepository {
 
   function mapGoalProgressEvent(row: typeof schema.goalProgressEvent.$inferSelect) {
     return row;
+  }
+
+  function mapMcpServer(row: typeof schema.mcpServer.$inferSelect) {
+    return {
+      ...row,
+      env: decryptJsonNullable<Record<string, string>>(row.env),
+      oauthState: decryptJsonNullable<Record<string, unknown>>(row.oauthState),
+    };
   }
 
   function mapAgentRun(row: typeof schema.agentRun.$inferSelect) {
@@ -1317,6 +1330,9 @@ export function createSqliteRepository(filePath: string): DbRepository {
       errorMessage,
       startedAt,
       completedAt,
+      workerId,
+      heartbeatAt,
+      leaseUntil,
     }) {
       const now = new Date();
       const row = db
@@ -1338,6 +1354,9 @@ export function createSqliteRepository(filePath: string): DbRepository {
           startedAt: startedAt ?? null,
           completedAt: completedAt ?? null,
           updatedAt: now,
+          workerId: workerId ?? null,
+          heartbeatAt: heartbeatAt ?? null,
+          leaseUntil: leaseUntil ?? null,
         })
         .returning()
         .get();
@@ -1396,6 +1415,20 @@ export function createSqliteRepository(filePath: string): DbRepository {
       return rows.map(mapAgentRun);
     },
 
+    async listStaleRunningAgentRuns(now) {
+      const rows = db
+        .select()
+        .from(schema.agentRun)
+        .where(
+          and(
+            eq(schema.agentRun.status, "running"),
+            or(isNull(schema.agentRun.leaseUntil), lte(schema.agentRun.leaseUntil, now)),
+          ),
+        )
+        .all();
+      return rows.map(mapAgentRun);
+    },
+
     async updateAgentRun(id, input) {
       const row = db
         .update(schema.agentRun)
@@ -1406,6 +1439,12 @@ export function createSqliteRepository(filePath: string): DbRepository {
           ...(input.errorMessage !== undefined ? { errorMessage: input.errorMessage } : {}),
           ...(input.startedAt !== undefined ? { startedAt: input.startedAt } : {}),
           ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}),
+          ...(input.workerId !== undefined ? { workerId: input.workerId } : {}),
+          ...(input.heartbeatAt !== undefined ? { heartbeatAt: input.heartbeatAt } : {}),
+          ...(input.leaseUntil !== undefined ? { leaseUntil: input.leaseUntil } : {}),
+          ...(input.cancelRequestedAt !== undefined
+            ? { cancelRequestedAt: input.cancelRequestedAt }
+            : {}),
           updatedAt: new Date(),
         })
         .where(eq(schema.agentRun.id, id))
@@ -1426,25 +1465,26 @@ export function createSqliteRepository(filePath: string): DbRepository {
           command: command ?? null,
           args: args ?? null,
           url: url ?? null,
-          env: env ?? null,
+          env: encryptJsonNullable(env),
           createdAt: new Date(),
         })
         .returning()
         .get();
-      return row;
+      return mapMcpServer(row);
     },
 
     async listMcpServersByWorkspace(workspaceId) {
-      return db
+      const rows = db
         .select()
         .from(schema.mcpServer)
         .where(eq(schema.mcpServer.workspaceId, workspaceId))
         .all();
+      return rows.map(mapMcpServer);
     },
 
     async getMcpServer(id) {
       const row = db.select().from(schema.mcpServer).where(eq(schema.mcpServer.id, id)).get();
-      return row ?? null;
+      return row ? mapMcpServer(row) : null;
     },
 
     async deleteMcpServer(id) {
@@ -1452,7 +1492,10 @@ export function createSqliteRepository(filePath: string): DbRepository {
     },
 
     async updateMcpServerOAuthState(id, oauthState) {
-      db.update(schema.mcpServer).set({ oauthState }).where(eq(schema.mcpServer.id, id)).run();
+      db.update(schema.mcpServer)
+        .set({ oauthState: encryptJsonNullable(oauthState) })
+        .where(eq(schema.mcpServer.id, id))
+        .run();
     },
 
     async getKnowledgeBaseConfig(workspaceId) {

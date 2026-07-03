@@ -369,14 +369,17 @@ export const mcpServer = pgTable("mcp_server", {
   url: text("url"),
   /** Extra env vars for stdio servers only, e.g. a path to an OAuth
    * credentials file a local command needs to read. Never sent to http
-   * servers — those authenticate via OAuth, not process env. */
-  env: jsonb("env").$type<Record<string, string>>(),
+   * servers — those authenticate via OAuth, not process env. Stored as
+   * AES-256-GCM-encrypted JSON (see packages/db/src/crypto.ts) since this
+   * can carry live credentials — encrypted/decrypted at the repo layer. */
+  env: text("env"),
   /** Persisted OAuth session for http servers — dynamic client registration
    * result, access/refresh tokens, PKCE state. Without this, every server
    * restart drops the in-memory OAuth provider and forces re-authorization
    * for every previously-connected http connector. Opaque blob because the
-   * shape belongs to @modelcontextprotocol/sdk, not this schema. */
-  oauthState: jsonb("oauth_state").$type<Record<string, unknown>>(),
+   * shape belongs to @modelcontextprotocol/sdk, not this schema. Stored as
+   * AES-256-GCM-encrypted JSON, same as `env` above. */
+  oauthState: text("oauth_state"),
   enabled: boolean("enabled").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -679,6 +682,14 @@ export const agentRun = pgTable("agent_run", {
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  // Durable run recovery (see apps/server/src/agent-runtime.ts): a
+  // process-identifying id, a periodically-renewed lease, and a
+  // cancellation flag that's visible in the DB even if the process that
+  // owns the run's in-memory AbortController has died or isn't this one.
+  workerId: text("worker_id"),
+  heartbeatAt: timestamp("heartbeat_at"),
+  leaseUntil: timestamp("lease_until"),
+  cancelRequestedAt: timestamp("cancel_requested_at"),
 });
 
 export const taskEvent = pgTable("task_event", {

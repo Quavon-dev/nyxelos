@@ -69,3 +69,19 @@ export function decryptNullable(value: string | null | undefined): string | null
   if (value === null || value === undefined) return null;
   return decrypt(value);
 }
+
+/**
+ * Same as `encryptNullable`/`decryptNullable` but for JSON-shaped secret
+ * columns (mcpServer.env, mcpServer.oauthState) — stringifies before
+ * encrypting, parses after decrypting, so the column stores an opaque
+ * encrypted string instead of a plaintext jsonb/json value.
+ */
+export function encryptJsonNullable<T>(value: T | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  return encrypt(JSON.stringify(value));
+}
+
+export function decryptJsonNullable<T>(value: string | null | undefined): T | null {
+  if (value === null || value === undefined) return null;
+  return JSON.parse(decrypt(value)) as T;
+}
