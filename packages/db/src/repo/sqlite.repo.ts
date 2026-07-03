@@ -1333,6 +1333,9 @@ export function createSqliteRepository(filePath: string): DbRepository {
       workerId,
       heartbeatAt,
       leaseUntil,
+      retryCount,
+      maxRetries,
+      nextRetryAt,
     }) {
       const now = new Date();
       const row = db
@@ -1357,6 +1360,9 @@ export function createSqliteRepository(filePath: string): DbRepository {
           workerId: workerId ?? null,
           heartbeatAt: heartbeatAt ?? null,
           leaseUntil: leaseUntil ?? null,
+          retryCount: retryCount ?? 0,
+          maxRetries: maxRetries ?? 3,
+          nextRetryAt: nextRetryAt ?? null,
         })
         .returning()
         .get();
@@ -1445,6 +1451,9 @@ export function createSqliteRepository(filePath: string): DbRepository {
           ...(input.cancelRequestedAt !== undefined
             ? { cancelRequestedAt: input.cancelRequestedAt }
             : {}),
+          ...(input.retryCount !== undefined ? { retryCount: input.retryCount } : {}),
+          ...(input.maxRetries !== undefined ? { maxRetries: input.maxRetries } : {}),
+          ...(input.nextRetryAt !== undefined ? { nextRetryAt: input.nextRetryAt } : {}),
           updatedAt: new Date(),
         })
         .where(eq(schema.agentRun.id, id))

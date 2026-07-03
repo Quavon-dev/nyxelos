@@ -84,7 +84,8 @@ export type AgentRunStatus =
   | "waiting_approval"
   | "completed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "dead_letter";
 
 export type LibraryItemKind = "image" | "document" | "video" | "other";
 
@@ -408,6 +409,15 @@ export interface AgentRunRecord {
    * in-memory AbortController was reachable — a DB-visible cancellation
    * signal that survives a process restart. */
   cancelRequestedAt: Date | null;
+  /** Durable execution (agent-runtime.ts) — retries already attempted for
+   * this run after a transient failure. */
+  retryCount: number;
+  /** Ceiling before the run moves to "dead_letter" instead of retrying
+   * again. */
+  maxRetries: number;
+  /** When the next retry attempt fires — informational (the retry runs
+   * inline rather than being polled), cleared once resumed. */
+  nextRetryAt: Date | null;
 }
 
 export interface UserRecord {
@@ -1202,6 +1212,9 @@ export interface DbRepository {
     workerId?: string | null;
     heartbeatAt?: Date | null;
     leaseUntil?: Date | null;
+    retryCount?: number;
+    maxRetries?: number;
+    nextRetryAt?: Date | null;
   }): Promise<AgentRunRecord>;
   getAgentRun(id: string): Promise<AgentRunRecord | null>;
   /** Every run in the workspace regardless of status, newest first —
@@ -1234,6 +1247,9 @@ export interface DbRepository {
       heartbeatAt?: Date | null;
       leaseUntil?: Date | null;
       cancelRequestedAt?: Date | null;
+      retryCount?: number;
+      maxRetries?: number;
+      nextRetryAt?: Date | null;
     },
   ): Promise<AgentRunRecord>;
 

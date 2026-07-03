@@ -34,3 +34,15 @@ Deleting the dead files and fixing `pickBestModelIdForSeo` wasn't quite the whol
 ## What "isolated test" means for this repo, going forward
 
 The pattern already established and worth continuing (`plugins.test.ts`, `skills-resolve.test.ts`, `workspace-file-tools.test.ts`, and this audit's `runtime.test.ts`): pure-function and permission-boundary tests that use real temp directories (`mkdtemp`) rather than mocking the filesystem, and fake/injected dependencies (see `plugins.test.ts`'s fetch stubbing) rather than hitting real network/DB where avoidable. Tests that must touch a real DB appear to use an in-memory/temp SQLite instance per test (worth confirming and documenting explicitly here once the core team's convention is settled — this audit didn't want to presume one).
+
+## Reliability foundation pass — new coverage
+
+New tests added alongside the reliability-hardening changes documented in `ARCHITECTURE.md` section 12a:
+
+- **Permission matrix** — `packages/core-agent-engine/src/permissions.test.ts` exercises `resolveToolPermission()` across every source (skill/tool/mcp/workflow/delegation), confirming `ALWAYS_REQUIRES_APPROVAL_KINDS` entries always require approval, `custom_code` is flagged `sandboxRequired`, and MCP tools default to `requiresApproval: true`.
+- **Typed pause outcomes / no text-marker detection** — `packages/core-agent-engine/src/run-outcome.test.ts` covers `resolveRunOutcome()`'s question > approval > budget priority and includes an explicit regression case proving it never inspects output text (a budget-blocked run whose reason string happens to contain `"pending_approval"` is still classified as a budget pause).
+- **Delegation depth and cycle protection** — `packages/core-agent-engine/src/delegation-policy.test.ts` (pure `canDelegateDeeper`/`filterCyclicCandidates` logic), `apps/server/src/delegation.test.ts` (real-DB test proving `buildDelegateToAgentTool` drops a candidate already in the delegation chain), and `apps/server/src/tools.test.ts` (proving `delegate_to_agent` is hidden entirely once `MAX_DELEGATION_DEPTH` is reached).
+- **Durable execution fields** — `packages/db/src/repo/agent-run-retry.test.ts` round-trips `retryCount`/`maxRetries`/`nextRetryAt` through `createAgentRun`/`updateAgentRun` and confirms `dead_letter` is a valid terminal status excluded from "active" runs. The in-process retry/backoff loop itself (`agent-runtime.ts`) is not separately covered — it needs a mockable model-call failure injection point that doesn't exist yet (see "Model provider routing" above); flagged as a follow-up rather than attempted here.
+- **Sandbox output cap** — `apps/server/src/plugin-sandbox.test.ts` gained cases for the new `maxOutputChars` cap on both a sandboxed call's return value and a thrown error message.
+
+Secret redaction and path-traversal prevention were already fully covered (`audit.test.ts`, `skills-sdk/src/runtime.test.ts`) before this pass — the new secret-redaction call site (task-event payloads, `agent-runtime.ts`) reuses the already-tested `sanitizeForAudit()` rather than adding a parallel implementation, so no new test was needed there.

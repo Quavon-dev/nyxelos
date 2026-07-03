@@ -1200,6 +1200,9 @@ export function createPgRepository(connectionString: string): DbRepository {
       workerId,
       heartbeatAt,
       leaseUntil,
+      retryCount,
+      maxRetries,
+      nextRetryAt,
     }) {
       const [row] = await db
         .insert(schema.agentRun)
@@ -1222,6 +1225,9 @@ export function createPgRepository(connectionString: string): DbRepository {
           workerId: workerId ?? null,
           heartbeatAt: heartbeatAt ?? null,
           leaseUntil: leaseUntil ?? null,
+          retryCount: retryCount ?? 0,
+          maxRetries: maxRetries ?? 3,
+          nextRetryAt: nextRetryAt ?? null,
         })
         .returning();
       if (!row) throw new Error("Failed to create agent run");
@@ -1307,6 +1313,9 @@ export function createPgRepository(connectionString: string): DbRepository {
           ...(input.cancelRequestedAt !== undefined
             ? { cancelRequestedAt: input.cancelRequestedAt }
             : {}),
+          ...(input.retryCount !== undefined ? { retryCount: input.retryCount } : {}),
+          ...(input.maxRetries !== undefined ? { maxRetries: input.maxRetries } : {}),
+          ...(input.nextRetryAt !== undefined ? { nextRetryAt: input.nextRetryAt } : {}),
           updatedAt: new Date(),
         })
         .where(eq(schema.agentRun.id, id))

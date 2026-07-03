@@ -47,6 +47,35 @@ export interface RunIsolatedCodeOptions {
   /** The *only* environment variables the sandboxed process receives —
    * never `process.env` itself. Defaults to none. */
   env?: Record<string, string>;
+  /** Serialized-size cap on the sandboxed code's returned value — a runaway
+   * script (e.g. one that reads and returns a huge file via ctx.readFile)
+   * shouldn't be able to balloon the caller's memory/DB row/model context
+   * just because the process boundary itself succeeded. Defaults to 200KB,
+   * matching the order of magnitude other output caps in this codebase use
+   * (see safe-fetch.ts's maxResponseBytes). */
+  maxOutputChars?: number;
+}
+
+const DEFAULT_MAX_OUTPUT_CHARS = 200_000;
+
+/** Caps a sandboxed call's returned value to `maxChars` serialized — see
+ * RunIsolatedCodeOptions.maxOutputChars. A value that already fits is
+ * returned as-is (not re-serialized/re-parsed) so its original shape/types
+ * survive unchanged; only an oversized value is replaced with a truncated
+ * string preview. */
+function capOutputSize(value: unknown, maxChars: number): unknown {
+  let serialized: string;
+  try {
+    serialized = typeof value === "string" ? value : JSON.stringify(value);
+  } catch {
+    return value;
+  }
+  if (serialized.length <= maxChars) return value;
+  return {
+    truncated: true,
+    originalChars: serialized.length,
+    preview: serialized.slice(0, maxChars),
+  };
 }
 
 function readLines(stream: ReadableStream<Uint8Array>): AsyncIterable<string> {
@@ -84,6 +113,7 @@ export async function runIsolatedCustomCode(
   options: RunIsolatedCodeOptions = {},
 ): Promise<unknown> {
   const timeoutMs = options.timeoutMs ?? 30_000;
+  const maxOutputChars = options.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
 
   const proc = Bun.spawn([process.execPath, "run", WORKER_SCRIPT_PATH], {
     env: options.env ?? {},
@@ -113,9 +143,21 @@ export async function runIsolatedCustomCode(
         continue;
       }
       if (message.type === "done") {
-        if (message.ok) return message.value ?? null;
+        if (message.ok) return capOutputSize(message.value ?? null, maxOutputChars);
+        // Errors come back as plain strings from the worker (see
+        // plugin-sandbox-worker.ts's catch) — capped and stripped of any
+        // path-shaped detail the sandboxed script's own error might have
+        // echoed, so a script that deliberately throws `new
+        // Error(JSON.stringify(hugeInternalState))` can't use the error
+        // channel to bypass the value-size cap above, and no stack trace
+        // (only ever `err.message`, never `err.stack`) ever reaches the
+        // caller.
+        const rawError =
+          typeof message.error === "string" ? message.error : "Sandboxed code failed.";
         throw new PluginSandboxError(
-          typeof message.error === "string" ? message.error : "Sandboxed code failed.",
+          rawError.length > maxOutputChars
+            ? `${rawError.slice(0, maxOutputChars)}… [truncated]`
+            : rawError,
         );
       }
     }

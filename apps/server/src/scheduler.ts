@@ -105,7 +105,11 @@ async function runAgentAutomation(
     });
     outputText = result.output;
     runId = result.run.id;
-    status = outputText.includes("pending_approval") ? "pending_approval" : "success";
+    // Structured status check (replaces `outputText.includes("pending_approval")`)
+    // — by the time executeManagedTask returns, runManagedTask has already
+    // set the task's own status, so reading it back is exact instead of
+    // guessing from the model's final text.
+    status = result.task.status === "waiting_approval" ? "pending_approval" : "success";
   } catch (err) {
     outputText = err instanceof Error ? err.message : String(err);
     await db.updateTask(task.id, {

@@ -1,9 +1,17 @@
+import {
+  buildPermissionSnapshot,
+  filterCyclicCandidates,
+  hashToolInput,
+  resolveToolPermission,
+} from "@nyxel/core-agent-engine";
 import { getDb } from "@nyxel/db";
 import { type Tool, tool } from "ai";
 import { z } from "zod";
 import { executeManagedTask } from "./agent-runtime";
 import { logAudit } from "./audit";
 import type { AgentRunContext } from "./tools";
+
+const DELEGATION_PERMISSION = resolveToolPermission({ source: "delegation", toolKind: null });
 
 /**
  * Builds the delegate_to_agent tool for a super-agent (ADR-0011). Restricted
@@ -13,22 +21,36 @@ import type { AgentRunContext } from "./tools";
  * the user allowed" principle (ARCHITECTURE.md section 1).
  *
  * Delegation runs the sub-agent headlessly (one full completion, no
- * streaming back to the parent's stream) and hands its own tools back with
- * `allowDelegation: false` — a super-agent's delegate can't itself delegate,
- * which is what keeps this a tree instead of a graph that could cycle back
- * to the original caller.
+ * streaming back to the parent's stream) and propagates
+ * `ctx.delegationDepth`/`ctx.delegationChain` (see core-agent-engine's
+ * delegation-policy.ts) one level deeper for the child's own run — this, not
+ * a bare boolean, is what actually stops a chain of super-agents from
+ * recursing unboundedly or looping back to an agent already in the chain.
+ * `buildToolsForAgent` (tools.ts) additionally refuses to expose this tool
+ * at all once `MAX_DELEGATION_DEPTH` is reached.
  */
 export async function buildDelegateToAgentTool(
   parent: { id: string; workspaceId: string; delegateAgentIds: string[] },
   ctx: AgentRunContext,
 ): Promise<Tool | null> {
   const db = getDb();
-  const candidates = (
-    await Promise.all(parent.delegateAgentIds.map((id) => db.getAgent(id)))
-  ).filter(
+  const chain = ctx.delegationChain ?? [];
+  const depth = ctx.delegationDepth ?? 0;
+  const resolved = (await Promise.all(parent.delegateAgentIds.map((id) => db.getAgent(id)))).filter(
     (a): a is NonNullable<typeof a> =>
       a !== null && a.workspaceId === parent.workspaceId && a.id !== parent.id,
   );
+  // Cycle protection: an agent already in the delegation chain (this run's
+  // own ancestors) is never offered as a candidate again, even though it's
+  // still on the whitelist — otherwise A -> B -> A loops forever as long as
+  // both A and B configure each other as delegates.
+  const allowedIds = new Set(
+    filterCyclicCandidates(
+      resolved.map((a) => a.id),
+      chain,
+    ),
+  );
+  const candidates = resolved.filter((a) => allowedIds.has(a.id));
 
   if (candidates.length === 0) return null;
 
@@ -55,6 +77,14 @@ export async function buildDelegateToAgentTool(
       const subAgent = candidates.find((a) => a.id === agentId);
       if (!subAgent) throw new Error(`"${agentId}" is not in this agent's delegate whitelist.`);
 
+      const permissionSnapshot = buildPermissionSnapshot({
+        category: DELEGATION_PERMISSION.category,
+        autonomyLevel: "n/a",
+        policyMode: "n/a",
+        requiredApproval: DELEGATION_PERMISSION.requiresApproval,
+      });
+      const inputHash = await hashToolInput({ agentId, task });
+
       try {
         const childTask = await db.createTask({
           workspaceId: parent.workspaceId,
@@ -71,6 +101,8 @@ export async function buildDelegateToAgentTool(
           taskId: childTask.id,
           agent: subAgent,
           trigger: "delegate",
+          delegationDepth: depth + 1,
+          delegationChain: [...chain, parent.id],
         });
         const text = result.output;
 
@@ -84,6 +116,8 @@ export async function buildDelegateToAgentTool(
           input: { agentId, task },
           output: text,
           status: "success",
+          inputHash,
+          permissionSnapshot,
         });
 
         return {
@@ -104,6 +138,8 @@ export async function buildDelegateToAgentTool(
           input: { agentId, task },
           output: { error: message },
           status: "error",
+          inputHash,
+          permissionSnapshot,
         });
         throw err;
       }

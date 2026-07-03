@@ -1,4 +1,11 @@
 import { randomUUID } from "node:crypto";
+import {
+  canDelegateDeeper,
+  createRunOutcomeSignal,
+  filterCyclicCandidates,
+  type RunOutcomeSignal,
+  resolveRunOutcome,
+} from "@nyxel/core-agent-engine";
 import type { AgentRecord, AgentRunRecord, TaskRecord } from "@nyxel/db";
 import { getDb } from "@nyxel/db";
 import {
@@ -6,6 +13,7 @@ import {
   getModelCapabilities,
   streamChat,
 } from "@nyxel/model-providers";
+import { sanitizeForAudit } from "./audit";
 import {
   type AutonomyBudgetTracker,
   checkModelCallCostBudget,
@@ -21,12 +29,53 @@ import { notifyWorkspaceOwner } from "./push";
 import { buildToolsForAgent, toolPolicyForAutonomyLevel } from "./tools";
 import { composeSystemPrompt } from "./workspace-prompt";
 
+/** Transient-shaped failures (network blips, provider rate limits, momentary
+ * 5xx) are worth an automatic retry with backoff; everything else (a bad
+ * prompt, an unknown model, a genuine logic error) is retried at the user's
+ * own discretion instead, since retrying it again would just fail the same
+ * way. Matched against the error's own message — deliberately broad, since
+ * provider SDKs don't share one error taxonomy. */
+const TRANSIENT_ERROR_PATTERN =
+  /econnreset|etimedout|econnrefused|eai_again|fetch failed|network error|socket hang up|timed? ?out|rate.?limit|too many requests|\b429\b|\b500\b|\b502\b|\b503\b|\b504\b|service unavailable|overloaded/i;
+
+function isTransientRunError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return TRANSIENT_ERROR_PATTERN.test(message);
+}
+
+/** Exponential backoff capped at 10s — small enough that a durable task
+ * doesn't stall for minutes, large enough to ride out a brief provider
+ * hiccup or rate-limit window. */
+function retryBackoffMs(attempt: number): number {
+  return Math.min(10_000, 500 * 2 ** attempt);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Ceiling on in-process transient-failure retries for one run — see
+ * agentRun.maxRetries (packages/db). A run created before this feature
+ * existed (or whose maxRetries wasn't explicitly set) falls back to this
+ * default rather than retrying forever. */
+const DEFAULT_MAX_TRANSIENT_RETRIES = 3;
+
+export interface DelegationTask {
+  agentId: string;
+  instruction: string;
+}
+
 export interface ExecutionPlan {
   goal: string;
   successCriteria: string[];
   steps: string[];
   neededCapabilities: string[];
   delegationCandidates: string[];
+  /** A distinct sub-instruction per delegate candidate, rather than every
+   * delegated child getting the parent task's instruction verbatim — see
+   * toExecutionPlan's fallback for what happens when the model omits this
+   * (or a candidate isn't covered) for a given delegate. */
+  delegationTasks: DelegationTask[];
   completionCheck: string;
 }
 
@@ -105,6 +154,25 @@ function extractJsonObject(text: string): Record<string, unknown> | null {
   }
 }
 
+function parseDelegationTasks(value: unknown): DelegationTask[] {
+  if (!Array.isArray(value)) return [];
+  const tasks: DelegationTask[] = [];
+  for (const entry of value) {
+    if (
+      entry &&
+      typeof entry === "object" &&
+      typeof (entry as Record<string, unknown>).agentId === "string" &&
+      typeof (entry as Record<string, unknown>).instruction === "string"
+    ) {
+      tasks.push({
+        agentId: (entry as { agentId: string }).agentId,
+        instruction: (entry as { instruction: string }).instruction,
+      });
+    }
+  }
+  return tasks;
+}
+
 function toExecutionPlan(task: TaskRecord, raw: string): ExecutionPlan {
   const parsed = extractJsonObject(raw);
   const stringArray = (value: unknown, fallback: string[]) =>
@@ -119,6 +187,7 @@ function toExecutionPlan(task: TaskRecord, raw: string): ExecutionPlan {
     steps: stringArray(parsed?.steps, [task.instruction]),
     neededCapabilities: stringArray(parsed?.neededCapabilities, []),
     delegationCandidates: stringArray(parsed?.delegationCandidates, []),
+    delegationTasks: parseDelegationTasks(parsed?.delegationTasks),
     completionCheck:
       typeof parsed?.completionCheck === "string"
         ? parsed.completionCheck
@@ -174,7 +243,8 @@ async function planTask(
   const systemPrompt = await buildSystemPrompt(agent, true, modelId);
   const planningPrompt = [
     "Create a compact JSON execution plan for this task.",
-    "Return JSON only with keys: goal, successCriteria, steps, neededCapabilities, delegationCandidates, completionCheck.",
+    "Return JSON only with keys: goal, successCriteria, steps, neededCapabilities, delegationCandidates, delegationTasks, completionCheck.",
+    "delegationTasks must be an array of {agentId, instruction} — one distinct, specific sub-instruction per delegate candidate you pick, decomposing the task instead of repeating it verbatim for every delegate.",
     `Task title: ${task.title}`,
     `Task instruction: ${buildTaskPrompt(task, instructionOverride)}`,
     agent.delegateAgentIds.length > 0
@@ -272,7 +342,11 @@ async function streamWithLiveUpdates(
         await recordToolEvent("tool_called", `Tool ${part.toolName} aufgerufen.`, {
           toolName: part.toolName,
           toolCallId: part.toolCallId,
-          input: truncateForEventPayload(part.input),
+          // Redacted before truncation (not after) — a secret-shaped key
+          // near the end of a long input would otherwise still leak in the
+          // truncated preview. Task events are visible in the task timeline
+          // UI, same leak surface as the audit log (see audit.ts).
+          input: truncateForEventPayload(sanitizeForAudit(part.input)),
         });
         break;
       case "tool-error":
@@ -280,7 +354,7 @@ async function streamWithLiveUpdates(
           toolName: part.toolName,
           toolCallId: part.toolCallId,
           error: truncateForEventPayload(
-            part.error instanceof Error ? part.error.message : part.error,
+            sanitizeForAudit(part.error instanceof Error ? part.error.message : part.error),
           ),
         });
         break;
@@ -308,6 +382,9 @@ async function runDirectExecution(
   instructionOverride?: string,
   abortSignal?: AbortSignal,
   workingDirectory?: string | null,
+  outcomeSignal?: RunOutcomeSignal,
+  delegationDepth = 0,
+  delegationChain: string[] = [],
 ): Promise<{ text: string; toolStepCount: number; budgetBlockedReason: string | null }> {
   const modelId = effectiveModelId(agent, task);
   const modelParams = await getDb().getModelParameter(agent.workspaceId, modelId);
@@ -331,6 +408,9 @@ async function runDirectExecution(
         agentRunId: run.id,
         chatToolPolicy: toolPolicyForAutonomyLevel(agent.autonomyLevel),
         budgetTracker,
+        outcomeSignal,
+        delegationDepth,
+        delegationChain,
       })
     : undefined;
   const result = await streamWithLiveUpdates(
@@ -375,6 +455,13 @@ export async function executeManagedTask(input: {
   automationId?: string | null;
   instructionOverride?: string;
   workingDirectory?: string | null;
+  /** Super-agent delegation depth/ancestor-chain (see core-agent-engine's
+   * delegation-policy.ts) — 0/empty for a top-level run. Both delegation
+   * paths (delegation.ts's delegate_to_agent tool, and this file's own
+   * planner-driven auto-delegation branch) pass depth + 1 / chain +
+   * [parent.id] when recursing into a delegate's own run. */
+  delegationDepth?: number;
+  delegationChain?: string[];
 }): Promise<{ task: TaskRecord; run: AgentRunRecord; output: string }> {
   const db = getDb();
   const task = await db.getTask(input.taskId);
@@ -470,32 +557,97 @@ export async function executeManagedTask(input: {
   }
 
   try {
-    return await runManagedTask(input, task, run, controller.signal);
-  } catch (err) {
-    if (controller.signal.aborted) {
-      const cancelledTask = (await db.getTask(task.id)) ?? task;
-      const cancelledRun = (await db.getAgentRun(run.id)) ?? run;
-      return {
-        task: cancelledTask,
-        run: cancelledRun,
-        output: cancelledRun.finalOutput ?? "",
-      };
+    // Durable execution: a thrown error from runManagedTask (a real provider
+    // failure, not a budget pause or a user-visible tool error, both of
+    // which are handled inside runManagedTask itself) retries in place —
+    // same task/run rows, same AbortController — up to maxRetries times
+    // when the failure looks transient, with backoff between attempts.
+    // Retries exhausted (or a non-transient error) land the run in a
+    // terminal state here unconditionally, rather than leaving that to
+    // whichever caller happens to catch the rethrown error (previously only
+    // scheduler.ts's automation path did this, so a chat- or delegate-
+    // triggered failure could leave the run stuck at "running" until the
+    // stale-run sweep eventually noticed the expired lease).
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await runManagedTask(input, task, run, controller.signal);
+      } catch (err) {
+        if (controller.signal.aborted) {
+          const cancelledTask = (await db.getTask(task.id)) ?? task;
+          const cancelledRun = (await db.getAgentRun(run.id)) ?? run;
+          return {
+            task: cancelledTask,
+            run: cancelledRun,
+            output: cancelledRun.finalOutput ?? "",
+          };
+        }
+
+        const message = err instanceof Error ? err.message : String(err);
+        const transient = isTransientRunError(err);
+        const maxRetries = run.maxRetries ?? DEFAULT_MAX_TRANSIENT_RETRIES;
+        if (transient && attempt < maxRetries) {
+          const delay = retryBackoffMs(attempt);
+          const nextRetryAt = new Date(Date.now() + delay);
+          await db
+            .updateAgentRun(run.id, {
+              retryCount: attempt + 1,
+              nextRetryAt,
+              errorMessage: `Transient failure (attempt ${attempt + 1}/${maxRetries}): ${message}`,
+            })
+            .catch(() => {});
+          await db
+            .createTaskEvent({
+              taskId: task.id,
+              workspaceId: task.workspaceId,
+              agentRunId: run.id,
+              agentId: input.agent.id,
+              kind: "status_changed",
+              message: `Transient failure — retrying (attempt ${attempt + 1}/${maxRetries}): ${message}`,
+              payload: { retryCount: attempt + 1, maxRetries, nextRetryAt },
+            })
+            .catch(() => {});
+          await sleep(delay);
+          continue;
+        }
+
+        const terminalStatus = transient ? ("dead_letter" as const) : ("failed" as const);
+        await db
+          .updateAgentRun(run.id, {
+            status: terminalStatus,
+            errorMessage: message,
+            completedAt: new Date(),
+          })
+          .catch(() => {});
+        await db
+          .updateTask(task.id, {
+            status: "failed",
+            errorMessage: message,
+            completedAt: new Date(),
+          })
+          .catch(() => {});
+        await db
+          .createTaskEvent({
+            taskId: task.id,
+            workspaceId: task.workspaceId,
+            agentRunId: run.id,
+            agentId: input.agent.id,
+            kind: "failed",
+            message:
+              transient && attempt > 0
+                ? `Run moved to dead-letter after ${attempt} retr${attempt === 1 ? "y" : "ies"}: ${message}`
+                : `Run failed: ${message}`,
+          })
+          .catch(() => {});
+        await emitNyxelEvent({
+          workspaceId: task.workspaceId,
+          type: NyxelEvent.AgentRunFailed,
+          entityType: "agent_run",
+          entityId: run.id,
+          payload: { taskId: task.id, agentId: input.agent.id, error: message },
+        });
+        throw err;
+      }
     }
-    const message = err instanceof Error ? err.message : String(err);
-    await emitNyxelEvent({
-      workspaceId: task.workspaceId,
-      type: NyxelEvent.AgentRunFailed,
-      entityType: "agent_run",
-      entityId: run.id,
-      payload: { taskId: task.id, agentId: input.agent.id, error: message },
-    });
-    // task.failed is emitted where task.status actually transitions to
-    // "failed" — today that's scheduler.ts's automation catch, the only
-    // place that writes that status. Not every executeManagedTask caller
-    // marks its task failed on error (see scheduler.ts's runAgentAutomation
-    // for the rationale), so emitting it here would claim a state change
-    // that may not have happened.
-    throw err;
   } finally {
     if (budgetTimeout) clearTimeout(budgetTimeout);
     clearInterval(heartbeatTimer);
@@ -512,12 +664,16 @@ async function runManagedTask(
     automationId?: string | null;
     instructionOverride?: string;
     workingDirectory?: string | null;
+    delegationDepth?: number;
+    delegationChain?: string[];
   },
   task: TaskRecord,
   run: AgentRunRecord,
   abortSignal: AbortSignal,
 ): Promise<{ task: TaskRecord; run: AgentRunRecord; output: string }> {
   const db = getDb();
+  const delegationDepth = input.delegationDepth ?? 0;
+  const delegationChain = input.delegationChain ?? [];
 
   await db.updateTask(task.id, {
     status: "planning",
@@ -579,32 +735,62 @@ async function runManagedTask(
   // its own budget independently via its own executeManagedTask call, so a
   // delegate exceeding its own budget doesn't directly set this one.
   let budgetBlockedReason: string | null = null;
+  // Populated only by the direct-execution branch below (synthesis never
+  // exposes ask_user_question/sensitive tools to the model, so it cannot
+  // itself produce a question/approval pause) — read back via
+  // resolveRunOutcome once execution finishes, in place of the previous
+  // `output.includes("pending_question" | "pending_approval")` text-marker
+  // checks.
+  let directExecutionOutcomeSignal: RunOutcomeSignal | null = null;
 
-  if (
+  const canAutoDelegate =
     input.agent.autonomyLevel === "super_agent" &&
     input.agent.delegateAgentIds.length > 0 &&
-    plan.delegationCandidates.length > 0
-  ) {
+    plan.delegationCandidates.length > 0 &&
+    canDelegateDeeper(delegationDepth);
+
+  // Structured, per-child delegation summary — persisted onto the parent
+  // task's own `plan` field below so its full delegation outcome (which
+  // children ran, whether each succeeded) survives in one place without
+  // needing to join out to every child task row.
+  const delegationResults: {
+    agentId: string;
+    taskId: string;
+    status: "success" | "failed";
+    resultSummary?: string;
+    error?: string;
+  }[] = [];
+
+  if (canAutoDelegate) {
     // Every delegate candidate the planner picked gets its own child task
     // and runs concurrently instead of one after another — they're
     // independent sub-agents working on independent sub-tasks, so there's
     // no reason to serialize them. A failure in one delegate doesn't stop
     // the others; it just shows up as a shorter/failed contribution to the
-    // synthesis step below.
-    const candidateAgentIds = plan.delegationCandidates.filter((id) =>
-      input.agent.delegateAgentIds.includes(id),
+    // synthesis step below. Candidates already in this run's own delegation
+    // chain are dropped (cycle protection) even if still on the whitelist.
+    const candidateAgentIds = filterCyclicCandidates(
+      plan.delegationCandidates.filter((id) => input.agent.delegateAgentIds.includes(id)),
+      delegationChain,
     );
     const settled = await Promise.allSettled(
       candidateAgentIds.map(async (delegateAgentId) => {
         const delegateAgent = await db.getAgent(delegateAgentId);
         if (!delegateAgent) return null;
+        // A distinct sub-instruction per delegate when the planner provided
+        // one (see ExecutionPlan.delegationTasks); falls back to the parent
+        // task's own instruction verbatim only when the plan didn't cover
+        // this candidate, matching pre-existing behavior.
+        const childInstruction =
+          plan.delegationTasks.find((d) => d.agentId === delegateAgentId)?.instruction ??
+          task.instruction;
         const childTask = await db.createTask({
           workspaceId: task.workspaceId,
           parentTaskId: task.id,
           createdByAgentId: input.agent.id,
           assignedAgentId: delegateAgent.id,
           title: `${task.title} · ${delegateAgent.name}`,
-          instruction: task.instruction,
+          instruction: childInstruction,
           status: "ready",
           priority: task.priority,
           input: { delegatedBy: input.agent.id, parentTaskId: task.id },
@@ -622,14 +808,28 @@ async function runManagedTask(
           taskId: childTask.id,
           agent: delegateAgent,
           trigger: "delegate",
+          delegationDepth: delegationDepth + 1,
+          delegationChain: [...delegationChain, input.agent.id],
         });
-        return { agentId: delegateAgent.id, resultSummary: childResult.output };
+        return {
+          agentId: delegateAgent.id,
+          taskId: childTask.id,
+          resultSummary: childResult.output,
+        };
       }),
     );
     const children: { agentId: string; resultSummary: string }[] = [];
     for (const [index, outcome] of settled.entries()) {
       if (outcome.status === "fulfilled") {
-        if (outcome.value) children.push(outcome.value);
+        if (outcome.value) {
+          children.push(outcome.value);
+          delegationResults.push({
+            agentId: outcome.value.agentId,
+            taskId: outcome.value.taskId,
+            status: "success",
+            resultSummary: outcome.value.resultSummary.slice(0, 4000),
+          });
+        }
         continue;
       }
       const failedAgentId = candidateAgentIds[index];
@@ -644,6 +844,14 @@ async function runManagedTask(
         message: `Delegated task failed: ${message}`,
         payload: { delegateAgentId: failedAgentId, error: message },
       });
+      if (failedAgentId) {
+        delegationResults.push({
+          agentId: failedAgentId,
+          taskId: "",
+          status: "failed",
+          error: message,
+        });
+      }
     }
 
     const synthesisModelId = effectiveModelId(input.agent, task);
@@ -678,8 +886,44 @@ async function runManagedTask(
       );
       output = synthesis.text;
       budgetBlockedReason = budgetTracker.blockedReason;
+
+      // Verifier step (best-effort, never blocks completion): one short
+      // extra model call checking whether the synthesized answer actually
+      // satisfies the plan's own completion check. A "not verified" result
+      // is surfaced on the task timeline for a human to notice, not treated
+      // as a failure — an automated verifier is itself fallible, and a
+      // durable/unattended run has no one to escalate a false negative to.
+      if (output && checkModelCallCostBudget(budgetTracker, synthesisModelId, 200).allowed) {
+        try {
+          const verifyPrompt = [
+            `Completion check: ${plan.completionCheck}`,
+            `Final answer: ${output.slice(0, 4000)}`,
+            "Does the final answer satisfy the completion check? Reply with exactly one line: VERIFIED or NOT_VERIFIED, followed by a one-sentence reason.",
+          ].join("\n");
+          const verification = await streamChat({
+            modelId: synthesisModelId,
+            installedProviders: await getInstalledProvidersForWorkspace(input.agent.workspaceId),
+            messages: [{ role: "user", content: verifyPrompt }],
+            abortSignal,
+            maxOutputTokens: 200,
+            onFinish: ({ usage }) => recordModelCallCost(budgetTracker, synthesisModelId, usage),
+          }).text;
+          await db.createTaskEvent({
+            taskId: task.id,
+            workspaceId: task.workspaceId,
+            agentRunId: run.id,
+            agentId: input.agent.id,
+            kind: "status_changed",
+            message: `Verifier: ${verification.trim().slice(0, 500)}`,
+            payload: { verified: /^VERIFIED/i.test(verification.trim()) },
+          });
+        } catch {
+          // Best-effort — a verifier failure must never fail the run itself.
+        }
+      }
     }
   } else {
+    const outcomeSignal = createRunOutcomeSignal();
     const execution = await runDirectExecution(
       input.agent,
       task,
@@ -688,19 +932,30 @@ async function runManagedTask(
       input.instructionOverride,
       abortSignal,
       input.workingDirectory,
+      outcomeSignal,
+      delegationDepth,
+      delegationChain,
     );
     output = execution.text;
     toolStepCount = execution.toolStepCount;
     budgetBlockedReason = execution.budgetBlockedReason;
+    directExecutionOutcomeSignal = outcomeSignal;
   }
 
-  const pausedOnQuestion = output.includes("pending_question");
-  const pausedOnApproval = !pausedOnQuestion && output.includes("pending_approval");
-  // Detected from the tracker's own state rather than string-matching the
-  // model's final text (unlike the two checks above) — more robust, since
-  // it doesn't depend on the model actually repeating the tool result back.
-  const pausedOnBudget = !pausedOnQuestion && !pausedOnApproval && budgetBlockedReason !== null;
-  const isPaused = pausedOnQuestion || pausedOnApproval || pausedOnBudget;
+  // Typed pause detection (replaces `output.includes("pending_question" |
+  // "pending_approval")` text-marker checks) — the outcome signal records a
+  // pause directly at the moment a tool defers, and the budget reason is
+  // already structured (AutonomyBudgetTracker.blockedReason), so neither
+  // depends on the model's own final text ever echoing a literal string
+  // back.
+  const runOutcome = resolveRunOutcome(
+    directExecutionOutcomeSignal ?? createRunOutcomeSignal(),
+    budgetBlockedReason,
+  );
+  const pausedOnQuestion = runOutcome.pauseReason?.kind === "question";
+  const pausedOnApproval = runOutcome.pauseReason?.kind === "approval";
+  const pausedOnBudget = runOutcome.pauseReason?.kind === "budget";
+  const isPaused = runOutcome.paused;
   // AgentRunStatus has no "blocked" state (a question-pause is still an
   // agent run that's technically waiting on the human) — only TaskStatus
   // distinguishes "blocked" (question or budget) from "waiting_approval"
@@ -724,6 +979,9 @@ async function runManagedTask(
     resultSummary: output,
     completedAt: isPaused ? null : new Date(),
     ...(pausedOnBudget ? { errorMessage: `Autonomy budget exceeded: ${budgetBlockedReason}` } : {}),
+    ...(delegationResults.length > 0
+      ? { plan: { ...(plan as unknown as Record<string, unknown>), delegationResults } }
+      : {}),
   });
   await db.createTaskEvent({
     taskId: task.id,
