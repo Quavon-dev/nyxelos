@@ -168,11 +168,6 @@ export async function sendLeadScoutEmail(
 ): Promise<{ sent: boolean; dryRun: boolean }> {
   const settings = await getDb().getLeadScoutEmailSettings(workspaceId);
   if (!settings) throw new Error("Email settings aren't configured for this workspace yet.");
-  if (!settings.credentials && settings.provider !== "custom") {
-    throw new Error(`${settings.provider} isn't configured — add credentials in email settings first.`);
-  }
-
-  const from = `${settings.fromName} <${settings.fromEmail}>`;
 
   if (settings.dryRunMode) {
     await logAudit({
@@ -185,6 +180,11 @@ export async function sendLeadScoutEmail(
     });
     return { sent: false, dryRun: true };
   }
+
+  if (!settings.credentials && settings.provider !== "custom") {
+    throw new Error(`${settings.provider} isn't configured — add credentials in email settings first.`);
+  }
+  const from = `${settings.fromName} <${settings.fromEmail}>`;
 
   try {
     await dispatchByProvider(settings.provider, settings.credentials ?? {}, {
