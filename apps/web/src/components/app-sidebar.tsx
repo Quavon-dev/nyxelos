@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import {
+  Activity,
   Archive,
   Blocks,
   Bot,
@@ -151,6 +152,7 @@ export function AppSidebar() {
           label: "Automate",
           items: [
             { href: `/workspace/${workspaceId}/tasks`, label: "Tasks", icon: CheckSquare },
+            { href: `/workspace/${workspaceId}/runs`, label: "Runs", icon: Activity },
             { href: `/workspace/${workspaceId}/automations`, label: "Automations", icon: Clock },
             {
               href: `/workspace/${workspaceId}/approvals`,
