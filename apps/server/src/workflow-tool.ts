@@ -1,9 +1,22 @@
+import {
+  buildPermissionSnapshot,
+  hashToolInput,
+  resolveToolPermission,
+} from "@nyxel/core-agent-engine";
 import { getDb } from "@nyxel/db";
 import { type Tool, tool } from "ai";
 import { z } from "zod";
 import { logAudit } from "./audit";
 import type { AgentRunContext } from "./tools";
 import { runWorkflowAndWait } from "./workflow-runner";
+
+/** run_workflow's own ToolPermissionDescriptor (ADR-0017 / see
+ * core-agent-engine/permissions.ts) — a saved workflow is a fixed,
+ * previously-configured pipeline rather than a model-constructed action, so
+ * it isn't individually approval-gated the way a sensitive skill/tool call
+ * is, but it's still classified centrally like every other tool source so
+ * its audit entries carry the same risk/permission snapshot. */
+const RUN_WORKFLOW_PERMISSION = resolveToolPermission({ source: "workflow", toolKind: null });
 
 /**
  * Builds the run_workflow tool — the agent-side counterpart to the
@@ -38,6 +51,13 @@ export async function buildRunWorkflowTool(
     }),
     execute: async ({ workflowId }) => {
       const workflowName = labelById.get(workflowId) ?? workflowId;
+      const permissionSnapshot = buildPermissionSnapshot({
+        category: RUN_WORKFLOW_PERMISSION.category,
+        autonomyLevel: "n/a",
+        policyMode: "n/a",
+        requiredApproval: RUN_WORKFLOW_PERMISSION.requiresApproval,
+      });
+      const inputHash = await hashToolInput({ workflowId });
       try {
         const { run, nodes } = await runWorkflowAndWait(
           workflowId,
@@ -65,6 +85,8 @@ export async function buildRunWorkflowTool(
           input: { workflowId },
           output: summary,
           status: run.status === "failed" ? "error" : "success",
+          inputHash,
+          permissionSnapshot,
         });
         return summary;
       } catch (err) {
@@ -79,6 +101,8 @@ export async function buildRunWorkflowTool(
           input: { workflowId },
           output: { error: message },
           status: "error",
+          inputHash,
+          permissionSnapshot,
         });
         throw err;
       }

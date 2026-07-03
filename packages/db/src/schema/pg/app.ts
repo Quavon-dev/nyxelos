@@ -135,6 +135,11 @@ export const agentRunStatus = pgEnum("agent_run_status", [
   "completed",
   "failed",
   "cancelled",
+  // Durable execution (see apps/server/src/agent-runtime.ts): a run whose
+  // transient-failure retries (retryCount/maxRetries) were exhausted lands
+  // here instead of "failed" — same terminal outcome for the task, but
+  // distinguishable in the run history from a non-retryable failure.
+  "dead_letter",
 ]);
 
 export const automationTriggerType = pgEnum("automation_trigger_type", ["cron", "file_watch"]);
@@ -690,6 +695,15 @@ export const agentRun = pgTable("agent_run", {
   heartbeatAt: timestamp("heartbeat_at"),
   leaseUntil: timestamp("lease_until"),
   cancelRequestedAt: timestamp("cancel_requested_at"),
+  // Durable execution (see apps/server/src/agent-runtime.ts) — in-process
+  // retry/backoff bookkeeping for transient provider/tool failures.
+  // retryCount is the number of retries already attempted for this run;
+  // maxRetries is the ceiling before the run moves to "dead_letter";
+  // nextRetryAt is when the next attempt fires (informational — the retry
+  // itself runs inline rather than being polled), cleared once resumed.
+  retryCount: integer("retry_count").notNull().default(0),
+  maxRetries: integer("max_retries").notNull().default(3),
+  nextRetryAt: timestamp("next_retry_at"),
 });
 
 export const taskEvent = pgTable("task_event", {

@@ -93,7 +93,12 @@ export type AgentRunStatus =
   | "waiting_approval"
   | "completed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  // Durable execution (see apps/server/src/agent-runtime.ts): a run whose
+  // transient-failure retries (retryCount/maxRetries) were exhausted lands
+  // here instead of "failed" — same terminal outcome for the task, but
+  // distinguishable in the run history from a non-retryable failure.
+  | "dead_letter";
 
 export type ChatToolPolicy = {
   mode: ChatToolMode;
@@ -626,6 +631,15 @@ export const agentRun = sqliteTable("agent_run", {
   heartbeatAt: integer("heartbeat_at", { mode: "timestamp" }),
   leaseUntil: integer("lease_until", { mode: "timestamp" }),
   cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp" }),
+  // Durable execution (see apps/server/src/agent-runtime.ts) — in-process
+  // retry/backoff bookkeeping for transient provider/tool failures.
+  // retryCount is the number of retries already attempted for this run;
+  // maxRetries is the ceiling before the run moves to "dead_letter";
+  // nextRetryAt is when the next attempt fires (informational — the retry
+  // itself runs inline rather than being polled), cleared once resumed.
+  retryCount: integer("retry_count").notNull().default(0),
+  maxRetries: integer("max_retries").notNull().default(3),
+  nextRetryAt: integer("next_retry_at", { mode: "timestamp" }),
 });
 
 export const taskEvent = sqliteTable("task_event", {

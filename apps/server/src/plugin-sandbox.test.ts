@@ -167,3 +167,38 @@ describe("runIsolatedCustomCode — timeout", () => {
     ).rejects.toThrow(PluginSandboxError);
   });
 });
+
+describe("runIsolatedCustomCode — output size cap", () => {
+  it("returns a value under the cap unchanged", async () => {
+    const result = await runIsolatedCustomCode(
+      "return 'x'.repeat(100);",
+      {},
+      { network: [], filesystem: [] },
+      { maxOutputChars: 1000 },
+    );
+    expect(result).toBe("x".repeat(100));
+  });
+
+  it("truncates an oversized return value instead of passing it through whole", async () => {
+    const result = (await runIsolatedCustomCode(
+      "return 'x'.repeat(10000);",
+      {},
+      { network: [], filesystem: [] },
+      { maxOutputChars: 500 },
+    )) as { truncated: boolean; originalChars: number; preview: string };
+    expect(result.truncated).toBe(true);
+    expect(result.originalChars).toBeGreaterThan(500);
+    expect(result.preview.length).toBeLessThanOrEqual(500);
+  });
+
+  it("truncates an oversized thrown error message rather than leaking it whole", async () => {
+    await expect(
+      runIsolatedCustomCode(
+        "throw new Error('x'.repeat(10000));",
+        {},
+        { network: [], filesystem: [] },
+        { maxOutputChars: 200 },
+      ),
+    ).rejects.toThrow(/\[truncated\]$/);
+  });
+});
