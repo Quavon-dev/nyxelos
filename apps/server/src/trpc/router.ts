@@ -26,6 +26,7 @@ import { resolveApprovalDecision } from "../approvals";
 import { auth } from "../auth";
 import { logAudit } from "../audit";
 import { getGitDiff, getGitStatus, getRepoInfo, listDirectory } from "../coding";
+import { generateWorkflowDraftFromPrompt } from "../workflow-generator";
 import {
 	checkCliAuthStatus,
 	type CliProviderKind,
@@ -1159,6 +1160,20 @@ export const appRouter = router({
 				await getDb().deleteWorkflow(input.id);
 				return { ok: true };
 			}),
+
+		// Generates a draft graph from a natural-language description — see
+		// workflow-generator.ts. Returns the definition only; it is never
+		// persisted or run here, so nothing executes until the caller
+		// explicitly reviews it and calls `create` (and, separately, `runs.start`)
+		// themselves.
+		generateFromPrompt: workspaceProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					prompt: z.string().min(1).max(4_000),
+				}),
+			)
+			.mutation(({ input }) => generateWorkflowDraftFromPrompt(input)),
 
 		// Execution — see workflow-runner.ts. `start` is fire-and-forget like
 		// video.generate: it returns as soon as the run + per-node rows exist,

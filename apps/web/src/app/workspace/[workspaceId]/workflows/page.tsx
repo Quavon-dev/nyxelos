@@ -1,10 +1,11 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Plus, Trash2, Workflow as WorkflowIcon } from "lucide-react";
+import { CircleAlert, Copy, Plus, Sparkles, Trash2, Workflow as WorkflowIcon } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
+import { toast } from "sonner";
 import { PageHeaderSkeleton, StatCardsSkeleton } from "@/components/loading";
 import { PageHeader, StatCard } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { trpcClient, type WorkflowSummary } from "@/lib/trpc";
+import { trpcClient, type WorkflowDraftResult, type WorkflowSummary } from "@/lib/trpc";
 
 function formatDate(d: Date | string) {
   return new Date(d).toLocaleString();
@@ -61,6 +62,52 @@ export default function WorkflowsPage() {
     },
   });
 
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [promptText, setPromptText] = useState("");
+  const [draft, setDraft] = useState<WorkflowDraftResult | null>(null);
+  const [draftName, setDraftName] = useState("");
+
+  const resetPromptState = () => {
+    setPromptText("");
+    setDraft(null);
+    setDraftName("");
+  };
+
+  const generateDraft = useMutation({
+    mutationFn: () =>
+      trpcClient.workflows.generateFromPrompt.mutate({
+        workspaceId,
+        prompt: promptText.trim(),
+      }),
+    onSuccess: (result) => {
+      setDraft(result);
+      setDraftName(result.suggestedName);
+    },
+  });
+
+  const saveDraft = useMutation({
+    mutationFn: () => {
+      if (!draft) throw new Error("Nothing generated yet.");
+      return trpcClient.workflows.create.mutate({
+        workspaceId,
+        name: draftName.trim(),
+        definition: draft.definition,
+      });
+    },
+    onSuccess: (workflow) => {
+      const warnings = draft?.warnings ?? [];
+      setPromptOpen(false);
+      resetPromptState();
+      invalidate();
+      router.push(`/workspace/${workspaceId}/workflows/${workflow.id}`);
+      if (warnings.length > 0) {
+        toast.warning("Draft saved with a few things to review", {
+          description: warnings.slice(0, 3).join(" "),
+        });
+      }
+    },
+  });
+
   const duplicateWorkflow = useMutation({
     mutationFn: (id: string) => trpcClient.workflows.duplicate.mutate({ id }),
     onSuccess: invalidate,
@@ -89,10 +136,16 @@ export default function WorkflowsPage() {
         title="Workflows"
         description="Build node-based pipelines that chain prompts, image generation, video generation, and edits into a single repeatable run — every result lands in the Library too."
         actions={
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="size-4" />
-            New workflow
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setPromptOpen(true)}>
+              <Sparkles className="size-4" />
+              Create from prompt
+            </Button>
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="size-4" />
+              New workflow
+            </Button>
+          </div>
         }
       />
 
@@ -209,6 +262,96 @@ export default function WorkflowsPage() {
               Create
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={promptOpen}
+        onOpenChange={(open) => {
+          setPromptOpen(open);
+          if (!open) resetPromptState();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create from prompt</DialogTitle>
+            <DialogDescription>
+              Describe what the workflow should do — a draft is generated for you to review and
+              edit. Nothing is saved or run automatically.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!draft ? (
+            <>
+              <div className="space-y-1.5">
+                <Label>Description</Label>
+                <Textarea
+                  value={promptText}
+                  onChange={(e) => setPromptText(e.target.value)}
+                  placeholder='e.g. "Take a text prompt, generate an image from it, then generate a 5 second video from that image."'
+                  rows={5}
+                  autoFocus
+                />
+              </div>
+              {generateDraft.isError && (
+                <p className="text-sm text-destructive">
+                  {generateDraft.error instanceof Error
+                    ? generateDraft.error.message
+                    : "Couldn't generate a draft. Try again."}
+                </p>
+              )}
+              <DialogFooter showCloseButton>
+                <Button
+                  onClick={() => generateDraft.mutate()}
+                  disabled={!promptText.trim() || generateDraft.isPending}
+                >
+                  {generateDraft.isPending ? "Generating…" : "Generate draft"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label>Name</Label>
+                  <Input
+                    value={draftName}
+                    onChange={(e) => setDraftName(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {draft.definition.nodes.length} node(s), {draft.definition.edges.length}{" "}
+                  connection(s) — this is only a draft. Review it on the canvas and run it yourself
+                  when it's ready.
+                </p>
+                {draft.warnings.length > 0 && (
+                  <div className="space-y-1.5 rounded-lg border border-amber-500/40 p-3">
+                    <p className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-400">
+                      <CircleAlert className="size-4" />
+                      Needs a look before it can run
+                    </p>
+                    <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted-foreground">
+                      {draft.warnings.map((warning) => (
+                        <li key={warning}>{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+              <DialogFooter showCloseButton>
+                <Button variant="outline" onClick={() => setDraft(null)}>
+                  Start over
+                </Button>
+                <Button
+                  onClick={() => saveDraft.mutate()}
+                  disabled={!draftName.trim() || saveDraft.isPending}
+                >
+                  Save draft
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
