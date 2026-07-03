@@ -1,3 +1,5 @@
+import { readdir, readFile, stat } from "node:fs/promises";
+import path from "node:path";
 import { createSkillContext } from "@nyxel/skills-sdk";
 
 /**
@@ -112,4 +114,78 @@ export async function listDirectory(
 	const ctx = createSkillContext({ network: [], filesystem: [rootDir] });
 	const target = relativePath ? `${rootDir}/${relativePath}` : rootDir;
 	return ctx.readDir(target);
+}
+
+const SEARCH_IGNORED_DIR_NAMES = new Set(["node_modules", ".git", "dist", "build", ".next"]);
+const SEARCH_MAX_WALK_ENTRIES = 5_000;
+const SEARCH_MAX_RESULTS = 20;
+const SEARCH_MAX_CONTENT_BYTES = 200_000;
+
+export interface FileSearchMatch {
+	path: string;
+	matchedOn: "filename" | "content";
+	snippet: string | null;
+}
+
+/** Finds files whose name or content contains `query`, for the Coding
+ * workspace's "relevant files" panel. Read-only, bounded (entry count, file
+ * size, result count) so a huge repo can't make this hang. Confined to
+ * `rootDir` — it only ever walks into `rootDir`'s own subdirectories, never
+ * out of them. */
+export async function searchFiles(rootDir: string, query: string): Promise<FileSearchMatch[]> {
+	const needle = query.trim().toLowerCase();
+	if (!needle) return [];
+
+	const resolvedRoot = path.resolve(rootDir);
+	const results: FileSearchMatch[] = [];
+	let visited = 0;
+
+	async function walk(dir: string): Promise<void> {
+		if (results.length >= SEARCH_MAX_RESULTS || visited > SEARCH_MAX_WALK_ENTRIES) return;
+		let entries: import("node:fs").Dirent[];
+		try {
+			entries = await readdir(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			if (results.length >= SEARCH_MAX_RESULTS || visited > SEARCH_MAX_WALK_ENTRIES) return;
+			visited++;
+			const fullPath = path.join(dir, entry.name);
+			const relativePath = path.relative(resolvedRoot, fullPath);
+
+			if (entry.isDirectory()) {
+				if (SEARCH_IGNORED_DIR_NAMES.has(entry.name) || entry.name.startsWith(".")) continue;
+				await walk(fullPath);
+				continue;
+			}
+			if (!entry.isFile()) continue;
+
+			if (entry.name.toLowerCase().includes(needle)) {
+				results.push({ path: relativePath, matchedOn: "filename", snippet: null });
+				continue;
+			}
+
+			try {
+				const stats = await stat(fullPath);
+				if (stats.size > SEARCH_MAX_CONTENT_BYTES) continue;
+				const content = await readFile(fullPath, "utf-8");
+				const matchIndex = content.toLowerCase().indexOf(needle);
+				if (matchIndex === -1) continue;
+				const lineStart = content.lastIndexOf("\n", matchIndex) + 1;
+				const lineEndIndex = content.indexOf("\n", matchIndex);
+				const lineEnd = lineEndIndex === -1 ? content.length : lineEndIndex;
+				results.push({
+					path: relativePath,
+					matchedOn: "content",
+					snippet: content.slice(lineStart, lineEnd).trim().slice(0, 200),
+				});
+			} catch {
+				// Unreadable/binary file — skip.
+			}
+		}
+	}
+
+	await walk(resolvedRoot);
+	return results;
 }
