@@ -22,7 +22,13 @@ export type McpTransport = "stdio" | "http";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 export type ApprovalKind = "skill" | "tool" | "mcp";
-export type AuditActor = "chat" | "automation" | "approval" | "delegate" | "extension";
+export type AuditActor =
+	| "chat"
+	| "automation"
+	| "approval"
+	| "delegate"
+	| "extension"
+	| "goal_orchestrator";
 export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
 /** See ../pg/app.ts — event bus v1 stable event types. */
 export type NyxelEventType =
@@ -81,7 +87,15 @@ export type GoalEventKind =
 	| "created"
 	| "status_changed"
 	| "milestone_added"
-	| "milestone_status_changed";
+	| "milestone_status_changed"
+	// Goal Engine (ADR-0018) — emitted by the Goal Orchestrator, always
+	// paired with a `goal_orchestrator` audit log entry so every automatic
+	// decision is traceable from two independent angles (goal timeline +
+	// workspace-wide audit log).
+	| "plan_created"
+	| "task_created"
+	| "task_status_changed"
+	| "review";
 
 export type SeoAnalysisRunStatus = "running" | "completed" | "failed";
 export type SeoFindingCategory = "seo" | "geo" | "aeo";
@@ -602,6 +616,14 @@ export const task = sqliteTable("task", {
 	assignedAgentId: text("assigned_agent_id").references(() => agent.id, {
 		onDelete: "set null",
 	}),
+	// Goal Engine (see ADR-0018) — set when the Goal Orchestrator generated
+	// this task from a goal's plan. Null for every task created outside that
+	// flow (chat-authored, delegated, workflow-node, automation), same as
+	// before this column existed.
+	goalId: text("goal_id").references(() => goal.id, { onDelete: "set null" }),
+	goalMilestoneId: text("goal_milestone_id").references(() => goalMilestone.id, {
+		onDelete: "set null",
+	}),
 	title: text("title").notNull(),
 	instruction: text("instruction").notNull(),
 	// Overrides the assigned agent's default model for this task only — lets
@@ -1079,6 +1101,40 @@ export const goal = sqliteTable("goal", {
 	description: text("description"),
 	status: text("status").notNull().default("active").$type<GoalStatus>(),
 	priority: text("priority").notNull().default("normal").$type<TaskPriority>(),
+	// Goal Engine (ADR-0018) additions below — all nullable/defaulted so
+	// existing Goal Manager v1 rows (pure record-keeping, no orchestration)
+	// keep working unchanged.
+	//
+	// Agent every generated task is assigned to, unless a future smarter
+	// router picks a different one per task. Null means the orchestrator has
+	// no agent to assign work to and must pause the goal (see goal-orchestrator.ts).
+	defaultAgentId: text("default_agent_id").references(() => agent.id, {
+		onDelete: "set null",
+	}),
+	// Plain-language conditions the orchestrator checks after every task
+	// completes; when every criterion looks satisfied (all tasks/milestones
+	// done and, if present, this list is non-empty and fully met) the goal
+	// is marked "completed" automatically. Null/empty means "done when every
+	// generated task is done" is the only criterion.
+	successCriteria: text("success_criteria", { mode: "json" }).$type<string[] | null>(),
+	// Opt-in switch: a goal stays a pure record (Goal Manager v1 behavior)
+	// until this is explicitly turned on via goals.startOrchestration. Never
+	// flipped implicitly by goal creation, so existing goals are unaffected.
+	orchestrationEnabled: integer("orchestration_enabled", { mode: "boolean" })
+		.notNull()
+		.default(false),
+	// Scheduler due-check (mirrors seoProject.nextReanalyzeAt) — null means
+	// "review on the next orchestration trigger," not "never."
+	nextReviewAt: integer("next_review_at", { mode: "timestamp" }),
+	lastReviewedAt: integer("last_reviewed_at", { mode: "timestamp" }),
+	// Human-readable reason the goal is currently "blocked", set by the
+	// orchestrator (missing agent/credentials, waiting on approval, budget
+	// exceeded, etc.) so the goal detail page can show "next action" without
+	// re-deriving it from the task tree on every render.
+	blockedReason: text("blocked_reason"),
+	// Set once the orchestrator has generated the goal's milestone/task tree
+	// — makes plan generation idempotent (never re-planned on every review).
+	planGeneratedAt: integer("plan_generated_at", { mode: "timestamp" }),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 	updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });

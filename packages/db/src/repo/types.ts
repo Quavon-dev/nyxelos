@@ -18,7 +18,13 @@ export type McpTransport = "stdio" | "http";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 export type ApprovalKind = "skill" | "tool" | "mcp";
-export type AuditActor = "chat" | "automation" | "approval" | "delegate" | "extension";
+export type AuditActor =
+	| "chat"
+	| "automation"
+	| "approval"
+	| "delegate"
+	| "extension"
+	| "goal_orchestrator";
 export type AuditStatus = "success" | "error" | "pending_approval" | "rejected";
 export type NyxelEventType =
 	| "agent.run.started"
@@ -76,7 +82,11 @@ export type GoalEventKind =
 	| "created"
 	| "status_changed"
 	| "milestone_added"
-	| "milestone_status_changed";
+	| "milestone_status_changed"
+	| "plan_created"
+	| "task_created"
+	| "task_status_changed"
+	| "review";
 
 export type SeoAnalysisRunStatus = "running" | "completed" | "failed";
 export type SeoFindingCategory = "seo" | "geo" | "aeo";
@@ -314,6 +324,9 @@ export interface TaskRecord {
 	sourceChatId: string | null;
 	createdByAgentId: string | null;
 	assignedAgentId: string | null;
+	/** Set when the Goal Orchestrator (ADR-0018) generated this task from a goal's plan. */
+	goalId: string | null;
+	goalMilestoneId: string | null;
 	title: string;
 	instruction: string;
 	/** Overrides the assigned agent's default model for this task only. */
@@ -351,6 +364,14 @@ export interface GoalRecord {
 	description: string | null;
 	status: GoalStatus;
 	priority: TaskPriority;
+	/** Goal Engine (ADR-0018) additions — see schema/sqlite/app.ts for rationale. */
+	defaultAgentId: string | null;
+	successCriteria: string[] | null;
+	orchestrationEnabled: boolean;
+	nextReviewAt: Date | null;
+	lastReviewedAt: Date | null;
+	blockedReason: string | null;
+	planGeneratedAt: Date | null;
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -1058,6 +1079,8 @@ export interface DbRepository {
 		sourceChatId?: string | null;
 		createdByAgentId?: string | null;
 		assignedAgentId?: string | null;
+		goalId?: string | null;
+		goalMilestoneId?: string | null;
 		title: string;
 		instruction: string;
 		modelId?: string | null;
@@ -1078,6 +1101,10 @@ export interface DbRepository {
 	): Promise<TaskRecord[]>;
 	getTask(taskId: string): Promise<TaskRecord | null>;
 	listTaskTree(parentTaskId: string): Promise<TaskRecord[]>;
+	/** Every task the Goal Orchestrator (ADR-0018) generated for a goal,
+	 * regardless of status — the orchestrator's own source of truth for
+	 * progress tracking. */
+	listTasksByGoal(goalId: string): Promise<TaskRecord[]>;
 	updateTask(
 		taskId: string,
 		input: {
@@ -1110,19 +1137,47 @@ export interface DbRepository {
 	}): Promise<TaskEventRecord>;
 	listTaskEvents(taskId: string): Promise<TaskEventRecord[]>;
 
-	/** No agent acts on a goal automatically — it is purely a record for the
-	 * user to track long-term outcomes. Linking goals to tasks/runs/workflows
-	 * is future work (see ADR/roadmap, not implemented in v1). */
+	/** A goal is purely a record until `orchestrationEnabled` is turned on;
+	 * only then does the Goal Orchestrator (ADR-0018) generate/track a task
+	 * tree against it — see goal-orchestrator.ts in apps/server. */
 	createGoal(input: {
 		workspaceId: string;
 		title: string;
 		description?: string | null;
 		status?: GoalStatus;
 		priority?: TaskPriority;
+		defaultAgentId?: string | null;
+		successCriteria?: string[] | null;
 	}): Promise<GoalRecord>;
 	listGoalsByWorkspace(workspaceId: string): Promise<GoalRecord[]>;
 	getGoal(goalId: string): Promise<GoalRecord | null>;
 	updateGoalStatus(goalId: string, status: GoalStatus): Promise<GoalRecord>;
+	/** General-purpose goal patch for everything updateGoalStatus doesn't
+	 * cover — the Goal Orchestrator's own bookkeeping fields plus anything a
+	 * future goal-editing UI needs. Deliberately separate from
+	 * updateGoalStatus so every status transition still goes through one
+	 * narrow, easy-to-audit method. */
+	updateGoal(
+		goalId: string,
+		input: {
+			title?: string;
+			description?: string | null;
+			priority?: TaskPriority;
+			defaultAgentId?: string | null;
+			successCriteria?: string[] | null;
+			orchestrationEnabled?: boolean;
+			nextReviewAt?: Date | null;
+			lastReviewedAt?: Date | null;
+			blockedReason?: string | null;
+			planGeneratedAt?: Date | null;
+		},
+	): Promise<GoalRecord>;
+	/** Goals due for the scheduler's periodic orchestration review:
+	 * `orchestrationEnabled` is on, status is still active work (`active` or
+	 * `blocked` — never `paused`/`completed`/`archived`, so a manual pause
+	 * or terminal state always wins over the schedule), and either never
+	 * reviewed or past `nextReviewAt`. */
+	listGoalsDueForReview(now: Date): Promise<GoalRecord[]>;
 
 	addMilestone(input: {
 		goalId: string;

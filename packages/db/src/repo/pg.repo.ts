@@ -890,6 +890,8 @@ export function createPgRepository(connectionString: string): DbRepository {
 			sourceChatId,
 			createdByAgentId,
 			assignedAgentId,
+			goalId,
+			goalMilestoneId,
 			title,
 			instruction,
 			modelId,
@@ -913,6 +915,8 @@ export function createPgRepository(connectionString: string): DbRepository {
 					sourceChatId: sourceChatId ?? null,
 					createdByAgentId: createdByAgentId ?? null,
 					assignedAgentId: assignedAgentId ?? null,
+					goalId: goalId ?? null,
+					goalMilestoneId: goalMilestoneId ?? null,
 					title,
 					instruction,
 					modelId: modelId ?? null,
@@ -963,6 +967,15 @@ export function createPgRepository(connectionString: string): DbRepository {
 				.select()
 				.from(schema.task)
 				.where(eq(schema.task.parentTaskId, parentTaskId))
+				.orderBy(schema.task.createdAt);
+			return rows.map(mapTask);
+		},
+
+		async listTasksByGoal(goalId) {
+			const rows = await db
+				.select()
+				.from(schema.task)
+				.where(eq(schema.task.goalId, goalId))
 				.orderBy(schema.task.createdAt);
 			return rows.map(mapTask);
 		},
@@ -1056,7 +1069,15 @@ export function createPgRepository(connectionString: string): DbRepository {
 			return rows.map(mapTaskEvent);
 		},
 
-		async createGoal({ workspaceId, title, description, status, priority }) {
+		async createGoal({
+			workspaceId,
+			title,
+			description,
+			status,
+			priority,
+			defaultAgentId,
+			successCriteria,
+		}) {
 			const [row] = await db
 				.insert(schema.goal)
 				.values({
@@ -1066,6 +1087,8 @@ export function createPgRepository(connectionString: string): DbRepository {
 					description: description ?? null,
 					status: status ?? "active",
 					priority: priority ?? "normal",
+					defaultAgentId: defaultAgentId ?? null,
+					successCriteria: successCriteria ?? null,
 					updatedAt: new Date(),
 				})
 				.returning();
@@ -1097,6 +1120,55 @@ export function createPgRepository(connectionString: string): DbRepository {
 				.returning();
 			if (!row) throw new Error(`Goal not found: ${goalId}`);
 			return mapGoal(row);
+		},
+
+		async updateGoal(goalId, input) {
+			const [row] = await db
+				.update(schema.goal)
+				.set({
+					...(input.title !== undefined ? { title: input.title } : {}),
+					...(input.description !== undefined ? { description: input.description } : {}),
+					...(input.priority !== undefined ? { priority: input.priority } : {}),
+					...(input.defaultAgentId !== undefined
+						? { defaultAgentId: input.defaultAgentId }
+						: {}),
+					...(input.successCriteria !== undefined
+						? { successCriteria: input.successCriteria }
+						: {}),
+					...(input.orchestrationEnabled !== undefined
+						? { orchestrationEnabled: input.orchestrationEnabled }
+						: {}),
+					...(input.nextReviewAt !== undefined ? { nextReviewAt: input.nextReviewAt } : {}),
+					...(input.lastReviewedAt !== undefined
+						? { lastReviewedAt: input.lastReviewedAt }
+						: {}),
+					...(input.blockedReason !== undefined
+						? { blockedReason: input.blockedReason }
+						: {}),
+					...(input.planGeneratedAt !== undefined
+						? { planGeneratedAt: input.planGeneratedAt }
+						: {}),
+					updatedAt: new Date(),
+				})
+				.where(eq(schema.goal.id, goalId))
+				.returning();
+			if (!row) throw new Error(`Goal not found: ${goalId}`);
+			return mapGoal(row);
+		},
+
+		async listGoalsDueForReview(now) {
+			const rows = await db
+				.select()
+				.from(schema.goal)
+				.where(
+					and(
+						eq(schema.goal.orchestrationEnabled, true),
+						or(eq(schema.goal.status, "active"), eq(schema.goal.status, "blocked")),
+						or(isNull(schema.goal.nextReviewAt), lte(schema.goal.nextReviewAt, now)),
+					),
+				)
+				.orderBy(schema.goal.nextReviewAt);
+			return rows.map(mapGoal);
 		},
 
 		async addMilestone({ goalId, workspaceId, title, order }) {

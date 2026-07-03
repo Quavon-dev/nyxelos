@@ -31,3 +31,14 @@ export function getDb(): DbRepository {
 			: createSqliteRepository(process.env.DATABASE_URL ?? DEFAULT_SQLITE_PATH);
 	return cached;
 }
+
+/**
+ * Test-only escape hatch. Every module in this codebase reaches the DB via
+ * the module-level `getDb()` singleton above (never dependency-injected),
+ * so a hermetic test that exercises those modules directly (rather than
+ * only unit-testing pure functions) has no other way to point them at a
+ * throwaway database. Never call this from production code.
+ */
+export function __setDbForTesting(repo: DbRepository | null): void {
+	cached = repo;
+}

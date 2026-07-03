@@ -181,6 +181,15 @@ export type AgentRunStatus =
 
 export type GoalStatus = "active" | "paused" | "blocked" | "completed" | "archived";
 export type GoalMilestoneStatus = "pending" | "completed";
+export type GoalEventKind =
+  | "created"
+  | "status_changed"
+  | "milestone_added"
+  | "milestone_status_changed"
+  | "plan_created"
+  | "task_created"
+  | "task_status_changed"
+  | "review";
 
 export type TaskSummary = {
   id: string;
@@ -189,6 +198,9 @@ export type TaskSummary = {
   sourceChatId: string | null;
   createdByAgentId: string | null;
   assignedAgentId: string | null;
+  /** Set when the Goal Orchestrator generated this task from a goal's plan. */
+  goalId: string | null;
+  goalMilestoneId: string | null;
   title: string;
   instruction: string;
   /** Overrides the assigned agent's default model for this task only. */
@@ -264,9 +276,37 @@ export type GoalSummary = {
   description: string | null;
   status: GoalStatus;
   priority: TaskPriority;
+  /** Goal Engine additions — see ADR-0018. */
+  defaultAgentId: string | null;
+  successCriteria: string[] | null;
+  orchestrationEnabled: boolean;
+  nextReviewAt: Date | null;
+  lastReviewedAt: Date | null;
+  blockedReason: string | null;
+  planGeneratedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   milestones: GoalMilestoneSummary[];
+};
+
+export type GoalProgressEventSummary = {
+  id: string;
+  goalId: string;
+  workspaceId: string;
+  kind: GoalEventKind;
+  message: string;
+  payload: Record<string, unknown> | null;
+  createdAt: Date;
+};
+
+export type GoalOverview = {
+  goal: Omit<GoalSummary, "milestones">;
+  milestones: GoalMilestoneSummary[];
+  tasks: TaskSummary[];
+  latestRun: AgentRunSummary | null;
+  blockers: { taskId: string; title: string; reason: string }[];
+  nextAction: string;
+  progressEvents: GoalProgressEventSummary[];
 };
 
 export type ModelCapabilities = {
@@ -1722,6 +1762,29 @@ type NyxelTrpcClient = {
         milestoneId: string;
         status: GoalMilestoneStatus;
       }): Promise<GoalMilestoneSummary>;
+    };
+    update: {
+      mutate(input: {
+        goalId: string;
+        title?: string;
+        description?: string | null;
+        priority?: TaskPriority;
+        defaultAgentId?: string | null;
+        successCriteria?: string[] | null;
+      }): Promise<Omit<GoalSummary, "milestones">>;
+    };
+    overview: {
+      query(input: { goalId: string }): Promise<GoalOverview>;
+    };
+    startOrchestration: {
+      mutate(input: { goalId: string }): Promise<{
+        goal: Omit<GoalSummary, "milestones">;
+        action: "no_change" | "planned" | "progressed" | "blocked" | "unblocked" | "completed";
+        detail: string;
+      }>;
+    };
+    setOrchestrationEnabled: {
+      mutate(input: { goalId: string; enabled: boolean }): Promise<Omit<GoalSummary, "milestones">>;
     };
   };
   agentRuns: {

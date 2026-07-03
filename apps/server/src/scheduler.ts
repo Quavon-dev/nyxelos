@@ -7,6 +7,7 @@ import { executeManagedTask } from "./agent-runtime";
 import { logAudit } from "./audit";
 import { emitNyxelEvent } from "./event-bus";
 import { NyxelEvent } from "./events";
+import { reviewDueGoals } from "./goal-orchestrator";
 import { notifyWorkspaceOwner } from "./push";
 import { runSeoAnalysis } from "./seo-analyzer";
 import { runWorkflowAndWait } from "./workflow-runner";
@@ -343,6 +344,23 @@ async function checkDueSeoProjects(): Promise<void> {
 }
 
 /**
+ * Reviews every goal due for its periodic Goal Orchestrator check (ADR-0018)
+ * — `orchestrationEnabled` goals whose `nextReviewAt` has passed. A separate
+ * poll from `listDueAutomations` for the same reason `checkDueSeoProjects`
+ * is: this isn't an agent chat turn, it's the orchestrator deciding whether
+ * to start the next ready task, mark the goal blocked/unblocked, or complete
+ * it. `reviewDueGoals` already isolates failures per-goal; this wrapper only
+ * guards the initial due-query itself, same shape as `checkDueSeoProjects`.
+ */
+async function checkGoalsForReview(): Promise<void> {
+  try {
+    await reviewDueGoals(new Date());
+  } catch (err) {
+    console.error("Scheduler: failed to query goals due for review:", err);
+  }
+}
+
+/**
  * Polls the automation table every 30s: cron automations whose nextRunAt has
  * passed run headlessly (one full completion, no client attached to stream
  * to — see runAutomation); file_watch automations are separately checked for
@@ -369,6 +387,7 @@ export function startScheduler(): () => void {
 
     await checkFileWatchAutomations();
     await checkDueSeoProjects();
+    await checkGoalsForReview();
   }, POLL_INTERVAL_MS);
 
   // Timers otherwise keep the process alive forever — unref lets a clean

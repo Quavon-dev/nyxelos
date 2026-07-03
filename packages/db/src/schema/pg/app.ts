@@ -62,6 +62,7 @@ export const auditActor = pgEnum("audit_actor", [
 	"approval",
 	"delegate",
 	"extension",
+	"goal_orchestrator",
 ]);
 
 export const auditStatus = pgEnum("audit_status", [
@@ -128,6 +129,11 @@ export const goalEventKind = pgEnum("goal_event_kind", [
 	"status_changed",
 	"milestone_added",
 	"milestone_status_changed",
+	// Goal Engine (ADR-0018) — see ../sqlite/app.ts's GoalEventKind comment.
+	"plan_created",
+	"task_created",
+	"task_status_changed",
+	"review",
 ]);
 
 export const seoAnalysisRunStatus = pgEnum("seo_analysis_run_status", [
@@ -677,6 +683,11 @@ export const task = pgTable("task", {
 	assignedAgentId: text("assigned_agent_id").references(() => agent.id, {
 		onDelete: "set null",
 	}),
+	// Goal Engine (see ADR-0018) — see ../sqlite/app.ts's task.goalId comment.
+	goalId: text("goal_id").references(() => goal.id, { onDelete: "set null" }),
+	goalMilestoneId: text("goal_milestone_id").references(() => goalMilestone.id, {
+		onDelete: "set null",
+	}),
 	title: text("title").notNull(),
 	instruction: text("instruction").notNull(),
 	// Overrides the assigned agent's default model for this task only — lets
@@ -1198,9 +1209,11 @@ export const workflowRunNode = pgTable("workflow_run_node", {
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-/** A long-term outcome the workspace is tracking. Purely a record — no
- * agent acts on a goal automatically. Tasks/runs/workflows may reference a
- * goal later, but that linking is out of scope for v1. */
+/** A long-term outcome the workspace is tracking. Stays a pure record
+ * (Goal Manager v1 behavior) until `orchestrationEnabled` is turned on —
+ * only then does the Goal Orchestrator (ADR-0018) generate a task tree,
+ * assign agents, and track progress against it. See ../sqlite/app.ts for
+ * the per-column rationale of the Goal Engine additions below. */
 export const goal = pgTable("goal", {
 	id: text("id").primaryKey(),
 	workspaceId: text("workspace_id")
@@ -1210,6 +1223,17 @@ export const goal = pgTable("goal", {
 	description: text("description"),
 	status: goalStatus("status").notNull().default("active"),
 	priority: taskPriority("priority").notNull().default("normal"),
+	// Goal Engine (ADR-0018) additions — see ../sqlite/app.ts for the
+	// per-column rationale (mirrored 1:1 here).
+	defaultAgentId: text("default_agent_id").references(() => agent.id, {
+		onDelete: "set null",
+	}),
+	successCriteria: jsonb("success_criteria").$type<string[] | null>(),
+	orchestrationEnabled: boolean("orchestration_enabled").notNull().default(false),
+	nextReviewAt: timestamp("next_review_at"),
+	lastReviewedAt: timestamp("last_reviewed_at"),
+	blockedReason: text("blocked_reason"),
+	planGeneratedAt: timestamp("plan_generated_at"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

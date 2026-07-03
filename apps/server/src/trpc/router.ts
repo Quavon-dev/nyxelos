@@ -82,6 +82,11 @@ import {
 	startTaskExecutionIfIdle,
 } from "../agent-runtime";
 import {
+	getGoalOverview,
+	setOrchestrationEnabled,
+	startOrchestration,
+} from "../goal-orchestrator";
+import {
 	ensureExtensionPlugin,
 	getPlugin,
 	installPluginFromGithub,
@@ -2189,6 +2194,75 @@ export const appRouter = router({
 					payload: { milestoneId: milestone.id, status: input.status },
 				});
 				return updated;
+			}),
+
+		// Goal Engine (ADR-0018) — everything below is opt-in on top of Goal
+		// Manager v1 above: a goal stays a pure record until startOrchestration
+		// (or setOrchestrationEnabled) is called on it at least once.
+		update: protectedProcedure
+			.input(
+				z.object({
+					goalId: z.string(),
+					title: z.string().min(1).optional(),
+					description: z.string().nullable().optional(),
+					priority: taskPrioritySchema.optional(),
+					defaultAgentId: z.string().nullable().optional(),
+					successCriteria: z.array(z.string()).nullable().optional(),
+				}),
+			)
+			.mutation(async ({ input, ctx }) => {
+				const db = getDb();
+				const goal = await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => db.getGoal(input.goalId),
+					"Goal not found",
+				);
+				const { goalId, ...patch } = input;
+				if (patch.defaultAgentId) {
+					const agent = await db.getAgent(patch.defaultAgentId);
+					if (!agent || agent.workspaceId !== goal.workspaceId) {
+						throw new TRPCError({
+							code: "BAD_REQUEST",
+							message: "Agent not found in this workspace.",
+						});
+					}
+				}
+				return db.updateGoal(goalId, patch);
+			}),
+		overview: protectedProcedure
+			.input(z.object({ goalId: z.string() }))
+			.query(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getGoal(input.goalId),
+					"Goal not found",
+				);
+				const overview = await getGoalOverview(input.goalId);
+				if (!overview) throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found" });
+				return overview;
+			}),
+		// Turns orchestration on (if not already) and runs an immediate review
+		// — generates the plan on first call, otherwise just re-evaluates
+		// progress and starts whatever's ready.
+		startOrchestration: protectedProcedure
+			.input(z.object({ goalId: z.string() }))
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getGoal(input.goalId),
+					"Goal not found",
+				);
+				return startOrchestration(input.goalId);
+			}),
+		setOrchestrationEnabled: protectedProcedure
+			.input(z.object({ goalId: z.string(), enabled: z.boolean() }))
+			.mutation(async ({ input, ctx }) => {
+				await requireEntityWorkspaceOwner(
+					ctx.user.id,
+					() => getDb().getGoal(input.goalId),
+					"Goal not found",
+				);
+				return setOrchestrationEnabled(input.goalId, input.enabled);
 			}),
 	}),
 
