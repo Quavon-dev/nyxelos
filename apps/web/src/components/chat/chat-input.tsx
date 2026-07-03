@@ -131,7 +131,8 @@ export function ChatInput({
         )}
         {!assistantPrompt && assistantQuestion && (
           <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-            Nyxel asked: <span className="text-foreground">{assistantQuestion}</span>
+            Nyxel asked:{" "}
+            <span className="line-clamp-2 text-foreground">{assistantQuestion}</span>
           </div>
         )}
         {attachedFiles.length > 0 && (

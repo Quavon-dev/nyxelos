@@ -31,12 +31,16 @@ function getPendingAssistantQuestion(messages: Array<{ role: string; content: st
   const parsed = parseAssistantContent(content);
   if (parsed.prompt) return null;
 
-  return /[?؟]\s*$/.test(content) ||
-    content.includes("?") ||
-    content.includes("Could you") ||
-    content.includes("Please")
-    ? content
-    : null;
+  // Only treat the message as a pending question if it actually ends with
+  // one — matching "?" anywhere in a long reply used to dump the entire
+  // message into the one-line "Nyxel asked: …" banner below.
+  if (!/[?؟]\s*$/.test(content)) return null;
+
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.at(-1) ?? null;
 }
 
 function getPendingAssistantPrompt(messages: Array<{ role: string; content: string }>) {
