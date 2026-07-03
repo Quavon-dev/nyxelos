@@ -347,6 +347,67 @@ async function checkDueSeoProjects(): Promise<void> {
 }
 
 /**
+ * Recovers agent runs left stuck in "running" by a process that died or
+ * restarted before it could mark them cancelled/completed/failed itself —
+ * see apps/server/src/agent-runtime.ts's lease/heartbeat mechanism. A run
+ * qualifies once its lease has expired (or it never had one, e.g. it
+ * predates this feature) with no live process still renewing it. Marks the
+ * run failed and, if its task is still in a run-owned state, marks the task
+ * failed too so the Goal Orchestrator/task UI can react instead of the task
+ * looking permanently stuck. Runs on every scheduler tick and once at
+ * startup, so a crash is recovered within one tick rather than only once a
+ * human notices.
+ */
+export async function checkStaleAgentRuns(): Promise<void> {
+  const db = getDb();
+  let staleRuns: Awaited<ReturnType<typeof db.listStaleRunningAgentRuns>>;
+  try {
+    staleRuns = await db.listStaleRunningAgentRuns(new Date());
+  } catch (err) {
+    console.error("Scheduler: failed to query stale agent runs:", err);
+    return;
+  }
+  for (const run of staleRuns) {
+    const reason =
+      "Run lease expired — recovered by the stale-run sweep (owning process likely died).";
+    try {
+      await db.updateAgentRun(run.id, {
+        status: "failed",
+        errorMessage: reason,
+        completedAt: new Date(),
+      });
+      if (run.taskId) {
+        const task = await db.getTask(run.taskId);
+        if (task && (task.status === "running" || task.status === "planning")) {
+          await db.updateTask(run.taskId, {
+            status: "failed",
+            errorMessage: reason,
+            completedAt: new Date(),
+          });
+          await db.createTaskEvent({
+            taskId: run.taskId,
+            workspaceId: run.workspaceId,
+            agentRunId: run.id,
+            agentId: run.agentId,
+            kind: "failed",
+            message: reason,
+          });
+        }
+      }
+      await emitNyxelEvent({
+        workspaceId: run.workspaceId,
+        type: NyxelEvent.AgentRunFailed,
+        entityType: "agent_run",
+        entityId: run.id,
+        payload: { taskId: run.taskId, agentId: run.agentId, error: reason },
+      });
+    } catch (err) {
+      console.error(`Scheduler: failed to recover stale agent run ${run.id}:`, err);
+    }
+  }
+}
+
+/**
  * Reviews every goal due for its periodic Goal Orchestrator check (ADR-0018)
  * — `orchestrationEnabled` goals whose `nextReviewAt` has passed. A separate
  * poll from `listDueAutomations` for the same reason `checkDueSeoProjects`
@@ -372,6 +433,11 @@ async function checkGoalsForReview(): Promise<void> {
  * the poll loop or block sibling automations from running.
  */
 export function startScheduler(): () => void {
+  // Runs once immediately at startup (not just on the first 30s tick) so a
+  // run orphaned by a crash/restart is recovered as soon as the server comes
+  // back up, rather than sitting stuck for up to POLL_INTERVAL_MS.
+  void checkStaleAgentRuns();
+
   const timer = setInterval(async () => {
     let due: AutomationRecord[];
     try {
@@ -391,6 +457,7 @@ export function startScheduler(): () => void {
     await checkFileWatchAutomations();
     await checkDueSeoProjects();
     await checkGoalsForReview();
+    await checkStaleAgentRuns();
   }, POLL_INTERVAL_MS);
 
   // Timers otherwise keep the process alive forever — unref lets a clean

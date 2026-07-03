@@ -2,6 +2,8 @@ import {
   DEFAULT_CHAT_TOOL_POLICY,
   DEFAULT_CHAT_WORKING_DIRECTORY,
   getDb,
+  type KnowledgeBaseConfigRecord,
+  type McpServerRecord,
   type ModelInstallationRecord,
 } from "@nyxel/db";
 import { McpAuthorizationRequiredError, McpInvalidConfigurationError } from "@nyxel/mcp-client";
@@ -416,6 +418,27 @@ export function toClientSafeInstallation(installation: ModelInstallationRecord) 
   return { ...rest, hasApiKey: apiKey !== null && apiKey.length > 0 };
 }
 
+// Same rationale as toClientSafeInstallation above — env (may hold a stdio
+// server's OAuth credential path or other secret env vars) and oauthState
+// (access/refresh tokens, PKCE state) never need to leave the server; the
+// client only needs to know whether either is configured.
+export function toClientSafeMcpServer(server: McpServerRecord) {
+  const { env, oauthState, ...rest } = server;
+  return {
+    ...rest,
+    hasEnv: env !== null && Object.keys(env).length > 0,
+    hasOAuthState: oauthState !== null && Object.keys(oauthState).length > 0,
+  };
+}
+
+// Same rationale — obsidianApiKey never needs to leave the server; the UI
+// only needs to know whether one's configured (mirrors getKnowledgeBaseOverview's
+// obsidianApiKeySet field so both endpoints agree on shape).
+export function toClientSafeKnowledgeBaseConfig(config: KnowledgeBaseConfigRecord) {
+  const { obsidianApiKey, ...rest } = config;
+  return { ...rest, obsidianApiKeySet: obsidianApiKey !== null && obsidianApiKey.length > 0 };
+}
+
 export const appRouter = router({
   health: publicProcedure.query(() => ({ ok: true, name: "nyxel-server" })),
 
@@ -574,7 +597,7 @@ export const appRouter = router({
             ? input.modelIds
             : detected.modelIds;
 
-        return getDb().createModelInstallation({
+        const installation = await getDb().createModelInstallation({
           workspaceId: input.workspaceId,
           label: input.label,
           providerKind: input.providerKind,
@@ -583,6 +606,7 @@ export const appRouter = router({
           modelIds,
           enabled: true,
         });
+        return toClientSafeInstallation(installation);
       }),
     // OpenRouter's catalog is public, so this works with or without a key —
     // the settings panel calls it as the user types their key to preview
@@ -613,7 +637,7 @@ export const appRouter = router({
             ? input.modelIds
             : models.map((model) => model.id);
 
-        return getDb().createModelInstallation({
+        const installation = await getDb().createModelInstallation({
           workspaceId: input.workspaceId,
           label: input.label,
           providerKind: "openrouter",
@@ -622,6 +646,7 @@ export const appRouter = router({
           modelIds,
           enabled: true,
         });
+        return toClientSafeInstallation(installation);
       }),
     deleteInstallation: protectedProcedure
       .input(z.object({ id: z.string() }))
@@ -676,7 +701,9 @@ export const appRouter = router({
         const disabledModelIds = input.enabled
           ? installation.disabledModelIds.filter((id) => id !== input.modelId)
           : Array.from(new Set([...installation.disabledModelIds, input.modelId]));
-        return db.updateModelInstallation({ id: input.id, disabledModelIds });
+        return toClientSafeInstallation(
+          await db.updateModelInstallation({ id: input.id, disabledModelIds }),
+        );
       }),
     // Catalog for the "add model" autocomplete/autofill on an already
     // installed provider — same live source addModelToInstallation
@@ -708,7 +735,9 @@ export const appRouter = router({
           () => db.getModelInstallation(input.id),
           "Model installation not found",
         );
-        if (installation.modelIds.includes(input.modelId)) return installation;
+        if (installation.modelIds.includes(input.modelId)) {
+          return toClientSafeInstallation(installation);
+        }
 
         // Verify against the provider's real catalog when one is
         // reachable — `null` means unverifiable (no key, CLI provider,
@@ -725,7 +754,9 @@ export const appRouter = router({
         }
 
         const modelIds = [...installation.modelIds, input.modelId];
-        return db.updateModelInstallation({ id: input.id, modelIds });
+        return toClientSafeInstallation(
+          await db.updateModelInstallation({ id: input.id, modelIds }),
+        );
       }),
     removeModelFromInstallation: protectedProcedure
       .input(z.object({ id: z.string(), modelId: z.string() }))
@@ -744,7 +775,9 @@ export const appRouter = router({
           await db.deleteModelInstallation(input.id);
           return null;
         }
-        return db.updateModelInstallation({ id: input.id, modelIds, disabledModelIds });
+        return toClientSafeInstallation(
+          await db.updateModelInstallation({ id: input.id, modelIds, disabledModelIds }),
+        );
       }),
     // Local CLI providers (claude_cli/codex_cli) — see
     // apps/server/src/cli-providers.ts. Auth state is host-wide, not
@@ -796,10 +829,12 @@ export const appRouter = router({
         );
         if (existing) {
           const modelIds = Array.from(new Set([...existing.modelIds, ...input.modelIds]));
-          return db.updateModelInstallation({ id: existing.id, modelIds });
+          return toClientSafeInstallation(
+            await db.updateModelInstallation({ id: existing.id, modelIds }),
+          );
         }
 
-        return db.createModelInstallation({
+        const installation = await db.createModelInstallation({
           workspaceId: input.workspaceId,
           label: input.label,
           providerKind: input.providerKind,
@@ -808,6 +843,7 @@ export const appRouter = router({
           modelIds: input.modelIds,
           enabled: true,
         });
+        return toClientSafeInstallation(installation);
       }),
     // TODO(ADR-0017): needs auth review — scans host-local paths for
     // importable provider configs (e.g. existing CLI credential files);
@@ -818,7 +854,9 @@ export const appRouter = router({
     scanImportSources: publicProcedure.query(() => listProviderImportSources()),
     importSource: workspaceProcedure
       .input(z.object({ workspaceId: z.string(), sourceId: z.string() }))
-      .mutation(({ input }) => importProviderSourceToWorkspace(input)),
+      .mutation(async ({ input }) =>
+        toClientSafeInstallation(await importProviderSourceToWorkspace(input)),
+      ),
   }),
 
   skills: router({
@@ -2245,13 +2283,17 @@ export const appRouter = router({
     catalog: publicProcedure.query(() => MCP_CONNECTOR_CATALOG),
     list: workspaceProcedure
       .input(z.object({ workspaceId: z.string() }))
-      .query(({ input }) => getDb().listMcpServersByWorkspace(input.workspaceId)),
-    create: workspaceProcedure.input(mcpServerCreateSchema).mutation(({ input }) =>
-      getDb().createMcpServer({
-        ...input,
-        command: input.command?.trim(),
-        url: input.url?.trim(),
-      }),
+      .query(async ({ input }) =>
+        (await getDb().listMcpServersByWorkspace(input.workspaceId)).map(toClientSafeMcpServer),
+      ),
+    create: workspaceProcedure.input(mcpServerCreateSchema).mutation(async ({ input }) =>
+      toClientSafeMcpServer(
+        await getDb().createMcpServer({
+          ...input,
+          command: input.command?.trim(),
+          url: input.url?.trim(),
+        }),
+      ),
     ),
     // For catalog entries with configFields — writes any "secret-file" values
     // to a local file and builds the stdio server's env from the result,
@@ -2265,7 +2307,7 @@ export const appRouter = router({
           values: z.record(z.string(), z.string()),
         }),
       )
-      .mutation(({ input }) => {
+      .mutation(async ({ input }) => {
         const entry = MCP_CONNECTOR_CATALOG.find((e) => e.key === input.key);
         if (!entry) throw new Error(`Unknown connector: ${input.key}`);
         if (entry.transport !== "stdio" || !entry.command) {
@@ -2282,14 +2324,16 @@ export const appRouter = router({
               ? writeMcpSecretFile(input.workspaceId, `${entry.key}-${field.key}`, value)
               : value;
         }
-        return getDb().createMcpServer({
-          workspaceId: input.workspaceId,
-          name: entry.name,
-          transport: "stdio",
-          command: entry.command,
-          args: entry.args,
-          env,
-        });
+        return toClientSafeMcpServer(
+          await getDb().createMcpServer({
+            workspaceId: input.workspaceId,
+            name: entry.name,
+            transport: "stdio",
+            command: entry.command,
+            args: entry.args,
+            env,
+          }),
+        );
       }),
     delete: protectedProcedure
       .input(z.object({ id: z.string() }))
@@ -2855,15 +2899,17 @@ export const appRouter = router({
           injectIntoPrompts: z.boolean().optional(),
         }),
       )
-      .mutation(({ input }) =>
-        getDb().upsertKnowledgeBaseConfig({
-          workspaceId: input.workspaceId,
-          vaultPath: input.vaultPath,
-          obsidianRestUrl: input.obsidianRestUrl ?? null,
-          obsidianApiKey: input.obsidianApiKey ?? null,
-          docsAgentEnabled: input.docsAgentEnabled,
-          injectIntoPrompts: input.injectIntoPrompts,
-        }),
+      .mutation(async ({ input }) =>
+        toClientSafeKnowledgeBaseConfig(
+          await getDb().upsertKnowledgeBaseConfig({
+            workspaceId: input.workspaceId,
+            vaultPath: input.vaultPath,
+            obsidianRestUrl: input.obsidianRestUrl ?? null,
+            obsidianApiKey: input.obsidianApiKey ?? null,
+            docsAgentEnabled: input.docsAgentEnabled,
+            injectIntoPrompts: input.injectIntoPrompts,
+          }),
+        ),
       ),
     documents: workspaceProcedure
       .input(z.object({ workspaceId: z.string() }))

@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { decrypt, decryptNullable, encrypt, encryptNullable } from "./crypto";
+import {
+  decrypt,
+  decryptJsonNullable,
+  decryptNullable,
+  encrypt,
+  encryptJsonNullable,
+  encryptNullable,
+} from "./crypto";
 
 describe("crypto", () => {
   test("encrypt then decrypt round-trips the original plaintext", () => {
@@ -43,5 +50,20 @@ describe("crypto", () => {
     const encrypted = encryptNullable("obsidian-key-abc");
     expect(encrypted).not.toBeNull();
     expect(decryptNullable(encrypted)).toBe("obsidian-key-abc");
+  });
+
+  test("encryptJsonNullable/decryptJsonNullable pass through null and undefined", () => {
+    expect(encryptJsonNullable(null)).toBeNull();
+    expect(encryptJsonNullable(undefined)).toBeNull();
+    expect(decryptJsonNullable(null)).toBeNull();
+    expect(decryptJsonNullable(undefined)).toBeNull();
+  });
+
+  test("encryptJsonNullable/decryptJsonNullable round-trip an object", () => {
+    const oauthState = { accessToken: "at-123", refreshToken: "rt-456", expiresAt: 1234567890 };
+    const encrypted = encryptJsonNullable(oauthState);
+    expect(encrypted).not.toBeNull();
+    expect(encrypted).not.toContain("at-123");
+    expect(decryptJsonNullable<typeof oauthState>(encrypted)).toEqual(oauthState);
   });
 });

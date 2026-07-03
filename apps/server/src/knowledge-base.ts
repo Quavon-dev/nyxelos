@@ -205,10 +205,17 @@ function summarizeAuditEntry(entry: AuditLogRecord) {
   return `- ${entry.actor} · ${entry.toolLabel} · ${entry.status}${clipped ? ` · ${clipped}` : ""}`;
 }
 
-const KNOWLEDGE_BASE_PROMPT_CONTEXT_MAX_CHARS = 6000;
-const KNOWLEDGE_BASE_PROMPT_SECTION_MAX_CHARS = 1500;
+const KNOWLEDGE_BASE_PROMPT_CONTEXT_MAX_CHARS_DEFAULT = 6000;
+const KNOWLEDGE_BASE_PROMPT_SECTION_MAX_CHARS_DEFAULT = 1500;
 const ALWAYS_INCLUDE_GROUP = "00-Meta";
 const RECENT_NOTES_TO_INCLUDE = 3;
+
+function positiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 /**
  * Builds the auto-injected knowledge-base block appended to every chat,
@@ -227,6 +234,15 @@ const RECENT_NOTES_TO_INCLUDE = 3;
 export async function getKnowledgeBaseContextForPrompt(
   workspaceId: string,
 ): Promise<string | null> {
+  const contextMaxChars = positiveIntEnv(
+    "NYXEL_KB_PROMPT_CONTEXT_MAX_CHARS",
+    KNOWLEDGE_BASE_PROMPT_CONTEXT_MAX_CHARS_DEFAULT,
+  );
+  const sectionMaxChars = positiveIntEnv(
+    "NYXEL_KB_PROMPT_SECTION_MAX_CHARS",
+    KNOWLEDGE_BASE_PROMPT_SECTION_MAX_CHARS_DEFAULT,
+  );
+
   const db = getDb();
   const config = await db.getKnowledgeBaseConfig(workspaceId);
   if (config && !config.injectIntoPrompts) return null;
@@ -257,7 +273,7 @@ export async function getKnowledgeBaseContextForPrompt(
       const content = await fs
         .readFile(path.join(absoluteVaultPath, doc.path), "utf8")
         .catch(() => "");
-      return `### ${doc.path}\n${content.slice(0, KNOWLEDGE_BASE_PROMPT_SECTION_MAX_CHARS)}`;
+      return `### ${doc.path}\n${content.slice(0, sectionMaxChars)}`;
     }),
   );
 
@@ -271,8 +287,8 @@ export async function getKnowledgeBaseContextForPrompt(
     ...sections,
   ].join("\n");
 
-  return block.length > KNOWLEDGE_BASE_PROMPT_CONTEXT_MAX_CHARS
-    ? `${block.slice(0, KNOWLEDGE_BASE_PROMPT_CONTEXT_MAX_CHARS)}\n…(truncated)`
+  return block.length > contextMaxChars
+    ? `${block.slice(0, contextMaxChars)}\n…(truncated)`
     : block;
 }
 
@@ -298,9 +314,10 @@ export async function getKnowledgeBaseOverview(workspaceId: string) {
       ? await pingObsidianRestApi(config.obsidianRestUrl, config.obsidianApiKey)
       : { reachable: false, error: "Not configured" };
 
+  const { obsidianApiKey: _obsidianApiKey, ...configWithoutApiKey } = config;
   return {
     config: {
-      ...config,
+      ...configWithoutApiKey,
       obsidianApiKeySet: Boolean(config.obsidianApiKey),
       absoluteVaultPath,
     },

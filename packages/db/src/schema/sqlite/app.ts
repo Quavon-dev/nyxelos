@@ -382,14 +382,17 @@ export const mcpServer = sqliteTable("mcp_server", {
   url: text("url"),
   /** Extra env vars for stdio servers only, e.g. a path to an OAuth
    * credentials file a local command needs to read. Never sent to http
-   * servers — those authenticate via OAuth, not process env. */
-  env: text("env", { mode: "json" }).$type<Record<string, string>>(),
+   * servers — those authenticate via OAuth, not process env. Stored as
+   * AES-256-GCM-encrypted JSON (see packages/db/src/crypto.ts) since this
+   * can carry live credentials — encrypted/decrypted at the repo layer. */
+  env: text("env"),
   /** Persisted OAuth session for http servers — dynamic client registration
    * result, access/refresh tokens, PKCE state. Without this, every server
    * restart drops the in-memory OAuth provider and forces re-authorization
    * for every previously-connected http connector. Opaque blob because the
-   * shape belongs to @modelcontextprotocol/sdk, not this schema. */
-  oauthState: text("oauth_state", { mode: "json" }).$type<Record<string, unknown>>(),
+   * shape belongs to @modelcontextprotocol/sdk, not this schema. Stored as
+   * AES-256-GCM-encrypted JSON, same as `env` above. */
+  oauthState: text("oauth_state"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
@@ -615,6 +618,14 @@ export const agentRun = sqliteTable("agent_run", {
   startedAt: integer("started_at", { mode: "timestamp" }),
   completedAt: integer("completed_at", { mode: "timestamp" }),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  // Durable run recovery (see apps/server/src/agent-runtime.ts): a
+  // process-identifying id, a periodically-renewed lease, and a
+  // cancellation flag that's visible in the DB even if the process that
+  // owns the run's in-memory AbortController has died or isn't this one.
+  workerId: text("worker_id"),
+  heartbeatAt: integer("heartbeat_at", { mode: "timestamp" }),
+  leaseUntil: integer("lease_until", { mode: "timestamp" }),
+  cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp" }),
 });
 
 export const taskEvent = sqliteTable("task_event", {

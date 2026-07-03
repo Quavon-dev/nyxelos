@@ -25,12 +25,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { ModelParametersDialog } from "@/components/model-parameters-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { ModelParametersDialog } from "@/components/model-parameters-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -48,7 +48,6 @@ import {
   DEFAULT_CHAT_TOOL_POLICY,
   type ModelCapabilities,
   type ModelInstallationClientSummary,
-  type ModelInstallationSummary,
   type OpenRouterModel,
   type ProbedModelProvider,
   trpcClient,
@@ -103,10 +102,7 @@ function CapabilityBadges({ capabilities }: { capabilities?: ModelCapabilities }
         <Tooltip key={key}>
           <TooltipTrigger asChild>
             <span
-              className={cn(
-                "flex size-5 items-center justify-center rounded border",
-                className,
-              )}
+              className={cn("flex size-5 items-center justify-center rounded border", className)}
             >
               <Icon className="size-3" />
             </span>
@@ -334,8 +330,8 @@ function CliProviderCard({
 
       {status === "not_installed" && (
         <p className="text-xs text-destructive">
-          {kind === "claude_cli" ? "claude" : "codex"} isn&apos;t installed (or not on PATH) on
-          the server host.
+          {kind === "claude_cli" ? "claude" : "codex"} isn&apos;t installed (or not on PATH) on the
+          server host.
         </p>
       )}
 
@@ -428,11 +424,15 @@ function InstalledProviderCard({
   provider: ModelInstallationClientSummary;
   modelCapabilitiesByLabel: Map<string, ModelCapabilities | undefined>;
   setModelEnabled: UseMutationResult<
-    ModelInstallationSummary,
+    ModelInstallationClientSummary,
     Error,
     { id: string; modelId: string; enabled: boolean }
   >;
-  removeModel: UseMutationResult<ModelInstallationSummary | null, Error, { id: string; modelId: string }>;
+  removeModel: UseMutationResult<
+    ModelInstallationClientSummary | null,
+    Error,
+    { id: string; modelId: string }
+  >;
   removeProvider: UseMutationResult<void, Error, { id: string }>;
   invalidateModelQueries: () => void;
 }) {
@@ -581,7 +581,8 @@ function OpenRouterProviderCard({
   const [selectedModelIds, setSelectedModelIds] = useState<Set<string>>(new Set());
 
   const fetchModels = useMutation({
-    mutationFn: () => trpcClient.models.listOpenRouterModels.query({ apiKey: apiKey.trim() || undefined }),
+    mutationFn: () =>
+      trpcClient.models.listOpenRouterModels.query({ apiKey: apiKey.trim() || undefined }),
     onSuccess: (result) => {
       setModels(result);
       setSelectedModelIds(new Set(result.map((model) => model.id)));
@@ -1280,9 +1281,7 @@ export function WorkspaceSettingsPanel({
             <div className="space-y-3">
               <h3 className="text-sm font-medium">Installed</h3>
               {installedProvidersQuery.data?.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                  No custom providers installed yet.
-                </p>
+                <p className="text-sm text-muted-foreground">No custom providers installed yet.</p>
               )}
               <div className="space-y-3">
                 {installedProvidersQuery.data?.map((provider) => (
@@ -1388,9 +1387,7 @@ export function WorkspaceSettingsPanel({
               </div>
 
               {probeProvider.isError && (
-                <p className="text-sm text-destructive">
-                  {(probeProvider.error as Error).message}
-                </p>
+                <p className="text-sm text-destructive">{(probeProvider.error as Error).message}</p>
               )}
               {installProvider.isError && (
                 <p className="text-sm text-destructive">
@@ -1437,9 +1434,9 @@ export function WorkspaceSettingsPanel({
             <div className="space-y-3">
               <h3 className="text-sm font-medium">Server URL</h3>
               <p className="text-sm text-muted-foreground">
-                Point this device at a different Nyxel server — a LAN IP at home, a Tailscale/
-                ngrok tunnel, or a custom domain. Only affects this browser; other devices keep
-                their own setting.
+                Point this device at a different Nyxel server — a LAN IP at home, a Tailscale/ ngrok
+                tunnel, or a custom domain. Only affects this browser; other devices keep their own
+                setting.
               </p>
               <div className="flex flex-wrap gap-3">
                 <Input
@@ -1512,8 +1509,8 @@ export function WorkspaceSettingsPanel({
             <div className="space-y-1">
               <h3 className="text-sm font-medium">Marketplace</h3>
               <p className="text-sm text-muted-foreground">
-                Optional NyxelOS features. Installing one adds it to the sidebar outside the
-                normal workspace navigation.
+                Optional NyxelOS features. Installing one adds it to the sidebar outside the normal
+                workspace navigation.
               </p>
             </div>
             {extensionCatalogQuery.isLoading ? (
@@ -1521,9 +1518,7 @@ export function WorkspaceSettingsPanel({
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
                 {(extensionCatalogQuery.data ?? []).map((entry) => {
-                  const installed = installedExtensionsQuery.data?.find(
-                    (e) => e.key === entry.key,
-                  );
+                  const installed = installedExtensionsQuery.data?.find((e) => e.key === entry.key);
                   return (
                     <div key={entry.key} className="space-y-3 rounded-lg border p-4">
                       <div className="flex items-start justify-between gap-2">

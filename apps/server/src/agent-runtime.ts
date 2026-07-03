@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { AgentRecord, AgentRunRecord, TaskRecord } from "@nyxel/db";
 import { getDb } from "@nyxel/db";
 import { getModelCapabilities, streamChat } from "@nyxel/model-providers";
@@ -24,9 +25,24 @@ export interface ExecutionPlan {
  * aborted in-flight (cancelAgentRun still marks it cancelled in the DB). */
 const activeRunControllers = new Map<string, AbortController>();
 
+/** Identifies this process as the owner of whatever runs it currently holds
+ * a lease on — written to agentRun.workerId, purely informational (nothing
+ * currently reads it back to route work), but gives a stale/orphaned run a
+ * breadcrumb of which process it was left running in. */
+const WORKER_ID = randomUUID();
+
+/** How long a run's lease is valid without a renewed heartbeat before the
+ * stale-run sweep (see scheduler.ts's checkStaleAgentRuns) considers the
+ * owning process dead and recovers it. Must be comfortably longer than
+ * HEARTBEAT_INTERVAL_MS so a single missed tick doesn't cause a false
+ * positive. */
+const LEASE_DURATION_MS = 90_000;
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
 /** Aborts the in-flight model call for a run (best-effort — a no-op on the
  * abort itself if the run isn't live in this process) and always marks the
- * run/task cancelled in the DB so the UI reflects it immediately. */
+ * run/task cancelled in the DB so the UI reflects it immediately, even if
+ * the run's owning process isn't this one (see AgentRunRecord.cancelRequestedAt). */
 export async function cancelAgentRun(runId: string): Promise<AgentRunRecord> {
   activeRunControllers.get(runId)?.abort();
 
@@ -37,6 +53,7 @@ export async function cancelAgentRun(runId: string): Promise<AgentRunRecord> {
   const updated = await db.updateAgentRun(runId, {
     status: "cancelled",
     completedAt: new Date(),
+    cancelRequestedAt: new Date(),
   });
   if (run.taskId) {
     const task = await db.getTask(run.taskId);
@@ -336,6 +353,7 @@ export async function executeManagedTask(input: {
   const task = await db.getTask(input.taskId);
   if (!task) throw new Error(`Unknown task: ${input.taskId}`);
 
+  const startedAt = new Date();
   const run = await db.createAgentRun({
     workspaceId: task.workspaceId,
     taskId: task.id,
@@ -345,7 +363,10 @@ export async function executeManagedTask(input: {
     trigger: input.trigger,
     modelId: effectiveModelId(input.agent, task),
     status: "running",
-    startedAt: new Date(),
+    startedAt,
+    workerId: WORKER_ID,
+    heartbeatAt: startedAt,
+    leaseUntil: new Date(startedAt.getTime() + LEASE_DURATION_MS),
   });
   await emitNyxelEvent({
     workspaceId: task.workspaceId,
@@ -357,6 +378,30 @@ export async function executeManagedTask(input: {
 
   const controller = new AbortController();
   activeRunControllers.set(run.id, controller);
+
+  // Renews the run's lease periodically so the stale-run sweep
+  // (scheduler.ts's checkStaleAgentRuns) doesn't mistake a genuinely
+  // in-progress run for one whose owning process died. Also the DB-visible
+  // fallback for cross-process cancellation: if this run were ever picked
+  // up by another process's cancelAgentRun call (cancelRequestedAt set
+  // without this process's activeRunControllers entry being reachable),
+  // the next heartbeat tick notices and aborts locally too.
+  const heartbeatTimer = setInterval(() => {
+    void (async () => {
+      const current = await db.getAgentRun(run.id).catch(() => null);
+      if (current?.cancelRequestedAt && !controller.signal.aborted) {
+        controller.abort();
+        return;
+      }
+      await db
+        .updateAgentRun(run.id, {
+          heartbeatAt: new Date(),
+          leaseUntil: new Date(Date.now() + LEASE_DURATION_MS),
+        })
+        .catch(() => {});
+    })();
+  }, HEARTBEAT_INTERVAL_MS);
+  if (typeof heartbeatTimer.unref === "function") heartbeatTimer.unref();
 
   // Autonomy Budgets v1 (see ./autonomy-budget.ts) — the tool-call-boundary
   // runtime check inside buildToolsForAgent only fires between tool calls,
@@ -381,9 +426,7 @@ export async function executeManagedTask(input: {
             completedAt: new Date(),
           })
           .catch(() => {});
-        await db
-          .updateTask(task.id, { status: "blocked", errorMessage: reason })
-          .catch(() => {});
+        await db.updateTask(task.id, { status: "blocked", errorMessage: reason }).catch(() => {});
         await db
           .createTaskEvent({
             taskId: task.id,
@@ -428,6 +471,7 @@ export async function executeManagedTask(input: {
     throw err;
   } finally {
     if (budgetTimeout) clearTimeout(budgetTimeout);
+    clearInterval(heartbeatTimer);
     activeRunControllers.delete(run.id);
   }
 }
@@ -607,18 +651,18 @@ async function runManagedTask(
   // Detected from the tracker's own state rather than string-matching the
   // model's final text (unlike the two checks above) — more robust, since
   // it doesn't depend on the model actually repeating the tool result back.
-  const pausedOnBudget =
-    !pausedOnQuestion && !pausedOnApproval && budgetBlockedReason !== null;
+  const pausedOnBudget = !pausedOnQuestion && !pausedOnApproval && budgetBlockedReason !== null;
   const isPaused = pausedOnQuestion || pausedOnApproval || pausedOnBudget;
   // AgentRunStatus has no "blocked" state (a question-pause is still an
   // agent run that's technically waiting on the human) — only TaskStatus
   // distinguishes "blocked" (question or budget) from "waiting_approval"
   // (tool approval).
-  const taskStatus = pausedOnQuestion || pausedOnBudget
-    ? ("blocked" as const)
-    : pausedOnApproval
-      ? ("waiting_approval" as const)
-      : ("completed" as const);
+  const taskStatus =
+    pausedOnQuestion || pausedOnBudget
+      ? ("blocked" as const)
+      : pausedOnApproval
+        ? ("waiting_approval" as const)
+        : ("completed" as const);
 
   run = await db.updateAgentRun(run.id, {
     status: isPaused ? "waiting_approval" : "completed",
@@ -631,9 +675,7 @@ async function runManagedTask(
     status: taskStatus,
     resultSummary: output,
     completedAt: isPaused ? null : new Date(),
-    ...(pausedOnBudget
-      ? { errorMessage: `Autonomy budget exceeded: ${budgetBlockedReason}` }
-      : {}),
+    ...(pausedOnBudget ? { errorMessage: `Autonomy budget exceeded: ${budgetBlockedReason}` } : {}),
   });
   await db.createTaskEvent({
     taskId: task.id,

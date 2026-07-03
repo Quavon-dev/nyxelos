@@ -941,6 +941,11 @@ export type McpServerSummary = {
   url: string | null;
   enabled: boolean;
   createdAt: Date;
+  /** Neither the raw stdio env vars nor the OAuth session ever leave the
+   * server (SECURITY_AUDIT.md SEC-01) — these booleans are all the UI needs
+   * to show "configured"/"not configured". */
+  hasEnv: boolean;
+  hasOAuthState: boolean;
 };
 
 export type McpToolSummary = {
@@ -1055,11 +1060,14 @@ export type SeoBlogPostSummary = {
   updatedAt: Date;
 };
 
+// The raw obsidianApiKey never leaves the server (SECURITY_AUDIT.md SEC-01) —
+// both knowledgeBase.overview and knowledgeBase.updateConfig return
+// `obsidianApiKeySet` instead; the UI only needs "configured"/"not configured".
 export type KnowledgeBaseConfigSummary = {
   workspaceId: string;
   vaultPath: string;
   obsidianRestUrl: string | null;
-  obsidianApiKey: string | null;
+  obsidianApiKeySet: boolean;
   docsAgentEnabled: boolean;
   injectIntoPrompts: boolean;
   lastDocsSyncAt: Date | null;
@@ -1069,7 +1077,6 @@ export type KnowledgeBaseConfigSummary = {
 
 export type KnowledgeBaseOverview = {
   config: KnowledgeBaseConfigSummary & {
-    obsidianApiKeySet: boolean;
     absoluteVaultPath: string;
   };
   stats: {
@@ -1243,7 +1250,7 @@ type NyxelTrpcClient = {
         baseUrl: string;
         apiKey?: string;
         modelIds?: string[];
-      }): Promise<ModelInstallationSummary>;
+      }): Promise<ModelInstallationClientSummary>;
     };
     listOpenRouterModels: {
       query(input?: { apiKey?: string }): Promise<OpenRouterModel[]>;
@@ -1254,7 +1261,7 @@ type NyxelTrpcClient = {
         label?: string;
         apiKey: string;
         modelIds?: string[];
-      }): Promise<ModelInstallationSummary>;
+      }): Promise<ModelInstallationClientSummary>;
     };
     deleteInstallation: {
       mutate(input: { id: string }): Promise<void>;
@@ -1264,13 +1271,16 @@ type NyxelTrpcClient = {
         id: string;
         modelId: string;
         enabled: boolean;
-      }): Promise<ModelInstallationSummary>;
+      }): Promise<ModelInstallationClientSummary>;
     };
     removeModelFromInstallation: {
-      mutate(input: { id: string; modelId: string }): Promise<ModelInstallationSummary | null>;
+      mutate(input: {
+        id: string;
+        modelId: string;
+      }): Promise<ModelInstallationClientSummary | null>;
     };
     addModelToInstallation: {
-      mutate(input: { id: string; modelId: string }): Promise<ModelInstallationSummary>;
+      mutate(input: { id: string; modelId: string }): Promise<ModelInstallationClientSummary>;
     };
     listCatalogForInstallation: {
       query(input: { id: string }): Promise<string[]>;
@@ -1293,13 +1303,16 @@ type NyxelTrpcClient = {
         providerKind: CliProviderKind;
         label: string;
         modelIds: string[];
-      }): Promise<ModelInstallationSummary>;
+      }): Promise<ModelInstallationClientSummary>;
     };
     scanImportSources: {
       query(): Promise<ProviderImportSource[]>;
     };
     importSource: {
-      mutate(input: { workspaceId: string; sourceId: string }): Promise<ModelInstallationSummary>;
+      mutate(input: {
+        workspaceId: string;
+        sourceId: string;
+      }): Promise<ModelInstallationClientSummary>;
     };
     getParameters: {
       query(input: { workspaceId: string; modelId: string }): Promise<ModelParameterSummary | null>;
