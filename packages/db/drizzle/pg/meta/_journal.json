@@ -267,6 +267,13 @@
       "when": 1783025879499,
       "tag": "0037_next_baron_strucker",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1783053467209,
+      "tag": "0038_wide_tomorrow_man",
+      "breakpoints": true
     }
   ]
 }

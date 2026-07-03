@@ -911,6 +911,12 @@ export const plugin = pgTable("plugin", {
 	fileCount: integer("file_count").notNull().default(0),
 	installDir: text("install_dir").notNull(),
 	enabled: boolean("enabled").notNull().default(true),
+	// Install-hardening (docs/PLUGIN_SECURITY.md stage 3) — see ../sqlite/app.ts
+	// for the full rationale.
+	ref: text("ref").notNull().default(""),
+	resolvedSha: text("resolved_sha"),
+	refPinned: boolean("ref_pinned").notNull().default(false),
+	riskFindings: jsonb("risk_findings").notNull().default([]).$type<string[]>(),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

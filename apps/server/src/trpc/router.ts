@@ -85,6 +85,7 @@ import {
 	getPlugin,
 	installPluginFromGithub,
 	listPlugins,
+	PluginInstallNeedsConfirmationError,
 	setPluginEnabled,
 	uninstallPlugin,
 } from "../plugins";
@@ -900,21 +901,45 @@ export const appRouter = router({
 				),
 			),
 		install: workspaceProcedure
-			.input(z.object({ workspaceId: z.string(), repoUrl: z.string().min(1) }))
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					repoUrl: z.string().min(1),
+					// Set by the client once it has shown the user the risk summary
+					// from a prior "needs_confirmation" response and they chose to
+					// proceed anyway (docs/PLUGIN_SECURITY.md stage 4).
+					acknowledgeRisk: z.boolean().optional(),
+				}),
+			)
 			.mutation(async ({ input }) => {
-				const result = await installPluginFromGithub(input);
-				// No dedicated "plugin" audit actor kind (see AuditActor) — reusing
-				// "extension" since both are marketplace-style installable units
-				// rather than adding a pg enum migration for one more value.
-				await logAudit({
-					workspaceId: input.workspaceId,
-					actor: "extension",
-					toolLabel: "plugins.install",
-					input: { repoUrl: input.repoUrl },
-					output: { slug: result.plugin.slug, skillCount: result.skills.length },
-					status: "success",
-				});
-				return result;
+				try {
+					const result = await installPluginFromGithub(input);
+					// No dedicated "plugin" audit actor kind (see AuditActor) — reusing
+					// "extension" since both are marketplace-style installable units
+					// rather than adding a pg enum migration for one more value.
+					await logAudit({
+						workspaceId: input.workspaceId,
+						actor: "extension",
+						toolLabel: "plugins.install",
+						input: { repoUrl: input.repoUrl },
+						output: { slug: result.plugin.slug, skillCount: result.skills.length },
+						status: "success",
+					});
+					return { status: "installed" as const, ...result };
+				} catch (err) {
+					if (err instanceof PluginInstallNeedsConfirmationError) {
+						await logAudit({
+							workspaceId: input.workspaceId,
+							actor: "extension",
+							toolLabel: "plugins.install",
+							input: { repoUrl: input.repoUrl },
+							output: { findingCount: err.riskSummary.findings.length },
+							status: "rejected",
+						});
+						return { status: "needs_confirmation" as const, riskSummary: err.riskSummary };
+					}
+					throw err;
+				}
 			}),
 		setEnabled: protectedProcedure
 			.input(z.object({ id: z.string(), enabled: z.boolean() }))

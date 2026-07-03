@@ -549,6 +549,15 @@ export interface PluginRecord {
 	fileCount: number;
 	installDir: string;
 	enabled: boolean;
+	/** Branch/tag/ref actually used to fetch this install. */
+	ref: string;
+	/** Best-effort-resolved commit SHA at install time, or null if GitHub's
+	 * commit-resolve call failed. See docs/PLUGIN_SECURITY.md stage 3. */
+	resolvedSha: string | null;
+	/** True only if the user pinned an exact commit via `/tree/<40-hex-sha>`. */
+	refPinned: boolean;
+	/** Static-scan findings ("pattern: file") recorded at install time. */
+	riskFindings: string[];
 	createdAt: Date;
 }
 
@@ -1290,6 +1299,10 @@ export interface DbRepository {
 		agentDefs: PluginAgentDefinition[];
 		fileCount: number;
 		installDir: string;
+		ref: string;
+		resolvedSha: string | null;
+		refPinned: boolean;
+		riskFindings: string[];
 	}): Promise<PluginRecord>;
 	listPluginsByWorkspace(workspaceId: string): Promise<PluginRecord[]>;
 	getPlugin(id: string): Promise<PluginRecord | null>;

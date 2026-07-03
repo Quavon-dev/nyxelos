@@ -32,6 +32,10 @@ function fakePlugin(overrides: Partial<PluginRecord> = {}): PluginRecord {
 		fileCount: 0,
 		installDir: "/tmp/does-not-exist",
 		enabled: true,
+		ref: "main",
+		resolvedSha: null,
+		refPinned: false,
+		riskFindings: [],
 		createdAt: new Date(),
 		...overrides,
 	};

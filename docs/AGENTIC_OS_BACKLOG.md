@@ -134,16 +134,17 @@ Prioritized backlog from this audit session. Every item below traces back to a c
 
 ### BL-08 — Plugin install hardening (staged plan)
 
-- **Priorität:** P0 (documentation, threat model — done this session) / P1-P3 (staged mitigations)
+- **Priorität:** P0 (documentation, threat model — done) / P1-P3 (staged mitigations)
 - **Bereich:** `apps/server/src/plugins.ts`, Plugins page UI
 - **Problem:** Unsigned, unverified third-party code execution via GitHub plugin install. See `SECURITY_AUDIT.md` SEC-08 and the full staged plan in `PLUGIN_SECURITY.md`.
 - **Ziel:** See `PLUGIN_SECURITY.md`'s 5-step staged plan (docs correction → install-time warning → ref-pinning → static scan → real process isolation).
-- **Akzeptanzkriterien:** Per-stage, see `PLUGIN_SECURITY.md`. Stage 1 (docs) is a subset of `BL-03`. Stages 2–4 are independent, isolated, low-risk UI/logic additions. Stage 5 is the real fix and is explicitly Skill/Plugin Runtime work, out of this audit's scope.
-- **Risiko:** Stages 2–4: low. Stage 5: significant runtime redesign, needs its own design doc.
-- **Betroffene Dateien:** `apps/server/src/plugins.ts`, Plugins page components in `apps/web`.
-- **Aufwand:** Stages 2–4: Small each. Stage 5: Extra Large (XL), multi-week.
+- **Akzeptanzkriterien:** Per-stage, see `PLUGIN_SECURITY.md`. Stage 1 (docs) is a subset of `BL-03`. Stages 2–4 are independent, isolated, low-risk UI/logic additions. Stage 5 is the real fix and is explicitly Skill/Plugin Runtime work, out of scope for a hardening-only pass.
+- **Status:** Stages 1–4 **done**. Stage 2: the Plugins page install card always shows a static trust warning (code execution, trusted sources only, prefer a pinned commit/tag, review permissions). Stage 3: `installPluginFromGithub` resolves and stores a best-effort commit SHA for whatever ref it uses, and flags the install as "not pinned" unless the user gave an exact 40-char SHA via `/tree/<sha>` — there is still no separate "check for updates" action, so reinstalling remains the only update path. Stage 4: `scanForRiskyPatterns` flags `process.env`, `child_process`, `fs.rm`/`fs.unlink`, raw `fetch(`, `Bun.spawn`, `eval`/`new Function`; any hit throws `PluginInstallNeedsConfirmationError` (nothing written to disk/DB) and the UI shows a confirmation dialog requiring an explicit "Install anyway" before proceeding — this is a naive pattern scan, not static analysis, and is documented as such (a clean scan is not a safety guarantee). **Stage 5 (real process/container isolation) is still open** — plugin code still runs in-process with full server access; see below.
+- **Risiko:** Stages 2–4: low (shipped, additive). Stage 5: significant runtime redesign, needs its own design doc.
+- **Betroffene Dateien:** `apps/server/src/plugins.ts`, `apps/server/src/trpc/router.ts`, `apps/web/src/app/workspace/[workspaceId]/plugins/page.tsx`, `apps/web/src/lib/trpc.ts`, `packages/db/src/schema/*/app.ts` (added `ref`/`resolved_sha`/`ref_pinned`/`risk_findings` columns on `plugin`).
+- **Aufwand:** Stages 2–4: Small each (done). Stage 5: Extra Large (XL), multi-week.
 - **Abhängigkeiten:** Stage 5 depends on ADR-0007's isolation approach being decided first.
-- **Konfliktrisiko mit laufendem Refactor:** Stages 2–4: Low (additive, non-central). Stage 5: **High** — explicitly Plugin/Skill Runtime, the area this audit was told to avoid entirely.
+- **Konfliktrisiko mit laufendem Refactor:** Stages 2–4: Low (additive, non-central). Stage 5: **High** — explicitly Plugin/Skill Runtime, needs its own dedicated design effort.
 
 ### BL-09 — Approval-gate regression test for `terminal_run`
 
@@ -316,6 +317,7 @@ This audit reviewed the actual route structure (`apps/web/src/app/workspace/[wor
 - **Problem:** See `PLUGIN_SECURITY.md` mitigation stage 2 — installing a plugin from an arbitrary GitHub URL currently has no in-UI warning about what access that plugin actually gets.
 - **Ziel:** A user installing a plugin understands, at the moment of installing, that it runs with meaningful access to the server process.
 - **Akzeptanzkriterien:** A static, non-blocking warning shown on the install dialog per `PLUGIN_SECURITY.md` stage 2's exact wording suggestion.
+- **Status:** **Done** — the install card now shows the warning (code execution, trust the source, prefer a pinned commit/tag, review permissions) unconditionally, plus per-plugin badges/detail for whether the install is pinned to a commit and what the static scan (stage 4) flagged, if anything. See `BL-08` for the fuller stage 2–4 rollout this was bundled with.
 - **Risiko:** None — copy-only change.
 - **Betroffene Dateien:** Plugins page component(s) in `apps/web`.
 - **Aufwand:** Trivial (XS).
