@@ -200,6 +200,14 @@ async function runWorkflowAutomation(
   return { taskId: "", runId, output: outputText };
 }
 
+/** Guards against the same automation dispatching twice concurrently — e.g.
+ * a run that outlives one POLL_INTERVAL_MS tick is still "due" by
+ * `nextRunAt` (only advanced once `finishAutomationRun` completes) on the
+ * next tick, and `automations.runNow` could otherwise race a poll-triggered
+ * run of the same automation. Process-local only (mirrors knowledge-base.ts's
+ * `inFlightSyncs`), not a cross-replica lock. */
+const automationsInFlight = new Set<string>();
+
 /** Exported for automations.runNow — lets a user trigger a run immediately
  * without waiting for the schedule, e.g. to test a new automation. Dispatches
  * on targetKind: "agent" (default, existing behavior) runs the automation's
@@ -208,16 +216,28 @@ async function runWorkflowAutomation(
 export async function runAutomation(
   automation: AutomationRecord,
 ): Promise<{ taskId: string; runId: string; output: string }> {
-  await emitNyxelEvent({
-    workspaceId: automation.workspaceId,
-    type: NyxelEvent.AutomationTriggered,
-    entityType: "automation",
-    entityId: automation.id,
-    payload: { triggerType: automation.triggerType, targetKind: automation.targetKind },
-  });
-  return automation.targetKind === "workflow"
-    ? runWorkflowAutomation(automation)
-    : runAgentAutomation(automation);
+  if (automationsInFlight.has(automation.id)) {
+    return {
+      taskId: "",
+      runId: "",
+      output: "Skipped — a run for this automation is already in progress.",
+    };
+  }
+  automationsInFlight.add(automation.id);
+  try {
+    await emitNyxelEvent({
+      workspaceId: automation.workspaceId,
+      type: NyxelEvent.AutomationTriggered,
+      entityType: "automation",
+      entityId: automation.id,
+      payload: { triggerType: automation.triggerType, targetKind: automation.targetKind },
+    });
+    return automation.targetKind === "workflow"
+      ? await runWorkflowAutomation(automation)
+      : await runAgentAutomation(automation);
+  } finally {
+    automationsInFlight.delete(automation.id);
+  }
 }
 
 function resolveWatchPath(watchPath: string): string {

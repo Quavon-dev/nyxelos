@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { DbRepository } from "@nyxel/db";
 import { getDb } from "@nyxel/db";
 import { createTestUser, installTestDb } from "@nyxel/db/test-utils";
-import { checkStaleAgentRuns } from "./scheduler";
+import { checkStaleAgentRuns, runAutomation } from "./scheduler";
 
 async function seedWorkspace(db: DbRepository, path: string) {
   const user = createTestUser(path);
@@ -121,5 +121,28 @@ describe("checkStaleAgentRuns", () => {
 
     const stillCompleted = await db.getAgentRun(run.id);
     expect(stillCompleted?.status).toBe("completed");
+  });
+});
+
+describe("runAutomation", () => {
+  it("skips a concurrent dispatch of the same automation instead of running it twice", async () => {
+    const db = getDb();
+    const { workspace } = await seedWorkspace(db, ctx.path);
+    const automation = await db.createAutomation({
+      workspaceId: workspace.id,
+      agentId: null,
+      name: "No agent configured",
+      triggerType: "cron",
+      cronExpression: "* * * * *",
+    });
+
+    const [first, second] = await Promise.all([
+      runAutomation(automation),
+      runAutomation(automation),
+    ]);
+
+    const outputs = [first.output, second.output];
+    expect(outputs).toContain("Skipped — a run for this automation is already in progress.");
+    expect(outputs.filter((o) => o.includes("Agent missing"))).toHaveLength(1);
   });
 });
