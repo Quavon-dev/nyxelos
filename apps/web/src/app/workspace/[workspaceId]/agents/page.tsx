@@ -37,9 +37,81 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { type AgentRunStatus, type AgentSummary, type AutonomyLevel, trpcClient } from "@/lib/trpc";
+import {
+  type AgentRunStatus,
+  type AgentSummary,
+  type AutonomyBudget,
+  type AutonomyBudgetRiskLevel,
+  type AutonomyLevel,
+  trpcClient,
+} from "@/lib/trpc";
 
 const AUTONOMY_LEVELS: AutonomyLevel[] = ["chat", "assisted", "autonomous", "super_agent"];
+
+/** Form-local shape for the Autonomy Budget section — every field is a
+ * string so an empty input reads naturally as "no limit" instead of
+ * fighting `<input type="number">`'s empty-string/NaN quirks. Converted to
+ * the real AutonomyBudget (numbers or null) right before the mutation
+ * fires — see toAutonomyBudgetInput. */
+interface AutonomyBudgetFormState {
+  maxToolCallsPerRun: string;
+  maxRuntimeMinutes: string;
+  maxEstimatedCostUsd: string;
+  maxFileWritesPerRun: string;
+  requiresApprovalAboveRisk: AutonomyBudgetRiskLevel | "none";
+}
+
+/** Applied only when creating a brand-new agent — nudges new agents toward
+ * having *some* ceiling instead of running unbounded, without ever touching
+ * the null ("no budget configured") default an existing agent already has.
+ * allowedToolKinds/blockedToolKinds aren't exposed in this simple section
+ * (v1) — they're still fully supported by the API for advanced/future use. */
+const NEW_AGENT_BUDGET_DEFAULTS: AutonomyBudgetFormState = {
+  maxToolCallsPerRun: "50",
+  maxRuntimeMinutes: "30",
+  maxEstimatedCostUsd: "",
+  maxFileWritesPerRun: "20",
+  requiresApprovalAboveRisk: "none",
+};
+
+const EMPTY_BUDGET_FORM_STATE: AutonomyBudgetFormState = {
+  maxToolCallsPerRun: "",
+  maxRuntimeMinutes: "",
+  maxEstimatedCostUsd: "",
+  maxFileWritesPerRun: "",
+  requiresApprovalAboveRisk: "none",
+};
+
+function budgetFormStateFromAgent(budget: AutonomyBudget | null): AutonomyBudgetFormState {
+  if (!budget) return EMPTY_BUDGET_FORM_STATE;
+  return {
+    maxToolCallsPerRun: budget.maxToolCallsPerRun?.toString() ?? "",
+    maxRuntimeMinutes: budget.maxRuntimeMinutes?.toString() ?? "",
+    maxEstimatedCostUsd: budget.maxEstimatedCostUsd?.toString() ?? "",
+    maxFileWritesPerRun: budget.maxFileWritesPerRun?.toString() ?? "",
+    requiresApprovalAboveRisk: budget.requiresApprovalAboveRisk ?? "none",
+  };
+}
+
+function parseBudgetNumber(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function toAutonomyBudgetInput(form: AutonomyBudgetFormState): AutonomyBudget {
+  return {
+    maxToolCallsPerRun: parseBudgetNumber(form.maxToolCallsPerRun),
+    maxRuntimeMinutes: parseBudgetNumber(form.maxRuntimeMinutes),
+    maxEstimatedCostUsd: parseBudgetNumber(form.maxEstimatedCostUsd),
+    maxFileWritesPerRun: parseBudgetNumber(form.maxFileWritesPerRun),
+    allowedToolKinds: null,
+    blockedToolKinds: null,
+    requiresApprovalAboveRisk:
+      form.requiresApprovalAboveRisk === "none" ? null : form.requiresApprovalAboveRisk,
+  };
+}
 
 const AUTONOMY_BADGE: Record<AutonomyLevel, string> = {
   chat: "border-0 bg-blue-500/15 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400",
@@ -135,6 +207,8 @@ export default function AgentsPage() {
   const [toolIds, setToolIds] = useState<string[]>([]);
   const [mcpServerIds, setMcpServerIds] = useState<string[]>([]);
   const [delegateAgentIds, setDelegateAgentIds] = useState<string[]>([]);
+  const [autonomyBudgetForm, setAutonomyBudgetForm] =
+    useState<AutonomyBudgetFormState>(NEW_AGENT_BUDGET_DEFAULTS);
 
   function resetForm() {
     setEditingAgentId(null);
@@ -147,6 +221,7 @@ export default function AgentsPage() {
     setToolIds([]);
     setMcpServerIds([]);
     setDelegateAgentIds([]);
+    setAutonomyBudgetForm(NEW_AGENT_BUDGET_DEFAULTS);
   }
 
   function startEditing(agent: AgentSummary) {
@@ -162,6 +237,7 @@ export default function AgentsPage() {
     setToolIds(agent.toolIds);
     setMcpServerIds(agent.mcpServerIds);
     setDelegateAgentIds(agent.delegateAgentIds);
+    setAutonomyBudgetForm(budgetFormStateFromAgent(agent.autonomyBudget));
   }
 
   const createAgent = useMutation({
@@ -179,6 +255,7 @@ export default function AgentsPage() {
         mcpServerIds: autoAttachWorkspaceTools ? undefined : mcpServerIds,
         autoAttachWorkspaceTools,
         delegateAgentIds: autonomyLevel === "super_agent" ? delegateAgentIds : undefined,
+        autonomyBudget: toAutonomyBudgetInput(autonomyBudgetForm),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agents", workspaceId] });
@@ -194,6 +271,7 @@ export default function AgentsPage() {
         role: role || null,
         goalTemplate: goalTemplate || null,
         systemPrompt: systemPrompt || null,
+        autonomyBudget: toAutonomyBudgetInput(autonomyBudgetForm),
         modelId,
         autonomyLevel,
         skillIds,
@@ -569,6 +647,105 @@ export default function AgentsPage() {
                       {level.replace("_", " ")}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-3 rounded-lg border p-3">
+            <div>
+              <p className="text-sm font-medium">Autonomy budget</p>
+              <p className="text-xs text-muted-foreground">
+                Concrete limits on top of the autonomy level above. Leave a field blank for no
+                limit. Sensitive tools stay approval-gated regardless of these settings.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="budget-max-tool-calls">Max tool calls per run</Label>
+                <Input
+                  id="budget-max-tool-calls"
+                  type="number"
+                  min={1}
+                  placeholder="Unlimited"
+                  value={autonomyBudgetForm.maxToolCallsPerRun}
+                  onChange={(e) =>
+                    setAutonomyBudgetForm((prev) => ({
+                      ...prev,
+                      maxToolCallsPerRun: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="budget-max-runtime">Max runtime (minutes)</Label>
+                <Input
+                  id="budget-max-runtime"
+                  type="number"
+                  min={1}
+                  placeholder="Unlimited"
+                  value={autonomyBudgetForm.maxRuntimeMinutes}
+                  onChange={(e) =>
+                    setAutonomyBudgetForm((prev) => ({
+                      ...prev,
+                      maxRuntimeMinutes: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="budget-max-file-writes">Max file writes per run</Label>
+                <Input
+                  id="budget-max-file-writes"
+                  type="number"
+                  min={1}
+                  placeholder="Unlimited"
+                  value={autonomyBudgetForm.maxFileWritesPerRun}
+                  onChange={(e) =>
+                    setAutonomyBudgetForm((prev) => ({
+                      ...prev,
+                      maxFileWritesPerRun: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="budget-max-cost">Max estimated cost (USD)</Label>
+                <Input
+                  id="budget-max-cost"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="Unlimited (not yet enforced mid-run)"
+                  value={autonomyBudgetForm.maxEstimatedCostUsd}
+                  onChange={(e) =>
+                    setAutonomyBudgetForm((prev) => ({
+                      ...prev,
+                      maxEstimatedCostUsd: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+            <div className="grid gap-2 sm:max-w-xs">
+              <Label>Require approval above risk</Label>
+              <Select
+                value={autonomyBudgetForm.requiresApprovalAboveRisk}
+                onValueChange={(v) =>
+                  setAutonomyBudgetForm((prev) => ({
+                    ...prev,
+                    requiresApprovalAboveRisk: v as AutonomyBudgetRiskLevel | "none",
+                  }))
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No extra approval requirement</SelectItem>
+                  <SelectItem value="low">Low and above</SelectItem>
+                  <SelectItem value="medium">Medium and above</SelectItem>
+                  <SelectItem value="high">High only</SelectItem>
                 </SelectContent>
               </Select>
             </div>

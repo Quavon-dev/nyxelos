@@ -104,6 +104,22 @@ type MessageSummary = {
   createdAt: Date;
 };
 
+export type AutonomyBudgetRiskLevel = "low" | "medium" | "high";
+
+/** Autonomy Budgets v1 — see apps/server/src/autonomy-budget.ts for which of
+ * these are actually enforced today vs. only prepared. Every field null
+ * means "no limit," matching an agent's behavior before this feature
+ * existed. */
+export type AutonomyBudget = {
+  maxToolCallsPerRun: number | null;
+  maxRuntimeMinutes: number | null;
+  maxEstimatedCostUsd: number | null;
+  maxFileWritesPerRun: number | null;
+  allowedToolKinds: ToolKind[] | null;
+  blockedToolKinds: ToolKind[] | null;
+  requiresApprovalAboveRisk: AutonomyBudgetRiskLevel | null;
+};
+
 export type AgentSummary = {
   id: string;
   workspaceId: string;
@@ -122,6 +138,8 @@ export type AgentSummary = {
    * server in mcpServerIds. */
   mcpToolFilter: string[] | null;
   delegateAgentIds: string[];
+  /** Null means "no autonomy budget configured" — see AutonomyBudget. */
+  autonomyBudget: AutonomyBudget | null;
   createdAt: Date;
 };
 
@@ -1575,6 +1593,7 @@ type NyxelTrpcClient = {
         mcpToolFilter?: string[] | null;
         autoAttachWorkspaceTools?: boolean;
         delegateAgentIds?: string[];
+        autonomyBudget?: AutonomyBudget | null;
       }): Promise<AgentSummary>;
     };
     update: {
@@ -1591,6 +1610,7 @@ type NyxelTrpcClient = {
         mcpServerIds?: string[];
         mcpToolFilter?: string[] | null;
         delegateAgentIds?: string[];
+        autonomyBudget?: AutonomyBudget | null;
       }): Promise<AgentSummary>;
     };
     delete: {

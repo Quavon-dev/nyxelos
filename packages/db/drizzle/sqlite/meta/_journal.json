@@ -260,6 +260,13 @@
       "when": 1783053505402,
       "tag": "0036_lying_leader",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1783053557892,
+      "tag": "0037_faulty_kang",
+      "breakpoints": true
     }
   ]
 }

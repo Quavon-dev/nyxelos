@@ -107,6 +107,19 @@ export type ChatToolPolicy = {
 	approveMcpTools: boolean;
 };
 
+/** Autonomy Budgets v1 — see packages/db/src/repo/types.ts's AutonomyBudget
+ * for the enforcement rationale. Every field null means "no limit,"
+ * matching pre-existing agent behavior exactly. */
+export type AutonomyBudget = {
+	maxToolCallsPerRun: number | null;
+	maxRuntimeMinutes: number | null;
+	maxEstimatedCostUsd: number | null;
+	maxFileWritesPerRun: number | null;
+	allowedToolKinds: ToolKind[] | null;
+	blockedToolKinds: ToolKind[] | null;
+	requiresApprovalAboveRisk: "low" | "medium" | "high" | null;
+};
+
 /** See ../pg/app.ts and packages/skills-sdk — DB-backed tools built from a
  * declarative `kind` + JSON `config` instead of hand-written TypeScript, so
  * the workspace tools section can create them at runtime. */
@@ -375,6 +388,9 @@ export const agent = sqliteTable("agent", {
 		.notNull()
 		.default([])
 		.$type<string[]>(),
+	// Null (the default) means "no autonomy budget configured" — every limit
+	// off, identical to pre-existing behavior. See AutonomyBudget above.
+	autonomyBudget: text("autonomy_budget", { mode: "json" }).$type<AutonomyBudget>(),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

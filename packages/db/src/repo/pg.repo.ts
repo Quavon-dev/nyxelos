@@ -793,6 +793,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 			skillIds,
 			mcpToolFilter,
 			delegateAgentIds,
+			autonomyBudget,
 		}) {
 			const [row] = await db
 				.insert(schema.agent)
@@ -810,6 +811,7 @@ export function createPgRepository(connectionString: string): DbRepository {
 					skillIds: skillIds ?? [],
 					mcpToolFilter: mcpToolFilter ?? null,
 					delegateAgentIds: delegateAgentIds ?? [],
+					autonomyBudget: autonomyBudget ?? null,
 				})
 				.returning();
 			if (!row) throw new Error("Failed to create agent");
@@ -856,6 +858,9 @@ export function createPgRepository(connectionString: string): DbRepository {
 						: {}),
 					...(input.delegateAgentIds !== undefined
 						? { delegateAgentIds: input.delegateAgentIds }
+						: {}),
+					...(input.autonomyBudget !== undefined
+						? { autonomyBudget: input.autonomyBudget }
 						: {}),
 				})
 				.where(eq(schema.agent.id, agentId))

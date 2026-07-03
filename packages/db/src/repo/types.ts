@@ -246,6 +246,45 @@ export interface MessageRecord extends MessageUsage {
 	createdAt: Date;
 }
 
+export type AutonomyBudgetRiskLevel = "low" | "medium" | "high";
+
+/**
+ * Autonomy Budgets v1 — concrete per-run limits layered on top of an
+ * agent's coarse `autonomyLevel`. Every field is nullable and means "no
+ * limit" when null, so an agent created before this feature existed (whose
+ * `autonomyBudget` column is null) keeps running exactly as before — see
+ * DEFAULT_AUTONOMY_BUDGET. Enforcement lives in
+ * apps/server/src/autonomy-budget.ts + tools.ts/agent-runtime.ts; not every
+ * field is fully enforced yet (maxEstimatedCostUsd is prepared but only
+ * checked post-hoc today — see that module's doc comment).
+ */
+export interface AutonomyBudget {
+	maxToolCallsPerRun: number | null;
+	maxRuntimeMinutes: number | null;
+	maxEstimatedCostUsd: number | null;
+	maxFileWritesPerRun: number | null;
+	/** Null means every tool kind is allowed (subject to blockedToolKinds). */
+	allowedToolKinds: ToolKind[] | null;
+	/** Takes precedence over allowedToolKinds for any kind listed in both. */
+	blockedToolKinds: ToolKind[] | null;
+	/** Forces human approval for any tool call whose permission risk is at or
+	 * above this level, regardless of autonomy level or chat tool policy. */
+	requiresApprovalAboveRisk: AutonomyBudgetRiskLevel | null;
+}
+
+/** The "no autonomy budget configured" state — every limit off, matching
+ * pre-existing agent behavior exactly. Used whenever `agent.autonomyBudget`
+ * is null. */
+export const DEFAULT_AUTONOMY_BUDGET: AutonomyBudget = {
+	maxToolCallsPerRun: null,
+	maxRuntimeMinutes: null,
+	maxEstimatedCostUsd: null,
+	maxFileWritesPerRun: null,
+	allowedToolKinds: null,
+	blockedToolKinds: null,
+	requiresApprovalAboveRisk: null,
+};
+
 export interface AgentRecord {
 	id: string;
 	workspaceId: string;
@@ -263,6 +302,8 @@ export interface AgentRecord {
 	mcpToolFilter: string[] | null;
 	/** Only meaningful for autonomyLevel "super_agent" — see ADR-0011. */
 	delegateAgentIds: string[];
+	/** Null means "no autonomy budget configured" — see DEFAULT_AUTONOMY_BUDGET. */
+	autonomyBudget: AutonomyBudget | null;
 	createdAt: Date;
 }
 
@@ -975,6 +1016,7 @@ export interface DbRepository {
 		skillIds?: string[];
 		mcpToolFilter?: string[] | null;
 		delegateAgentIds?: string[];
+		autonomyBudget?: AutonomyBudget | null;
 	}): Promise<AgentRecord>;
 	listAgentsByWorkspace(workspaceId: string): Promise<AgentRecord[]>;
 	getAgent(agentId: string): Promise<AgentRecord | null>;
@@ -992,6 +1034,7 @@ export interface DbRepository {
 			skillIds?: string[];
 			mcpToolFilter?: string[] | null;
 			delegateAgentIds?: string[];
+			autonomyBudget?: AutonomyBudget | null;
 		},
 	): Promise<AgentRecord>;
 	/** Cascades to the agent's own runs/approvals/task-links per the schema's

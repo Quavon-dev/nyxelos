@@ -22,6 +22,14 @@ import { dynamicTool, jsonSchema, type ToolSet, tool } from "ai";
 import { z } from "zod";
 import { isAutoAssistant } from "./auto-agent";
 import { logAudit } from "./audit";
+import {
+	type AutonomyBudgetTracker,
+	checkAndConsumeRunBudget,
+	createAutonomyBudgetTracker,
+	exceedsRiskThreshold,
+	isToolKindAllowed,
+	resolveAutonomyBudget,
+} from "./autonomy-budget";
 import { buildDelegateToAgentTool } from "./delegation";
 import { emitNyxelEvent } from "./event-bus";
 import { NyxelEvent } from "./events";
@@ -69,6 +77,16 @@ export interface AgentRunContext {
 	 * a cycle. See ADR-0011.
 	 */
 	allowDelegation?: boolean;
+	/**
+	 * Autonomy Budgets v1 (see ./autonomy-budget.ts) — per-run tool-call/
+	 * runtime/file-write counters. Callers that need to inspect the outcome
+	 * after the run (agent-runtime.ts, to decide whether to pause the task)
+	 * create one themselves and pass it in; otherwise a fresh tracker is
+	 * built from the agent's own autonomyBudget so every caller (including
+	 * live chat turns) gets the allow/block-list and risk-threshold
+	 * protections even without wiring this through explicitly.
+	 */
+	budgetTracker?: AutonomyBudgetTracker;
 }
 
 function actorFor(ctx: AgentRunContext): "chat" | "automation" {
@@ -133,6 +151,21 @@ function pendingApprovalResult(approvalId: string, toolLabel: string) {
 		status: "pending_approval" as const,
 		approvalId,
 		message: `"${toolLabel}" requires human approval before it runs and has been queued (approval id: ${approvalId}). Do not assume it has completed — tell the user it's awaiting approval in the workspace's Approvals page.`,
+	};
+}
+
+/**
+ * Returned in place of a tool's real output when Autonomy Budgets v1 (see
+ * ./autonomy-budget.ts) blocks the call outright — no approval is queued
+ * because there is nothing to approve, this action simply isn't allowed to
+ * run under the agent's current budget. Mirrors pendingApprovalResult's
+ * shape: the tool call itself never throws, so the model's turn (and the
+ * run overall) finishes cleanly instead of crashing.
+ */
+function budgetExceededResult(toolLabel: string, reason: string) {
+	return {
+		status: "budget_exceeded" as const,
+		message: `"${toolLabel}" was blocked by this agent's autonomy budget: ${reason} Do not retry this action — summarize progress so far and this limit in your final answer instead.`,
 	};
 }
 
@@ -290,6 +323,13 @@ export async function buildToolsForAgent(
 	const tools: ToolSet = {};
 	const db = getDb();
 	const actor = actorFor(ctx);
+	// Autonomy Budgets v1 (ADR: none yet, see ./autonomy-budget.ts) — a caller
+	// that needs to inspect the outcome after the run (agent-runtime.ts, to
+	// decide whether to pause the task) passes its own tracker in; every
+	// other caller (e.g. a live chat turn) still gets a fresh one built from
+	// the agent's own budget, so allow/block-lists and the risk-threshold
+	// approval gate below apply everywhere tools are built.
+	const budgetTracker = ctx.budgetTracker ?? createAutonomyBudgetTracker(resolveAutonomyBudget(agent));
 
 	for (const skillId of agent.skillIds) {
 		const chatScopedBuiltin = ctx.workingDirectory
@@ -308,11 +348,43 @@ export async function buildToolsForAgent(
 			inputSchema: skill.inputSchema,
 			execute: async (input) => {
 				const skillKind = classifyBuiltinSkillKind(skill.id);
+				const skillCategory = skillKind
+					? permissionForToolKind(skillKind)
+					: permissionForSource("skill");
+				const skillKindCheck = isToolKindAllowed(budgetTracker.budget, skillKind);
+				if (!skillKindCheck.allowed) {
+					await logToolAudit({
+						workspaceId: agent.workspaceId,
+						agentId: agent.id,
+						chatId: ctx.chatId,
+						automationId: ctx.automationId,
+						actor,
+						toolLabel: skill.id,
+						input,
+						status: "rejected",
+						autonomyLevel: agent.autonomyLevel,
+						policyMode: normalizeChatToolPolicy(ctx.chatToolPolicy).mode,
+						category: skillCategory,
+					});
+					if (ctx.taskId) {
+						await db.createTaskEvent({
+							taskId: ctx.taskId,
+							workspaceId: agent.workspaceId,
+							agentRunId: ctx.agentRunId,
+							agentId: agent.id,
+							kind: "failed",
+							message: `Autonomy budget blocked "${skill.id}": ${skillKindCheck.reason}`,
+							payload: { toolLabel: skill.id, reason: skillKindCheck.reason },
+						});
+					}
+					return budgetExceededResult(skill.id, skillKindCheck.reason ?? "Blocked by autonomy budget.");
+				}
 				if (
 					shouldDeferToolForApproval(
 						{ kind: "skill", sensitive: skill.sensitive, toolKind: skillKind },
 						ctx.chatToolPolicy,
-					)
+					) ||
+					exceedsRiskThreshold(skillCategory, budgetTracker.budget.requiresApprovalAboveRisk)
 				) {
 					const approval = await db.createApprovalRequest({
 						workspaceId: agent.workspaceId,
@@ -365,6 +437,35 @@ export async function buildToolsForAgent(
 						});
 					}
 					return pendingApprovalResult(approval.id, skill.id);
+				}
+
+				const skillBudgetCheck = checkAndConsumeRunBudget(budgetTracker, skillKind);
+				if (!skillBudgetCheck.allowed) {
+					await logToolAudit({
+						workspaceId: agent.workspaceId,
+						agentId: agent.id,
+						chatId: ctx.chatId,
+						automationId: ctx.automationId,
+						actor,
+						toolLabel: skill.id,
+						input,
+						status: "rejected",
+						autonomyLevel: agent.autonomyLevel,
+						policyMode: normalizeChatToolPolicy(ctx.chatToolPolicy).mode,
+						category: skillCategory,
+					});
+					if (ctx.taskId) {
+						await db.createTaskEvent({
+							taskId: ctx.taskId,
+							workspaceId: agent.workspaceId,
+							agentRunId: ctx.agentRunId,
+							agentId: agent.id,
+							kind: "failed",
+							message: `Autonomy budget blocked "${skill.id}": ${skillBudgetCheck.reason}`,
+							payload: { toolLabel: skill.id, reason: skillBudgetCheck.reason },
+						});
+					}
+					return budgetExceededResult(skill.id, skillBudgetCheck.reason ?? "Blocked by autonomy budget.");
 				}
 
 				try {
@@ -445,11 +546,46 @@ export async function buildToolsForAgent(
 			execute: async (input) => {
 				const toolRecord = await db.getTool(workspaceTool.id);
 				const toolKind = toolRecord?.kind ?? classifyBuiltinSkillKind(workspaceTool.id);
+				const toolCategory = toolKind
+					? permissionForToolKind(toolKind)
+					: permissionForSource("skill");
+				const toolKindCheck = isToolKindAllowed(budgetTracker.budget, toolKind);
+				if (!toolKindCheck.allowed) {
+					await logToolAudit({
+						workspaceId: agent.workspaceId,
+						agentId: agent.id,
+						chatId: ctx.chatId,
+						automationId: ctx.automationId,
+						actor,
+						toolLabel: workspaceTool.id,
+						input,
+						status: "rejected",
+						autonomyLevel: agent.autonomyLevel,
+						policyMode: normalizeChatToolPolicy(ctx.chatToolPolicy).mode,
+						category: toolCategory,
+					});
+					if (ctx.taskId) {
+						await db.createTaskEvent({
+							taskId: ctx.taskId,
+							workspaceId: agent.workspaceId,
+							agentRunId: ctx.agentRunId,
+							agentId: agent.id,
+							kind: "failed",
+							message: `Autonomy budget blocked "${workspaceTool.id}": ${toolKindCheck.reason}`,
+							payload: { toolLabel: workspaceTool.id, reason: toolKindCheck.reason },
+						});
+					}
+					return budgetExceededResult(
+						workspaceTool.id,
+						toolKindCheck.reason ?? "Blocked by autonomy budget.",
+					);
+				}
 				if (
 					shouldDeferToolForApproval(
 						{ kind: "tool", sensitive: workspaceTool.sensitive, toolKind },
 						ctx.chatToolPolicy,
-					)
+					) ||
+					exceedsRiskThreshold(toolCategory, budgetTracker.budget.requiresApprovalAboveRisk)
 				) {
 					const approval = await db.createApprovalRequest({
 						workspaceId: agent.workspaceId,
@@ -502,6 +638,38 @@ export async function buildToolsForAgent(
 						});
 					}
 					return pendingApprovalResult(approval.id, workspaceTool.id);
+				}
+
+				const toolBudgetCheck = checkAndConsumeRunBudget(budgetTracker, toolKind);
+				if (!toolBudgetCheck.allowed) {
+					await logToolAudit({
+						workspaceId: agent.workspaceId,
+						agentId: agent.id,
+						chatId: ctx.chatId,
+						automationId: ctx.automationId,
+						actor,
+						toolLabel: workspaceTool.id,
+						input,
+						status: "rejected",
+						autonomyLevel: agent.autonomyLevel,
+						policyMode: normalizeChatToolPolicy(ctx.chatToolPolicy).mode,
+						category: toolCategory,
+					});
+					if (ctx.taskId) {
+						await db.createTaskEvent({
+							taskId: ctx.taskId,
+							workspaceId: agent.workspaceId,
+							agentRunId: ctx.agentRunId,
+							agentId: agent.id,
+							kind: "failed",
+							message: `Autonomy budget blocked "${workspaceTool.id}": ${toolBudgetCheck.reason}`,
+							payload: { toolLabel: workspaceTool.id, reason: toolBudgetCheck.reason },
+						});
+					}
+					return budgetExceededResult(
+						workspaceTool.id,
+						toolBudgetCheck.reason ?? "Blocked by autonomy budget.",
+					);
 				}
 
 				try {
@@ -613,7 +781,15 @@ export async function buildToolsForAgent(
 					mcpTool.inputSchema as Parameters<typeof jsonSchema>[0],
 				),
 				execute: async (input) => {
-					if (shouldDeferToolForApproval({ kind: "mcp" }, ctx.chatToolPolicy)) {
+					// MCP tools have no ToolKind classification (they're external,
+					// declared by the server itself), so allowedToolKinds /
+					// blockedToolKinds never apply here — only the run-level
+					// counters and the risk threshold below do.
+					const mcpCategory = permissionForSource("mcp");
+					if (
+						shouldDeferToolForApproval({ kind: "mcp" }, ctx.chatToolPolicy) ||
+						exceedsRiskThreshold(mcpCategory, budgetTracker.budget.requiresApprovalAboveRisk)
+					) {
 						const approval = await db.createApprovalRequest({
 							workspaceId: agent.workspaceId,
 							agentId: agent.id,
@@ -665,6 +841,35 @@ export async function buildToolsForAgent(
 							});
 						}
 						return pendingApprovalResult(approval.id, toolKey);
+					}
+
+					const mcpBudgetCheck = checkAndConsumeRunBudget(budgetTracker, null);
+					if (!mcpBudgetCheck.allowed) {
+						await logToolAudit({
+							workspaceId: agent.workspaceId,
+							agentId: agent.id,
+							chatId: ctx.chatId,
+							automationId: ctx.automationId,
+							actor,
+							toolLabel: toolKey,
+							input,
+							status: "rejected",
+							autonomyLevel: agent.autonomyLevel,
+							policyMode: normalizeChatToolPolicy(ctx.chatToolPolicy).mode,
+							category: mcpCategory,
+						});
+						if (ctx.taskId) {
+							await db.createTaskEvent({
+								taskId: ctx.taskId,
+								workspaceId: agent.workspaceId,
+								agentRunId: ctx.agentRunId,
+								agentId: agent.id,
+								kind: "failed",
+								message: `Autonomy budget blocked "${toolKey}": ${mcpBudgetCheck.reason}`,
+								payload: { toolLabel: toolKey, reason: mcpBudgetCheck.reason },
+							});
+						}
+						return budgetExceededResult(toolKey, mcpBudgetCheck.reason ?? "Blocked by autonomy budget.");
 					}
 
 					try {
