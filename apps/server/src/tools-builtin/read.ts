@@ -121,11 +121,15 @@ export function buildTerminalOutputTool(record: ToolRecord): SkillDefinition {
 		async run({ execId }) {
 			const session = getTerminalSession(execId);
 			if (!session) throw new Error(`Unknown terminal execId: ${execId}`);
+			// Same tail-slice cap terminal_run/task_run/test_run already apply to
+			// their own output — a long-running session's full buffer (up to
+			// MAX_BUFFERED_CHARS in terminal.ts) shouldn't go straight into the
+			// model's context uncapped just because it's read back separately.
 			return {
 				execId,
 				status: session.status,
 				exitCode: session.exitCode,
-				output: session.output,
+				output: session.output.slice(-8000),
 			};
 		},
 	};
