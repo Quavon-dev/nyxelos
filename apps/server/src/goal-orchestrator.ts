@@ -115,9 +115,10 @@ function toGoalPlan(goal: GoalRecord, raw: string): GoalPlan {
   const milestones: GoalPlanMilestoneDraft[] = [];
   for (const entry of milestonesRaw) {
     if (typeof entry !== "object" || entry === null) continue;
-    const title = typeof (entry as Record<string, unknown>).title === "string"
-      ? ((entry as Record<string, unknown>).title as string)
-      : null;
+    const title =
+      typeof (entry as Record<string, unknown>).title === "string"
+        ? ((entry as Record<string, unknown>).title as string)
+        : null;
     const tasksRaw = Array.isArray((entry as Record<string, unknown>).tasks)
       ? ((entry as Record<string, unknown>).tasks as unknown[])
       : [];
@@ -125,9 +126,10 @@ function toGoalPlan(goal: GoalRecord, raw: string): GoalPlan {
     const tasks: GoalPlanTaskDraft[] = [];
     for (const taskEntry of tasksRaw) {
       if (typeof taskEntry !== "object" || taskEntry === null) continue;
-      const taskTitle = typeof (taskEntry as Record<string, unknown>).title === "string"
-        ? ((taskEntry as Record<string, unknown>).title as string)
-        : null;
+      const taskTitle =
+        typeof (taskEntry as Record<string, unknown>).title === "string"
+          ? ((taskEntry as Record<string, unknown>).title as string)
+          : null;
       const instruction =
         typeof (taskEntry as Record<string, unknown>).instruction === "string"
           ? ((taskEntry as Record<string, unknown>).instruction as string)
@@ -220,7 +222,10 @@ export async function selectAgentForGoal(goal: GoalRecord): Promise<string | nul
   const scored = capable
     .map((agent) => ({
       agent,
-      score: keywordOverlap(needle, `${agent.role ?? ""} ${agent.goalTemplate ?? ""}`.toLowerCase()),
+      score: keywordOverlap(
+        needle,
+        `${agent.role ?? ""} ${agent.goalTemplate ?? ""}`.toLowerCase(),
+      ),
     }))
     .sort((a, b) => b.score - a.score);
   return scored[0]?.agent.id ?? null;
@@ -264,9 +269,7 @@ function evaluateTasks(tasks: TaskRecord[]): TaskEvaluation {
       readyTaskIds: [],
     };
   }
-  const readyTaskIds = tasks
-    .filter((t) => t.status === "ready" && !t.startedAt)
-    .map((t) => t.id);
+  const readyTaskIds = tasks.filter((t) => t.status === "ready" && !t.startedAt).map((t) => t.id);
   const blocking = tasks.find(
     (t) =>
       t.status === "waiting_approval" ||
@@ -378,7 +381,7 @@ async function generatePlanAndTasks(goal: GoalRecord, planner: GoalPlanner): Pro
 
   const blockedReason = agentId
     ? null
-    : "No suitable agent found in this workspace — set a default agent on the goal, or add an agent with autonomy above \"chat\".";
+    : 'No suitable agent found in this workspace — set a default agent on the goal, or add an agent with autonomy above "chat".';
   const updated = await db.updateGoal(goal.id, {
     planGeneratedAt: new Date(),
     successCriteria: plan.successCriteria.length > 0 ? plan.successCriteria : goal.successCriteria,
@@ -666,9 +669,8 @@ export async function getGoalOverview(goalId: string): Promise<GoalOverview | nu
   ]);
 
   const runsByTask = await Promise.all(tasks.map((t) => db.listAgentRunsByTask(t.id)));
-  const latestRun = runsByTask
-    .flat()
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null;
+  const latestRun =
+    runsByTask.flat().sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null;
 
   const evaluation = evaluateTasks(tasks);
   const blockers = tasks

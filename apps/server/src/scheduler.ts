@@ -338,7 +338,10 @@ async function checkDueSeoProjects(): Promise<void> {
         : null;
       await db.updateSeoProject(project.id, { lastReanalyzeAt: now, nextReanalyzeAt });
     } catch (err) {
-      console.error(`Scheduler: SEO re-analysis for "${project.domain}" (${project.id}) failed:`, err);
+      console.error(
+        `Scheduler: SEO re-analysis for "${project.domain}" (${project.id}) failed:`,
+        err,
+      );
     }
   }
 }

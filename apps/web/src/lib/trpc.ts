@@ -1748,7 +1748,10 @@ type NyxelTrpcClient = {
       }): Promise<Omit<GoalSummary, "milestones">>;
     };
     updateStatus: {
-      mutate(input: { goalId: string; status: GoalStatus }): Promise<Omit<GoalSummary, "milestones">>;
+      mutate(input: {
+        goalId: string;
+        status: GoalStatus;
+      }): Promise<Omit<GoalSummary, "milestones">>;
     };
     addMilestone: {
       mutate(input: {
@@ -2083,14 +2086,22 @@ type NyxelTrpcClient = {
       }): Promise<{ name: string; isDirectory: boolean }[]>;
     };
     searchFiles: {
-      query(input: { workspaceId: string; rootDir: string; query: string }): Promise<FileSearchMatch[]>;
+      query(input: {
+        workspaceId: string;
+        rootDir: string;
+        query: string;
+      }): Promise<FileSearchMatch[]>;
     };
   };
 };
 
 export type GitFileStatus = "modified" | "added" | "deleted" | "renamed" | "untracked" | "unknown";
 export type GitStatusEntry = { path: string; status: GitFileStatus; staged: boolean };
-export type FileSearchMatch = { path: string; matchedOn: "filename" | "content"; snippet: string | null };
+export type FileSearchMatch = {
+  path: string;
+  matchedOn: "filename" | "content";
+  snippet: string | null;
+};
 
 /**
  * A vanilla tRPC client (not the TanStack Query proxy integration) called

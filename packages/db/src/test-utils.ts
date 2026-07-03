@@ -20,31 +20,29 @@ import type { DbRepository } from "./repo/types";
  * this relies on).
  */
 export async function createTestSqliteRepository(): Promise<{
-	db: DbRepository;
-	path: string;
-	cleanup: () => Promise<void>;
+  db: DbRepository;
+  path: string;
+  cleanup: () => Promise<void>;
 }> {
-	const path = join(tmpdir(), `nyxel-test-${randomUUID()}.sqlite`);
-	const prevUrl = process.env.DATABASE_URL;
-	const prevDriver = process.env.DB_DRIVER;
-	process.env.DATABASE_URL = path;
-	process.env.DB_DRIVER = "sqlite";
-	try {
-		await migrateDatabase();
-	} finally {
-		if (prevUrl === undefined) delete process.env.DATABASE_URL;
-		else process.env.DATABASE_URL = prevUrl;
-		if (prevDriver === undefined) delete process.env.DB_DRIVER;
-		else process.env.DB_DRIVER = prevDriver;
-	}
+  const path = join(tmpdir(), `nyxel-test-${randomUUID()}.sqlite`);
+  const prevUrl = process.env.DATABASE_URL;
+  const prevDriver = process.env.DB_DRIVER;
+  process.env.DATABASE_URL = path;
+  process.env.DB_DRIVER = "sqlite";
+  try {
+    await migrateDatabase();
+  } finally {
+    if (prevUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = prevUrl;
+    if (prevDriver === undefined) delete process.env.DB_DRIVER;
+    else process.env.DB_DRIVER = prevDriver;
+  }
 
-	const db = createSqliteRepository(path);
-	const cleanup = async () => {
-		await Promise.all(
-			[path, `${path}-wal`, `${path}-shm`].map((f) => rm(f, { force: true })),
-		);
-	};
-	return { db, path, cleanup };
+  const db = createSqliteRepository(path);
+  const cleanup = async () => {
+    await Promise.all([path, `${path}-wal`, `${path}-shm`].map((f) => rm(f, { force: true })));
+  };
+  return { db, path, cleanup };
 }
 
 /**
@@ -56,20 +54,20 @@ export async function createTestSqliteRepository(): Promise<{
  * `cleanup()` un-installs it in addition to deleting the temp file.
  */
 export async function installTestDb(): Promise<{
-	db: DbRepository;
-	path: string;
-	cleanup: () => Promise<void>;
+  db: DbRepository;
+  path: string;
+  cleanup: () => Promise<void>;
 }> {
-	const { db, path, cleanup } = await createTestSqliteRepository();
-	__setDbForTesting(db);
-	return {
-		db,
-		path,
-		cleanup: async () => {
-			__setDbForTesting(null);
-			await cleanup();
-		},
-	};
+  const { db, path, cleanup } = await createTestSqliteRepository();
+  __setDbForTesting(db);
+  return {
+    db,
+    path,
+    cleanup: async () => {
+      __setDbForTesting(null);
+      await cleanup();
+    },
+  };
 }
 
 /**
@@ -80,22 +78,22 @@ export async function installTestDb(): Promise<{
  * internals, which the repository pattern deliberately doesn't expose.
  */
 export function createTestUser(
-	path: string,
-	input: { name?: string; email?: string } = {},
+  path: string,
+  input: { name?: string; email?: string } = {},
 ): { id: string; name: string; email: string } {
-	const id = randomUUID();
-	const name = input.name ?? "Test User";
-	const email = input.email ?? `${id}@example.test`;
-	const sqlite = new Database(path);
-	try {
-		const now = Date.now();
-		sqlite
-			.query(
-				"INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
-			)
-			.run(id, name, email, now, now);
-	} finally {
-		sqlite.close();
-	}
-	return { id, name, email };
+  const id = randomUUID();
+  const name = input.name ?? "Test User";
+  const email = input.email ?? `${id}@example.test`;
+  const sqlite = new Database(path);
+  try {
+    const now = Date.now();
+    sqlite
+      .query(
+        "INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
+      )
+      .run(id, name, email, now, now);
+  } finally {
+    sqlite.close();
+  }
+  return { id, name, email };
 }
