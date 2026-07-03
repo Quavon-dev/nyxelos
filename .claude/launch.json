@@ -10,18 +10,18 @@
     {
       "name": "web",
       "runtimeExecutable": "bunx",
-      "runtimeArgs": ["next", "dev", "--turbopack"],
+      "runtimeArgs": ["next", "dev", "--turbopack", "-p", "4100"],
       "cwd": "apps/web",
-      "port": 3100,
-      "autoPort": true
+      "port": 4100,
+      "autoPort": false
     },
     {
       "name": "server",
       "runtimeExecutable": "bun",
       "runtimeArgs": ["run", "--hot", "src/index.ts"],
       "cwd": "apps/server",
-      "port": 3001,
-      "autoPort": true
+      "port": 4001,
+      "autoPort": false
     }
   ]
 }

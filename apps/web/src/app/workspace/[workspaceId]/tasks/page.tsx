@@ -6,12 +6,13 @@ import {
   CheckSquare,
   CircleAlert,
   Clock,
+  HeartPulse,
   ListTodo,
   Loader2,
   Workflow,
 } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { PageHeaderSkeleton, StatCardsSkeleton, TableSkeleton } from "@/components/loading";
 import { PageHeader, StatCard } from "@/components/page-header";
@@ -107,6 +108,7 @@ export default function TasksPage() {
   const params = useParams<{ workspaceId: string }>();
   const workspaceId = params.workspaceId;
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
@@ -228,6 +230,17 @@ export default function TasksPage() {
     },
   });
 
+  // Self-healing/health agent v1 — runs the checks in health-agent.ts on
+  // demand and drops the result in as a completed task (see healthCheck.run
+  // in the tRPC router), same place the daily background sweep writes to.
+  const runHealthCheck = useMutation({
+    mutationFn: () => trpcClient.healthCheck.run.mutate({ workspaceId }),
+    onSuccess: (task) => {
+      invalidate();
+      router.push(`/workspace/${workspaceId}/tasks/${task.id}`);
+    },
+  });
+
   const openCount = allTasks.filter((t) => OPEN_STATUSES.includes(t.status)).length;
   const waitingApprovalCount = allTasks.filter((t) => t.status === "waiting_approval").length;
   const completedCount = allTasks.filter((t) => t.status === "completed").length;
@@ -254,6 +267,17 @@ export default function TasksPage() {
       <PageHeader
         title="Tasks"
         description="Durable work items tracked across agents — created from chat, automations, or delegated by super-agents."
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => runHealthCheck.mutate()}
+            disabled={runHealthCheck.isPending}
+          >
+            <HeartPulse className="size-4" />
+            {runHealthCheck.isPending ? "Running…" : "Run health check"}
+          </Button>
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

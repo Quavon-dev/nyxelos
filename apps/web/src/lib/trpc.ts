@@ -1549,6 +1549,11 @@ type NyxelTrpcClient = {
       mutate(input: { workspaceId: string }): Promise<number>;
     };
   };
+  healthCheck: {
+    run: {
+      mutate(input: { workspaceId: string }): Promise<TaskSummary>;
+    };
+  };
   tasks: {
     list: {
       query(input: {

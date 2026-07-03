@@ -73,6 +73,7 @@ import {
 	importProviderSourceToWorkspace,
 	listProviderImportSources,
 } from "../provider-imports";
+import { runHealthCheckForWorkspace } from "../health-agent";
 import { computeNextRunAt, runAutomation } from "../scheduler";
 import {
 	cancelAgentRun,
@@ -1700,6 +1701,15 @@ export const appRouter = router({
 		cleanupUnusedChatAgents: workspaceProcedure
 			.input(z.object({ workspaceId: z.string() }))
 			.mutation(({ input }) => getDb().deleteUnusedChatAgents(input.workspaceId)),
+	}),
+
+	// Self-healing/health agent v1 (checks + reporting only, no automatic
+	// fixes — see apps/server/src/health-agent.ts). Named "healthCheck" rather
+	// than "health" since that key is already the plain liveness probe above.
+	healthCheck: router({
+		run: workspaceProcedure
+			.input(z.object({ workspaceId: z.string() }))
+			.mutation(({ input }) => runHealthCheckForWorkspace(input.workspaceId)),
 	}),
 
 	tasks: router({

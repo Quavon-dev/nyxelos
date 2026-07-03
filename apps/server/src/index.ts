@@ -16,6 +16,7 @@ import { validateEnv } from "./env";
 validateEnv();
 
 import { allowedWebOrigins, auth } from "./auth";
+import { startHealthCheckLoop } from "./health-agent";
 import { startKnowledgeBaseSyncLoop } from "./knowledge-base";
 import { rateLimitMiddleware } from "./rate-limit";
 import { registerChatStreamRoute } from "./routes/chat-stream";
@@ -82,6 +83,7 @@ registerChatStreamRoute(app);
 registerLibraryRoutes(app);
 startScheduler();
 startKnowledgeBaseSyncLoop();
+startHealthCheckLoop();
 
 app.get("/", (c) => c.json({ name: "nyxel-server", status: "ok" }));
 
