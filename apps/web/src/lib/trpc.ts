@@ -1985,11 +1985,15 @@ type NyxelTrpcClient = {
         relativePath?: string;
       }): Promise<{ name: string; isDirectory: boolean }[]>;
     };
+    searchFiles: {
+      query(input: { workspaceId: string; rootDir: string; query: string }): Promise<FileSearchMatch[]>;
+    };
   };
 };
 
 export type GitFileStatus = "modified" | "added" | "deleted" | "renamed" | "untracked" | "unknown";
 export type GitStatusEntry = { path: string; status: GitFileStatus; staged: boolean };
+export type FileSearchMatch = { path: string; matchedOn: "filename" | "content"; snippet: string | null };
 
 /**
  * A vanilla tRPC client (not the TanStack Query proxy integration) called

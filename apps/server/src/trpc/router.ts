@@ -25,7 +25,7 @@ import { z } from "zod";
 import { resolveApprovalDecision } from "../approvals";
 import { auth } from "../auth";
 import { logAudit } from "../audit";
-import { getGitDiff, getGitStatus, getRepoInfo, listDirectory } from "../coding";
+import { getGitDiff, getGitStatus, getRepoInfo, listDirectory, searchFiles } from "../coding";
 import {
 	checkCliAuthStatus,
 	type CliProviderKind,
@@ -3012,6 +3012,15 @@ export const appRouter = router({
 				}),
 			)
 			.query(({ input }) => listDirectory(input.rootDir, input.relativePath)),
+		searchFiles: workspaceProcedure
+			.input(
+				z.object({
+					workspaceId: z.string(),
+					rootDir: z.string().min(1),
+					query: z.string().min(1),
+				}),
+			)
+			.query(({ input }) => searchFiles(input.rootDir, input.query)),
 	}),
 });
 
