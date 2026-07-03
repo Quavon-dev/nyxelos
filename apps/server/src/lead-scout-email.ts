@@ -1,6 +1,10 @@
-import nodemailer from "nodemailer";
-import type { LeadScoutEmailCredentials, LeadScoutEmailProvider, LeadScoutEmailSettingsRecord } from "@nyxel/db";
+import type {
+  LeadScoutEmailCredentials,
+  LeadScoutEmailProvider,
+  LeadScoutEmailSettingsRecord,
+} from "@nyxel/db";
 import { getDb } from "@nyxel/db";
+import nodemailer from "nodemailer";
 import { logAudit } from "./audit";
 
 /**
@@ -57,7 +61,9 @@ function buildTransportForSmtp(credentials: LeadScoutEmailCredentials) {
     host: credentials.host,
     port: Number(credentials.port ?? 587),
     secure: credentials.secure === "true",
-    auth: credentials.username ? { user: credentials.username, pass: credentials.password } : undefined,
+    auth: credentials.username
+      ? { user: credentials.username, pass: credentials.password }
+      : undefined,
   });
 }
 
@@ -131,7 +137,8 @@ async function sendViaCustom(
   credentials: LeadScoutEmailCredentials,
   message: LeadScoutEmailMessage,
 ): Promise<void> {
-  if (!credentials.webhookUrl) throw new Error("Custom email provider has no webhookUrl configured.");
+  if (!credentials.webhookUrl)
+    throw new Error("Custom email provider has no webhookUrl configured.");
   const res = await fetch(credentials.webhookUrl, {
     method: "POST",
     headers: {
@@ -182,7 +189,9 @@ export async function sendLeadScoutEmail(
   }
 
   if (!settings.credentials && settings.provider !== "custom") {
-    throw new Error(`${settings.provider} isn't configured — add credentials in email settings first.`);
+    throw new Error(
+      `${settings.provider} isn't configured — add credentials in email settings first.`,
+    );
   }
   const from = `${settings.fromName} <${settings.fromEmail}>`;
 
@@ -243,7 +252,8 @@ export async function testLeadScoutEmailConnection(
   workspaceId: string,
 ): Promise<{ ok: boolean; message: string }> {
   const settings = await getDb().getLeadScoutEmailSettings(workspaceId);
-  if (!settings) return { ok: false, message: "Email settings aren't configured for this workspace yet." };
+  if (!settings)
+    return { ok: false, message: "Email settings aren't configured for this workspace yet." };
   const credentials = settings.credentials ?? {};
 
   try {
@@ -264,7 +274,10 @@ export async function testLeadScoutEmailConnection(
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     } else {
-      return { ok: false, message: "Custom providers have no built-in connection test — send a test email instead." };
+      return {
+        ok: false,
+        message: "Custom providers have no built-in connection test — send a test email instead.",
+      };
     }
     await logAudit({
       workspaceId,

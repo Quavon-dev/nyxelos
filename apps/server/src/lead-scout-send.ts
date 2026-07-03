@@ -1,4 +1,8 @@
-import type { LeadScoutLeadRecord, LeadScoutOutreachDraftRecord, LeadScoutSuppressionRecord } from "@nyxel/db";
+import type {
+  LeadScoutLeadRecord,
+  LeadScoutOutreachDraftRecord,
+  LeadScoutSuppressionRecord,
+} from "@nyxel/db";
 import { getDb } from "@nyxel/db";
 import { logAudit } from "./audit";
 import { reserveLeadScoutDailySendSlot, sendLeadScoutEmail } from "./lead-scout-email";
@@ -121,16 +125,28 @@ export async function sendLeadScoutOutreachDraft(
     domainFromEmail(lead.email),
   );
   if (suppressed) {
-    await db.claimLeadScoutOutreachDraftStatus({ id: draftId, fromStatus: "approved", toStatus: "rejected" });
-    await db.claimLeadScoutLeadStatus({ id: lead.id, fromStatus: "approved_to_send", toStatus: "suppressed" });
+    await db.claimLeadScoutOutreachDraftStatus({
+      id: draftId,
+      fromStatus: "approved",
+      toStatus: "rejected",
+    });
+    await db.claimLeadScoutLeadStatus({
+      id: lead.id,
+      fromStatus: "approved_to_send",
+      toStatus: "suppressed",
+    });
     throw new Error(`This lead's email/domain is on the suppression list (${suppressed.reason}).`);
   }
   if (lead.status === "sent") {
-    throw new Error("This lead was already sent — use the explicit reset action before sending again.");
+    throw new Error(
+      "This lead was already sent — use the explicit reset action before sending again.",
+    );
   }
   const sentSoFar = await countSentForCampaign(campaign.id);
   if (sentSoFar >= emailSettings.perCampaignSendLimit) {
-    throw new Error(`This campaign's send limit (${emailSettings.perCampaignSendLimit}) has been reached.`);
+    throw new Error(
+      `This campaign's send limit (${emailSettings.perCampaignSendLimit}) has been reached.`,
+    );
   }
 
   const claimedDraft = await db.claimLeadScoutOutreachDraftStatus({
@@ -147,7 +163,11 @@ export async function sendLeadScoutOutreachDraft(
   if (!claimedLead) {
     // Lead moved on some other way (e.g. reset) between our reads and the
     // claim above — revert the draft claim so nothing is left half-sent.
-    await db.claimLeadScoutOutreachDraftStatus({ id: draftId, fromStatus: "sending", toStatus: "approved" });
+    await db.claimLeadScoutOutreachDraftStatus({
+      id: draftId,
+      fromStatus: "sending",
+      toStatus: "approved",
+    });
     throw new Error("Lead status changed concurrently — refresh and try again.");
   }
 
@@ -160,7 +180,10 @@ export async function sendLeadScoutOutreachDraft(
       html: draft.bodyHtml ?? undefined,
     });
 
-    const sent = await db.updateLeadScoutOutreachDraft(draftId, { status: "sent", sentAt: new Date() });
+    const sent = await db.updateLeadScoutOutreachDraft(draftId, {
+      status: "sent",
+      sentAt: new Date(),
+    });
     await db.claimLeadScoutLeadStatus({ id: lead.id, fromStatus: "sending", toStatus: "sent" });
 
     await logAudit({
@@ -180,8 +203,15 @@ export async function sendLeadScoutOutreachDraft(
     return sent;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const failed = await db.updateLeadScoutOutreachDraft(draftId, { status: "failed", errorMessage: message });
-    await db.claimLeadScoutLeadStatus({ id: lead.id, fromStatus: "sending", toStatus: "approved_to_send" });
+    const failed = await db.updateLeadScoutOutreachDraft(draftId, {
+      status: "failed",
+      errorMessage: message,
+    });
+    await db.claimLeadScoutLeadStatus({
+      id: lead.id,
+      fromStatus: "sending",
+      toStatus: "approved_to_send",
+    });
     await logAudit({
       workspaceId: lead.workspaceId,
       actor: "extension",
@@ -201,7 +231,11 @@ export async function sendLeadScoutOutreachDraft(
  * rather than resurrecting old (possibly stale) prototype/draft rows. */
 export async function resetLeadScoutLeadForResend(leadId: string): Promise<LeadScoutLeadRecord> {
   const db = getDb();
-  const claimed = await db.claimLeadScoutLeadStatus({ id: leadId, fromStatus: "sent", toStatus: "reviewed" });
+  const claimed = await db.claimLeadScoutLeadStatus({
+    id: leadId,
+    fromStatus: "sent",
+    toStatus: "reviewed",
+  });
   if (!claimed) throw new Error("Only a previously-sent lead can be reset for resend.");
   await logAudit({
     workspaceId: claimed.workspaceId,

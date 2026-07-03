@@ -28,7 +28,10 @@ export interface GeocodeResult {
   lon: number;
 }
 
-export async function geocodePostalCode(postalCode: string, country: string): Promise<GeocodeResult> {
+export async function geocodePostalCode(
+  postalCode: string,
+  country: string,
+): Promise<GeocodeResult> {
   await throttleNominatim();
   const url = new URL("https://nominatim.openstreetmap.org/search");
   url.searchParams.set("postalcode", postalCode);

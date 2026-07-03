@@ -1,5 +1,5 @@
-import type { LeadSourceProvider, LeadSourceSearchInput } from "./types";
 import { classifyWebsite } from "./shared";
+import type { LeadSourceProvider, LeadSourceSearchInput } from "./types";
 
 /** Minimal generic REST adapter placeholder — expects a compliant endpoint
  * (configured per-workspace as sourceConfig.config.baseUrl) that returns a
@@ -69,7 +69,8 @@ export const customApiProvider: LeadSourceProvider<CustomApiRow> = {
         websiteStatus === "missing_website"
           ? "custom_api response had no website value for this business."
           : "custom_api reported a website for this business.",
-      missingReason: websiteStatus === "missing_website" ? "No website field in the custom API response." : null,
+      missingReason:
+        websiteStatus === "missing_website" ? "No website field in the custom API response." : null,
     };
   },
 };

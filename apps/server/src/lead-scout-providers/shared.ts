@@ -68,7 +68,9 @@ export function parseCsv(text: string): Record<string, string>[] {
   }
   if (field.length > 0 || row.length > 0) pushRow();
 
-  const [header, ...dataRows] = rows.filter((r) => r.length > 0 && !(r.length === 1 && r[0] === ""));
+  const [header, ...dataRows] = rows.filter(
+    (r) => r.length > 0 && !(r.length === 1 && r[0] === ""),
+  );
   if (!header) return [];
   return dataRows.map((cells) => {
     const record: Record<string, string> = {};

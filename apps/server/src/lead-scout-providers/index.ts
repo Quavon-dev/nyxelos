@@ -5,8 +5,8 @@ import { manualCsvProvider } from "./manual-csv";
 import { osmOverpassProvider } from "./osm-overpass";
 import type { LeadSourceProvider } from "./types";
 
-export { collectNormalizedBusinesses } from "./types";
 export type { LeadSourceProvider, LeadSourceSearchInput, NormalizedBusiness } from "./types";
+export { collectNormalizedBusinesses } from "./types";
 
 const PROVIDERS: Record<LeadScoutProvider, LeadSourceProvider> = {
   manual_csv: manualCsvProvider,

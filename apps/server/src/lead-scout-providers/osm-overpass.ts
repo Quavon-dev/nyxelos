@@ -13,7 +13,12 @@ interface OverpassElement {
   tags?: Record<string, string>;
 }
 
-function buildOverpassQuery(bbox: { south: number; west: number; north: number; east: number }): string {
+function buildOverpassQuery(bbox: {
+  south: number;
+  west: number;
+  north: number;
+  east: number;
+}): string {
   const bounds = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
   // nwr matches node/way/relation in one clause per OSM Overpass QL — one
   // clause per top-level key the extension is allowed to query (shop,
@@ -105,7 +110,9 @@ export const osmOverpassProvider: LeadSourceProvider<OverpassElement> = {
         website
           ? `OSM tags include a website/contact:website value (${website}).`
           : "No website or contact:website tag present on this OSM element.",
-        missingEmail ? "No email or contact:email tag present (missing_email) — outreach needs a manually supplied address." : null,
+        missingEmail
+          ? "No email or contact:email tag present (missing_email) — outreach needs a manually supplied address."
+          : null,
       ]
         .filter(Boolean)
         .join(" "),

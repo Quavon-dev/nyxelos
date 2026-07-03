@@ -168,7 +168,9 @@ async function pickDefaultModelId(workspaceId: string): Promise<string> {
   const models = await listAvailableModels(providers);
   const [first] = models;
   if (!first) {
-    throw new Error("No models are installed for this workspace — add one in Settings before generating content.");
+    throw new Error(
+      "No models are installed for this workspace — add one in Settings before generating content.",
+    );
   }
   return first.id;
 }
@@ -235,7 +237,7 @@ const PROTOTYPE_OUTPUT_FORMAT = [
   "CTA: <call to action text>",
   "STYLE: <color/style direction in a short phrase>",
   "---ARTIFACT---",
-  "<an optional short markdown or simple HTML prototype, or the word \"none\">",
+  '<an optional short markdown or simple HTML prototype, or the word "none">',
 ].join("\n");
 
 /**
@@ -246,7 +248,9 @@ const PROTOTYPE_OUTPUT_FORMAT = [
  * the lead must already be "reviewed" (a human looked at it) before a
  * prototype can be requested at all.
  */
-export async function dispatchLeadScoutPrototype(leadId: string): Promise<LeadScoutPrototypeRecord> {
+export async function dispatchLeadScoutPrototype(
+  leadId: string,
+): Promise<LeadScoutPrototypeRecord> {
   const db = getDb();
   const lead = await db.getLeadScoutLead(leadId);
   if (!lead) throw new Error(`Unknown lead: ${leadId}`);
@@ -341,7 +345,9 @@ export async function dispatchLeadScoutPrototype(leadId: string): Promise<LeadSc
 
 /** Requires a `ready` prototype — approving a failed/pending one makes no
  * sense, there'd be nothing reviewed. */
-export async function approveLeadScoutPrototype(prototypeId: string): Promise<LeadScoutPrototypeRecord> {
+export async function approveLeadScoutPrototype(
+  prototypeId: string,
+): Promise<LeadScoutPrototypeRecord> {
   const db = getDb();
   const prototype = await db.getLeadScoutPrototype(prototypeId);
   if (!prototype) throw new Error(`Unknown prototype: ${prototypeId}`);
@@ -372,7 +378,9 @@ export function parseEmailDraftOutput(output: string): { subject: string; body: 
  * programmatically from email settings after generation, rather than left
  * to the model, so they're always present regardless of what it wrote.
  */
-export async function dispatchLeadScoutEmailDraft(leadId: string): Promise<LeadScoutOutreachDraftRecord> {
+export async function dispatchLeadScoutEmailDraft(
+  leadId: string,
+): Promise<LeadScoutOutreachDraftRecord> {
   const db = getDb();
   const lead = await db.getLeadScoutLead(leadId);
   if (!lead) throw new Error(`Unknown lead: ${leadId}`);
@@ -429,7 +437,9 @@ export async function dispatchLeadScoutEmailDraft(leadId: string): Promise<LeadS
   try {
     const result = await executeManagedTask({ taskId: task.id, agent, trigger: "extension" });
     const { subject, body } = parseEmailDraftOutput(result.output);
-    const footer = [emailSettings.unsubscribeText, emailSettings.legalFooter].filter(Boolean).join("\n\n");
+    const footer = [emailSettings.unsubscribeText, emailSettings.legalFooter]
+      .filter(Boolean)
+      .join("\n\n");
     const bodyText = [body, "", `— ${emailSettings.fromName}`, footer].filter(Boolean).join("\n");
 
     const ready = await db.updateLeadScoutOutreachDraft(draft.id, {

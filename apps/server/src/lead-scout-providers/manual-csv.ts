@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import type { LeadSourceProvider, LeadSourceSearchInput } from "./types";
 import { classifyWebsite, parseCsv } from "./shared";
+import type { LeadSourceProvider, LeadSourceSearchInput } from "./types";
 
 /** businessName is the only strictly required column — everything else is
  * optional per the extension's field list (businessName, address,
@@ -74,7 +74,8 @@ export const manualCsvProvider: LeadSourceProvider<CsvLeadRow & { sourceId: stri
         websiteStatus === "missing_website"
           ? "Imported via manual CSV; no website value was provided."
           : `Imported via manual CSV.${row.notes ? ` Notes: ${row.notes}` : ""}`,
-      missingReason: websiteStatus === "missing_website" ? "No website column value in the CSV row." : null,
+      missingReason:
+        websiteStatus === "missing_website" ? "No website column value in the CSV row." : null,
     };
   },
 };
