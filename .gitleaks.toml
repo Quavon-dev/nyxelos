@@ -1,0 +1,19 @@
+title = "NyxelOS gitleaks config"
+
+[extend]
+useDefault = true
+
+# These two files are the regression tests for the secret-strength
+# validation logic itself (packages/db/src/secret-guard.ts,
+# apps/server/src/env.ts) — they necessarily assign secret-shaped strings
+# (both weak placeholders like "dev-secret-change-me" and synthetic
+# high-entropy values like "kQ7z2mN9pXvB4wR8sT1yU6eL3cJ0hF5g") to
+# process.env.BETTER_AUTH_SECRET/NYXEL_ENCRYPTION_KEY to exercise the accept/
+# reject paths. None of these are real secrets ever used against a live
+# service — see docs/CI_QUALITY_GATES.md for this workflow's first-run triage.
+[allowlist]
+description = "Synthetic test fixtures for secret-strength validation tests, not real secrets"
+paths = [
+  '''apps/server/src/env\.test\.ts''',
+  '''packages/db/src/secret-guard\.test\.ts''',
+]
