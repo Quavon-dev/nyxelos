@@ -3,10 +3,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import type { ComponentType } from "react";
-import { PageHeaderSkeleton } from "@/components/loading";
-import { PageHeader } from "@/components/page-header";
+import { LocalLeadScoutExtensionPage } from "@/components/extensions/local-lead-scout-page";
 import { SeoAnalyzerExtensionPage } from "@/components/extensions/seo-analyzer-page";
 import { VideoStudioExtensionPage } from "@/components/extensions/video-studio-page";
+import { PageHeaderSkeleton } from "@/components/loading";
+import { PageHeader } from "@/components/page-header";
 import { trpcClient } from "@/lib/trpc";
 
 /** Per-extension page component, keyed by ExtensionCatalogEntry.route (see
@@ -15,6 +16,7 @@ import { trpcClient } from "@/lib/trpc";
 const EXTENSION_PAGES: Record<string, ComponentType<{ workspaceId: string }>> = {
   "seo-analyzer": SeoAnalyzerExtensionPage,
   "video-studio": VideoStudioExtensionPage,
+  "local-lead-scout": LocalLeadScoutExtensionPage,
 };
 
 export default function ExtensionDetailPage() {
