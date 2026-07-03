@@ -641,6 +641,17 @@ export type WorkflowSummary = {
   updatedAt: Date;
 };
 
+/** Result of workflows.generateFromPrompt — an unsaved draft the caller
+ * reviews (and may edit) before ever calling workflows.create. `warnings`
+ * flags anything the model got wrong (unknown node types dropped, required
+ * fields left blank) so the UI can surface it instead of silently trusting
+ * the generated JSON. */
+export type WorkflowDraftResult = {
+  definition: WorkflowDefinition;
+  suggestedName: string;
+  warnings: string[];
+};
+
 export type WorkflowRunStatus = "queued" | "running" | "completed" | "failed" | "partial";
 export type WorkflowRunNodeStatus = "queued" | "running" | "completed" | "failed" | "skipped";
 
@@ -1418,6 +1429,9 @@ type NyxelTrpcClient = {
     };
     delete: {
       mutate(input: { id: string }): Promise<{ ok: boolean }>;
+    };
+    generateFromPrompt: {
+      mutate(input: { workspaceId: string; prompt: string }): Promise<WorkflowDraftResult>;
     };
     runs: {
       start: {
