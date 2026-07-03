@@ -106,6 +106,86 @@ function readLines(stream: ReadableStream<Uint8Array>): AsyncIterable<string> {
  * described above, and returns its result. Throws `PluginSandboxError` on a
  * script error, a malformed sandbox response, or a timeout.
  */
+/**
+ * Same-process, `node:vm`-only sandbox for user-supplied code that needs
+ * access to a live, non-serializable object — a Playwright `Page`, most
+ * concretely (see `tools-builtin/browser.ts`'s `browser_run_playwright_code`
+ * kind) — that can't be handed to `runIsolatedCustomCode`'s subprocess since
+ * it isn't JSON-transferable. `globals` are the *only* names the sandboxed
+ * code can see; there is no `require`, `process`, `Bun`, or ambient
+ * `fetch`/global scope reachable from inside it, exactly like
+ * `runIsolatedCustomCode`'s vm context.
+ *
+ * What this does *not* do, unlike `runIsolatedCustomCode`: no process
+ * boundary, so no `process.env` isolation of its own (the caller must not
+ * pass secrets in via `globals`) and no hard kill of a hung script — a
+ * `while (true) {}` before the first `await` is caught by `vm`'s own
+ * `timeout` option, but a script that hangs *inside* an awaited call (e.g.
+ * `await page.goto(...)` against a server that never responds) keeps
+ * running in the background after this function gives up waiting, since
+ * there's no separate process/worker to terminate. Use
+ * `runIsolatedCustomCode` instead whenever the sandboxed code doesn't need
+ * a live in-process object — this is the narrower, same-process fallback
+ * for the one case that does.
+ */
+export async function runVmSandboxedCode(
+  code: string,
+  globals: Record<string, unknown>,
+  options: RunIsolatedCodeOptions = {},
+): Promise<unknown> {
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const maxOutputChars = options.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
+  const vm = await import("node:vm");
+
+  const context = vm.createContext({
+    ...globals,
+    Promise,
+    JSON,
+    Math,
+    Date,
+    Array,
+    Object,
+    String,
+    Number,
+    Boolean,
+    setTimeout,
+    clearTimeout,
+    Error,
+    RegExp,
+  });
+
+  const capError = (err: unknown): PluginSandboxError => {
+    const message = err instanceof Error ? err.message : String(err);
+    return new PluginSandboxError(
+      message.length > maxOutputChars
+        ? `${message.slice(0, maxOutputChars)}… [truncated]`
+        : message,
+    );
+  };
+
+  let script: InstanceType<typeof vm.Script>;
+  try {
+    script = new vm.Script(`(async () => {\n${code}\n})()`);
+  } catch (err) {
+    throw capError(err);
+  }
+
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    setTimeout(
+      () => reject(new PluginSandboxError(`Sandboxed code timed out after ${timeoutMs}ms.`)),
+      timeoutMs,
+    );
+  });
+
+  try {
+    const resultPromise = script.runInContext(context, { timeout: timeoutMs }) as Promise<unknown>;
+    const value = await Promise.race([resultPromise, timeoutPromise]);
+    return capOutputSize(value ?? null, maxOutputChars);
+  } catch (err) {
+    throw capError(err);
+  }
+}
+
 export async function runIsolatedCustomCode(
   code: string,
   input: unknown,

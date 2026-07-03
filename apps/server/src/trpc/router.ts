@@ -2051,6 +2051,50 @@ export const appRouter = router({
         );
         return getDb().listTaskEvents(input.taskId);
       }),
+    /** Re-runs a task's original instruction after it failed (including
+     * dead_letter — see agent-runtime.ts's transient-retry loop, which
+     * lands a run there once its own in-process retries are exhausted).
+     * `claimTaskForRetry` is an atomic conditional UPDATE (`WHERE status =
+     * 'failed'`), not a check-then-write, so two concurrent retry requests
+     * for the same task can't both pass the guard and each start their own
+     * `executeManagedTask` call. */
+    retry: protectedProcedure
+      .input(z.object({ taskId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const db = getDb();
+        const task = await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => db.getTask(input.taskId),
+          "Task not found",
+        );
+        const agentId = task.assignedAgentId ?? task.createdByAgentId;
+        if (!agentId) throw new Error("This task has no agent to retry with.");
+        const agent = await db.getAgent(agentId);
+        if (!agent) throw new Error(`Unknown agent: ${agentId}`);
+
+        const claimed = await db.claimTaskForRetry(input.taskId);
+        if (!claimed) {
+          throw new Error(
+            `Task can only be retried from "failed" status (currently "${task.status}").`,
+          );
+        }
+        await db.createTaskEvent({
+          taskId: claimed.id,
+          workspaceId: claimed.workspaceId,
+          agentId,
+          kind: "status_changed",
+          message: "Task retried after failure.",
+          payload: { status: "ready" },
+        });
+
+        const result = await executeManagedTask({
+          taskId: claimed.id,
+          agent,
+          trigger: "task",
+          chatId: claimed.sourceChatId,
+        });
+        return result.task;
+      }),
   }),
 
   // Goal Manager v1 — long-term outcomes the workspace tracks. Pure record

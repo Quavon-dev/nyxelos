@@ -39,6 +39,7 @@ const RUN_STATUS_BADGE: Record<AgentRunStatus, string> = {
   completed: "border-0 bg-green-500/15 text-green-700 dark:bg-green-500/10 dark:text-green-400",
   failed: "border-0 bg-rose-500/15 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400",
   cancelled: "border-0 bg-muted text-muted-foreground line-through",
+  dead_letter: "border-0 bg-rose-700/20 text-rose-800 dark:bg-rose-700/15 dark:text-rose-300",
 };
 
 const TASK_STATUS_BADGE: Record<TaskStatus, string> = {
@@ -364,9 +365,7 @@ export default function AgentDetailPage() {
               {sendInstruction.isPending ? "Starting…" : "Send"}
             </Button>
             {sendInstruction.isError && (
-              <p className="text-sm text-destructive">
-                {(sendInstruction.error as Error).message}
-              </p>
+              <p className="text-sm text-destructive">{(sendInstruction.error as Error).message}</p>
             )}
           </div>
         </CardContent>
@@ -380,25 +379,23 @@ export default function AgentDetailPage() {
           {tasks.length === 0 ? (
             <p className="text-sm text-muted-foreground">No tasks yet.</p>
           ) : (
-            tasks
-              .slice(0, 15)
-              .map((task) => (
-                <Link
-                  key={task.id}
-                  href={`/workspace/${workspaceId}/tasks/${task.id}`}
-                  className="flex items-center justify-between rounded-lg border p-3 text-sm hover:bg-muted/50"
-                >
-                  <span className="font-medium">{task.title}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      {formatDate(task.createdAt)}
-                    </span>
-                    <Badge variant="outline" className={cn(TASK_STATUS_BADGE[task.status])}>
-                      {task.status.replace("_", " ")}
-                    </Badge>
-                  </div>
-                </Link>
-              ))
+            tasks.slice(0, 15).map((task) => (
+              <Link
+                key={task.id}
+                href={`/workspace/${workspaceId}/tasks/${task.id}`}
+                className="flex items-center justify-between rounded-lg border p-3 text-sm hover:bg-muted/50"
+              >
+                <span className="font-medium">{task.title}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {formatDate(task.createdAt)}
+                  </span>
+                  <Badge variant="outline" className={cn(TASK_STATUS_BADGE[task.status])}>
+                    {task.status.replace("_", " ")}
+                  </Badge>
+                </div>
+              </Link>
+            ))
           )}
         </CardContent>
       </Card>

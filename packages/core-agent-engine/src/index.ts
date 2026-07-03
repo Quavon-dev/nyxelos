@@ -3,3 +3,4 @@ export * from "./delegation-policy";
 export * from "./memory";
 export * from "./permissions";
 export * from "./run-outcome";
+export * from "./run-transitions";

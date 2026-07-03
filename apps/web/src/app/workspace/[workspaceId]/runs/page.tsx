@@ -35,16 +35,18 @@ import { cn } from "@/lib/utils";
 
 /**
  * "Runs" is a view over `agentRun` rows, not a separate entity — see
- * packages/db/src/schema/sqlite/app.ts. The DB only tracks
- * pending/running/waiting_approval/completed/failed/cancelled on the run
- * itself; "waiting for input" is a *task*-level state (task.status ===
- * "blocked", the agent asked a question) that doesn't have a matching
+ * packages/db/src/schema/sqlite/app.ts. The DB tracks
+ * pending/running/waiting_approval/completed/failed/cancelled/dead_letter on
+ * the run itself; "waiting for input" is a *task*-level state (task.status
+ * === "blocked", the agent asked a question) that doesn't have a matching
  * agentRun status. This page derives a display status per run by combining
  * the run's own status with its linked task's status, so a run whose task
- * is blocked shows as "waiting for input" instead of just "running". Pausing
- * and manual retry aren't modelled anywhere yet (no schema field, no runtime
- * support in agent-runtime.ts) — real support for those is a follow-up, not
- * something this page fakes.
+ * is blocked shows as "waiting for input" instead of just "running".
+ * `dead_letter` (a run that exhausted its automatic transient-error retries)
+ * folds into the "failed" view status here — same visible bucket, since both
+ * mean "this run didn't finish and needs a human" from this page's
+ * perspective; the task detail page (`tasks/[taskId]`) is where the distinct
+ * dead-letter state and its Retry action actually live (`tasks.retry`).
  */
 type RunViewStatus =
   | "running"
@@ -85,7 +87,7 @@ const VIEW_STATUS_BADGE: Record<RunViewStatus, string> = {
 const ALL_TRIGGERS: AgentRunTrigger[] = ["chat", "task", "automation", "delegate", "extension"];
 
 function deriveViewStatus(run: AgentRunSummary, task: TaskSummary | null): RunViewStatus {
-  if (run.status === "failed") return "failed";
+  if (run.status === "failed" || run.status === "dead_letter") return "failed";
   if (run.status === "completed") return "completed";
   if (run.status === "waiting_approval") return "waiting_for_approval";
   if (run.status === "running" || run.status === "pending") {

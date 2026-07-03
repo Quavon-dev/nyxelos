@@ -177,7 +177,8 @@ export type AgentRunStatus =
   | "waiting_approval"
   | "completed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "dead_letter";
 
 export type GoalStatus = "active" | "paused" | "blocked" | "completed" | "archived";
 export type GoalMilestoneStatus = "pending" | "completed";
@@ -1743,6 +1744,9 @@ type NyxelTrpcClient = {
     };
     reply: {
       mutate(input: { taskId: string; instruction: string }): Promise<TaskSummary | null>;
+    };
+    retry: {
+      mutate(input: { taskId: string }): Promise<TaskSummary>;
     };
     events: {
       query(input: { taskId: string }): Promise<TaskEventSummary[]>;

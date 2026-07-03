@@ -1119,6 +1119,13 @@ export interface DbRepository {
     },
   ): Promise<TaskRecord>;
   claimNextTaskForAgent(workspaceId: string, agentId: string): Promise<TaskRecord | null>;
+  /** Atomically reopens a failed task for a retry — a single conditional
+   * UPDATE (`WHERE status = 'failed'`), not a check-then-write — so two
+   * concurrent retry requests for the same task can't both pass a "is it
+   * failed?" check and each kick off their own `executeManagedTask` call.
+   * Returns null if the task wasn't in "failed" status by the time this ran
+   * (already retried, already running, or never failed). */
+  claimTaskForRetry(taskId: string): Promise<TaskRecord | null>;
 
   createTaskEvent(input: {
     taskId: string;
@@ -1382,6 +1389,15 @@ export interface DbRepository {
     resultOutput?: unknown;
     errorMessage?: string | null;
   }): Promise<ApprovalRequestRecord>;
+  /** Atomically flips status away from "pending" only if it is still
+   * "pending" (a single conditional UPDATE, not a check-then-write) — the
+   * idempotency guard against two concurrent approve/reject calls both
+   * executing the same sensitive action. Returns null if the approval was
+   * already resolved by the time this ran. */
+  claimApprovalRequest(input: {
+    id: string;
+    status: "approved" | "rejected";
+  }): Promise<ApprovalRequestRecord | null>;
 
   createAuditLog(input: {
     workspaceId: string;
