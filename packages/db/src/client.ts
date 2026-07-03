@@ -6,9 +6,9 @@ import { DEFAULT_SQLITE_PATH } from "./sqlite-path";
 export type DbDriver = "pg" | "sqlite";
 
 function resolveDriver(): DbDriver {
-	const raw = process.env.DB_DRIVER?.toLowerCase();
-	if (raw === "pg" || raw === "postgres" || raw === "postgresql") return "pg";
-	return "sqlite";
+  const raw = process.env.DB_DRIVER?.toLowerCase();
+  if (raw === "pg" || raw === "postgres" || raw === "postgresql") return "pg";
+  return "sqlite";
 }
 
 let cached: DbRepository | null = null;
@@ -20,14 +20,24 @@ let cached: DbRepository | null = null;
  * Drizzle tables to the rest of the app.
  */
 export function getDb(): DbRepository {
-	if (cached) return cached;
-	const driver = resolveDriver();
-	cached =
-		driver === "pg"
-			? createPgRepository(
-					process.env.DATABASE_URL ??
-						"postgres://nyxel:nyxel@localhost:5432/nyxel",
-				)
-			: createSqliteRepository(process.env.DATABASE_URL ?? DEFAULT_SQLITE_PATH);
-	return cached;
+  if (cached) return cached;
+  const driver = resolveDriver();
+  cached =
+    driver === "pg"
+      ? createPgRepository(
+          process.env.DATABASE_URL ?? "postgres://nyxel:nyxel@localhost:5432/nyxel",
+        )
+      : createSqliteRepository(process.env.DATABASE_URL ?? DEFAULT_SQLITE_PATH);
+  return cached;
+}
+
+/**
+ * Test-only escape hatch. Every module in this codebase reaches the DB via
+ * the module-level `getDb()` singleton above (never dependency-injected),
+ * so a hermetic test that exercises those modules directly (rather than
+ * only unit-testing pure functions) has no other way to point them at a
+ * throwaway database. Never call this from production code.
+ */
+export function __setDbForTesting(repo: DbRepository | null): void {
+  cached = repo;
 }

@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Circle, ListTodo, Target } from "lucide-react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { PageHeaderSkeleton, StatCardsSkeleton } from "@/components/loading";
@@ -146,9 +147,22 @@ export default function GoalsPage() {
             <Card key={goal.id}>
               <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 space-y-1">
-                  <CardTitle className="text-base">{goal.title}</CardTitle>
+                  <Link
+                    href={`/workspace/${workspaceId}/goals/${goal.id}`}
+                    className="text-base font-semibold hover:underline"
+                  >
+                    {goal.title}
+                  </Link>
                   {goal.description && (
                     <p className="text-sm text-muted-foreground">{goal.description}</p>
+                  )}
+                  {goal.orchestrationEnabled && (
+                    <Badge
+                      variant="outline"
+                      className="border-0 bg-violet-500/15 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"
+                    >
+                      Orchestration on
+                    </Badge>
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
