@@ -416,14 +416,44 @@ export type PluginSummary = {
   fileCount: number;
   installDir: string;
   enabled: boolean;
+  ref: string;
+  resolvedSha: string | null;
+  refPinned: boolean;
+  riskFindings: string[];
   createdAt: Date;
 };
 
-export type InstallPluginResult = {
+/** One static-scan hit (docs/PLUGIN_SECURITY.md stage 4) — deliberately
+ * naive pattern matching, not a security boundary. */
+export type PluginRiskFinding = { file: string; pattern: string };
+
+/** Ref-pinning + static-scan result for one install attempt (stages 3-4). */
+export type PluginRiskSummary = {
+  ref: string;
+  resolvedSha: string | null;
+  refPinned: boolean;
+  branchWarning: boolean;
+  isMovingBranch: boolean;
+  findings: PluginRiskFinding[];
+};
+
+/** The static scan found risky patterns and the install was not confirmed —
+ * nothing was installed. The caller should show `riskSummary` and retry the
+ * same mutation with `acknowledgeRisk: true` if the user proceeds. */
+export type InstallPluginNeedsConfirmation = {
+  status: "needs_confirmation";
+  riskSummary: PluginRiskSummary;
+};
+
+export type InstallPluginInstalled = {
+  status: "installed";
   plugin: PluginSummary;
   skills: { id: string; name: string; description: string }[];
   skippedFiles: string[];
+  riskSummary: PluginRiskSummary;
 };
+
+export type InstallPluginResult = InstallPluginInstalled | InstallPluginNeedsConfirmation;
 
 /** A folder in the workspace's document/image library. `parentId` null
  * means "at the library root". See apps/server/src/library.ts. */
@@ -1237,7 +1267,11 @@ type NyxelTrpcClient = {
       query(input: { id: string }): Promise<PluginSummary | null>;
     };
     install: {
-      mutate(input: { workspaceId: string; repoUrl: string }): Promise<InstallPluginResult>;
+      mutate(input: {
+        workspaceId: string;
+        repoUrl: string;
+        acknowledgeRisk?: boolean;
+      }): Promise<InstallPluginResult>;
     };
     setEnabled: {
       mutate(input: { id: string; enabled: boolean }): Promise<PluginSummary>;

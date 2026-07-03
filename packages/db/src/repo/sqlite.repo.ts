@@ -2026,6 +2026,10 @@ export function createSqliteRepository(filePath: string): DbRepository {
 			agentDefs,
 			fileCount,
 			installDir,
+			ref,
+			resolvedSha,
+			refPinned,
+			riskFindings,
 		}) {
 			const row = db
 				.insert(schema.plugin)
@@ -2045,6 +2049,10 @@ export function createSqliteRepository(filePath: string): DbRepository {
 					fileCount,
 					installDir,
 					enabled: true,
+					ref,
+					resolvedSha,
+					refPinned,
+					riskFindings,
 					createdAt: new Date(),
 				})
 				.returning()

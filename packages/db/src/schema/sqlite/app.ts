@@ -807,6 +807,20 @@ export const plugin = sqliteTable("plugin", {
 	// downloaded file lives, preserving the repo's folder structure.
 	installDir: text("install_dir").notNull(),
 	enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+	// Install-hardening (docs/PLUGIN_SECURITY.md stage 3): the branch/tag/ref
+	// actually used, the best-effort-resolved commit SHA at install time (null
+	// if GitHub's commit-resolve call failed), and whether the user pinned an
+	// exact commit themselves via `/tree/<40-hex-sha>` rather than a moving
+	// branch/tag name.
+	ref: text("ref").notNull().default(""),
+	resolvedSha: text("resolved_sha"),
+	refPinned: integer("ref_pinned", { mode: "boolean" }).notNull().default(false),
+	// Stage 3 static-scan findings ("pattern: file" strings) recorded at
+	// install time for later display — see scanForRiskyPatterns in plugins.ts.
+	riskFindings: text("risk_findings", { mode: "json" })
+		.notNull()
+		.default([])
+		.$type<string[]>(),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

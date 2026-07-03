@@ -2,14 +2,17 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+	AlertTriangle,
 	Bot,
 	ChevronDown,
 	ChevronRight,
 	Download,
 	ExternalLink,
 	FileText,
+	GitCommitHorizontal,
 	Lock,
 	Package,
+	ShieldAlert,
 	Sparkles,
 	Trash2,
 	User,
@@ -31,7 +34,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { type PluginSummary, trpcClient } from "@/lib/trpc";
+import { type PluginRiskSummary, type PluginSummary, trpcClient } from "@/lib/trpc";
 
 export default function PluginsPage() {
 	const params = useParams<{ workspaceId: string }>();
@@ -48,16 +51,39 @@ export default function PluginsPage() {
 
 	const [repoUrl, setRepoUrl] = useState("");
 	const [lastInstallSummary, setLastInstallSummary] = useState<string | null>(null);
+	// Set when the static scan (docs/PLUGIN_SECURITY.md stage 4) finds risky
+	// patterns — the install is paused (nothing written) until the user
+	// explicitly confirms via the dialog below.
+	const [pendingRisk, setPendingRisk] = useState<{
+		repoUrl: string;
+		riskSummary: PluginRiskSummary;
+	} | null>(null);
+
 	const installPlugin = useMutation({
-		mutationFn: (url: string) => trpcClient.plugins.install.mutate({ workspaceId, repoUrl: url }),
-		onSuccess: (result) => {
+		mutationFn: (input: { repoUrl: string; acknowledgeRisk?: boolean }) =>
+			trpcClient.plugins.install.mutate({
+				workspaceId,
+				repoUrl: input.repoUrl,
+				acknowledgeRisk: input.acknowledgeRisk,
+			}),
+		onSuccess: (result, variables) => {
+			if (result.status === "needs_confirmation") {
+				setPendingRisk({ repoUrl: variables.repoUrl, riskSummary: result.riskSummary });
+				return;
+			}
+			setPendingRisk(null);
 			invalidate();
 			setRepoUrl("");
 			const skipped = result.skippedFiles.length
 				? `, skipped ${result.skippedFiles.length} oversized file(s)`
 				: "";
+			const pin = result.riskSummary.refPinned
+				? `pinned to commit ${result.riskSummary.resolvedSha?.slice(0, 12)}`
+				: result.riskSummary.resolvedSha
+					? `from "${result.riskSummary.ref}" at commit ${result.riskSummary.resolvedSha.slice(0, 12)} — not pinned`
+					: `from "${result.riskSummary.ref}" — not pinned, commit could not be resolved`;
 			setLastInstallSummary(
-				`Installed "${result.plugin.name}" — ${result.skills.length} skill(s), ${result.plugin.agentDefs.length} agent(s), ${result.plugin.fileCount} file(s)${skipped}.`,
+				`Installed "${result.plugin.name}" (${pin}) — ${result.skills.length} skill(s), ${result.plugin.agentDefs.length} agent(s), ${result.plugin.fileCount} file(s)${skipped}.`,
 			);
 		},
 	});
@@ -124,6 +150,18 @@ export default function PluginsPage() {
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-3">
+					<div className="flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200">
+						<AlertTriangle className="mt-0.5 size-4 shrink-0" />
+						<div className="space-y-1">
+							<p className="font-medium">A plugin can run code with full server access.</p>
+							<p className="text-amber-800/90 dark:text-amber-200/80">
+								Only install plugins from sources you trust. Prefer a specific commit SHA or tag
+								over a branch like <code>main</code>/<code>master</code>, which can change after you
+								install. Review the skills/permissions it contributes before relying on it. See{" "}
+								<code>docs/PLUGIN_SECURITY.md</code> — installed plugin code is not sandboxed.
+							</p>
+						</div>
+					</div>
 					<div className="flex gap-2">
 						<Input
 							value={repoUrl}
@@ -131,12 +169,12 @@ export default function PluginsPage() {
 							placeholder="https://github.com/AgricIDaniel/claude-seo"
 							onKeyDown={(e) => {
 								if (e.key === "Enter" && repoUrl && !installPlugin.isPending) {
-									installPlugin.mutate(repoUrl);
+									installPlugin.mutate({ repoUrl });
 								}
 							}}
 						/>
 						<Button
-							onClick={() => installPlugin.mutate(repoUrl)}
+							onClick={() => installPlugin.mutate({ repoUrl })}
 							disabled={installPlugin.isPending || !repoUrl}
 						>
 							<Download className="size-4" />
@@ -212,6 +250,33 @@ export default function PluginsPage() {
 																{plugin.agentDefs.length === 1 ? "" : "s"}
 															</Badge>
 														)}
+														{plugin.refPinned ? (
+															<Badge
+																variant="outline"
+																className="gap-1 border-0 bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+															>
+																<GitCommitHorizontal className="size-3" />
+																pinned
+															</Badge>
+														) : (
+															<Badge
+																variant="outline"
+																className="gap-1 border-0 bg-amber-500/15 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
+															>
+																<AlertTriangle className="size-3" />
+																not pinned ({plugin.ref || "branch"})
+															</Badge>
+														)}
+														{plugin.riskFindings.length > 0 && (
+															<Badge
+																variant="outline"
+																className="gap-1 border-0 bg-red-500/15 text-red-700 dark:bg-red-500/10 dark:text-red-300"
+															>
+																<ShieldAlert className="size-3" />
+																{plugin.riskFindings.length} scan flag
+																{plugin.riskFindings.length === 1 ? "" : "s"}
+															</Badge>
+														)}
 													</div>
 													<p className="truncate text-sm text-muted-foreground">
 														{plugin.description}
@@ -227,6 +292,12 @@ export default function PluginsPage() {
 															<FileText className="size-3" />
 															{plugin.fileCount} files
 														</span>
+														{plugin.resolvedSha && (
+															<span className="inline-flex items-center gap-1">
+																<GitCommitHorizontal className="size-3" />
+																<code>{plugin.resolvedSha.slice(0, 12)}</code>
+															</span>
+														)}
 														<a
 															href={plugin.repoUrl}
 															target="_blank"
@@ -296,9 +367,36 @@ export default function PluginsPage() {
 														</ul>
 													</div>
 												)}
+												{plugin.riskFindings.length > 0 && (
+													<div className="space-y-2">
+														<p className="text-xs font-medium text-red-700 uppercase dark:text-red-300">
+															Static scan flags (docs/PLUGIN_SECURITY.md — not a sandbox, informational
+															only)
+														</p>
+														<ul className="space-y-1 text-sm">
+															{plugin.riskFindings.map((finding) => (
+																<li
+																	key={finding}
+																	className="flex items-center gap-1.5 text-muted-foreground"
+																>
+																	<ShieldAlert className="size-3 shrink-0 text-red-600 dark:text-red-400" />
+																	<code className="text-xs">{finding}</code>
+																</li>
+															))}
+														</ul>
+													</div>
+												)}
 												<Separator />
 												<p className="text-xs text-muted-foreground">
-													Installed at <code>{plugin.installDir}</code>
+													Installed at <code>{plugin.installDir}</code> — ref{" "}
+													<code>{plugin.ref || "(unknown)"}</code>
+													{plugin.resolvedSha && (
+														<>
+															{" "}
+															at commit <code>{plugin.resolvedSha}</code>
+														</>
+													)}
+													{!plugin.refPinned && " — not pinned to a commit"}
 												</p>
 											</div>
 										)}
@@ -336,6 +434,59 @@ export default function PluginsPage() {
 							disabled={uninstallPlugin.isPending}
 						>
 							Uninstall
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			<Dialog open={Boolean(pendingRisk)} onOpenChange={(open) => !open && setPendingRisk(null)}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle className="flex items-center gap-2">
+							<ShieldAlert className="size-4 text-destructive" />
+							Confirm risky plugin install
+						</DialogTitle>
+						<DialogDescription asChild>
+							<div className="space-y-3 text-left">
+								<p>
+									The static scan found code patterns worth a second look before this plugin runs
+									with the server's full access. This is a naive pattern scan, not a sandbox — a
+									clean result never means "safe", and this can flag legitimate code too.
+								</p>
+								{pendingRisk?.riskSummary.branchWarning && (
+									<p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-900 dark:text-amber-200">
+										Installing from ref <code>{pendingRisk.riskSummary.ref}</code>
+										{pendingRisk.riskSummary.isMovingBranch
+											? " — a branch that can move, so a later reinstall may silently pull in different code."
+											: " — not pinned to an exact commit."}
+									</p>
+								)}
+								{pendingRisk && pendingRisk.riskSummary.findings.length > 0 && (
+									<ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2 text-xs">
+										{pendingRisk.riskSummary.findings.map((f) => (
+											<li key={`${f.file}:${f.pattern}`} className="flex items-center gap-1.5">
+												<AlertTriangle className="size-3 shrink-0 text-destructive" />
+												<code>{f.pattern}</code>
+												<span className="text-muted-foreground">in {f.file}</span>
+											</li>
+										))}
+									</ul>
+								)}
+								<p>Only continue if you trust this source and have reviewed what it ships.</p>
+							</div>
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter showCloseButton>
+						<Button
+							variant="destructive"
+							onClick={() => {
+								if (pendingRisk) {
+									installPlugin.mutate({ repoUrl: pendingRisk.repoUrl, acknowledgeRisk: true });
+								}
+							}}
+							disabled={installPlugin.isPending}
+						>
+							Install anyway
 						</Button>
 					</DialogFooter>
 				</DialogContent>

@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { getDb, type PluginAgentDefinition, type PluginRecord } from "@nyxel/db";
 import { loadFileSkillBundle, parseSkillMarkdown, type SkillDefinition } from "@nyxel/skills-sdk";
@@ -87,6 +87,135 @@ async function resolveDefaultBranch(owner: string, repo: string): Promise<string
 		`https://api.github.com/repos/${owner}/${repo}`,
 	);
 	return data.default_branch;
+}
+
+/** Best-effort: resolves a branch/tag/ref name to the commit SHA it currently
+ * points at, so a moving ref can still be recorded ("installed from `main` at
+ * commit `abc123`") even though the *next* reinstall will re-resolve it and
+ * may land on a different commit. Never throws — a failure (rate limit,
+ * network hiccup) just means `resolvedSha` is null and the install proceeds
+ * with the ref name alone, same as before this hardening pass existed. */
+async function resolveCommitSha(owner: string, repo: string, ref: string): Promise<string | null> {
+	try {
+		const data = await githubJson<{ sha: string }>(
+			`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`,
+		);
+		return typeof data.sha === "string" ? data.sha : null;
+	} catch {
+		return null;
+	}
+}
+
+const FULL_COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/i;
+
+/** Branch names that move on every push — the common case users paste
+ * without realizing a plugin install isn't pinned to anything. Tags are
+ * conventionally-but-not-guaranteed immutable, so they're not flagged here;
+ * only an exact 40-char commit SHA counts as genuinely pinned (see
+ * `refPinned` below). */
+function isMovingBranchName(ref: string): boolean {
+	return /^(main|master|develop|dev|trunk|head)$/i.test(ref);
+}
+
+export interface PluginRiskFinding {
+	/** Path (relative to the plugin's install dir) the pattern was found in. */
+	file: string;
+	/** Human-readable name of the risky pattern, e.g. "child_process". */
+	pattern: string;
+}
+
+export interface PluginRiskSummary {
+	/** Branch/tag/ref the install actually used. */
+	ref: string;
+	/** Best-effort-resolved commit SHA, or null if it couldn't be resolved. */
+	resolvedSha: string | null;
+	/** True only when the user pinned an exact commit via `/tree/<40-hex-sha>`. */
+	refPinned: boolean;
+	/** True when the install is not pinned to an exact commit — i.e. it will
+	 * silently pick up whatever the branch/tag points to on the next
+	 * reinstall (see docs/PLUGIN_SECURITY.md threat scenario 2). */
+	branchWarning: boolean;
+	/** True specifically when `ref` is (or defaulted to) a moving branch like
+	 * `main`/`master` rather than a tag or other named ref — the case the
+	 * acceptance criteria calls out as needing its own, stronger label. */
+	isMovingBranch: boolean;
+	/** Static-scan hits for risky code patterns (see `scanForRiskyPatterns`). */
+	findings: PluginRiskFinding[];
+}
+
+/** Static Scan v1 (docs/PLUGIN_SECURITY.md stage 4). Deliberately naive
+ * substring/regex matching over downloaded file contents — no AST parsing,
+ * no attempt to resolve whether a match is reachable code or a comment/doc
+ * example. This raises the bar against casual/careless plugins; it is not a
+ * security boundary and a determined malicious author can trivially evade it
+ * (string concatenation, indirection, obfuscation). Never treat a clean scan
+ * as "safe" — only as "nothing obvious found". */
+const RISK_PATTERNS: { pattern: string; regex: RegExp }[] = [
+	{ pattern: "process.env", regex: /process\.env/ },
+	{ pattern: "child_process", regex: /\bchild_process\b/ },
+	{ pattern: "fs.rm / fs.unlink", regex: /\bfs\.(?:rm|unlink)\b/ },
+	{ pattern: "fetch(...) (allowlist not verifiable statically)", regex: /\bfetch\s*\(/ },
+	{ pattern: "Bun.spawn", regex: /\bBun\.spawn\b/ },
+	{ pattern: "eval(...) / new Function(...)", regex: /\beval\s*\(|\bnew\s+Function\s*\(/ },
+];
+
+/** Skipped outright — binary/asset formats a naive utf-8 regex scan can't
+ * usefully inspect and that would just waste CPU decoding. Anything else
+ * downloaded is scanned, including files with no extension. */
+const SCAN_SKIP_EXTENSIONS = new Set([
+	".png",
+	".jpg",
+	".jpeg",
+	".gif",
+	".webp",
+	".ico",
+	".svg",
+	".woff",
+	".woff2",
+	".ttf",
+	".eot",
+	".pdf",
+	".zip",
+	".tar",
+	".gz",
+	".mp3",
+	".mp4",
+	".wasm",
+	".db",
+	".sqlite",
+]);
+
+/** Bound on how much of a single file is scanned — a resource backstop like
+ * `MAX_FILE_BYTES`, not a curation choice; risky patterns in practice show up
+ * near the top of a script, not buried past a few hundred KB. */
+const MAX_SCAN_BYTES = 2 * 1024 * 1024;
+
+function scanForRiskyPatterns(entryPath: string, buf: ArrayBuffer): PluginRiskFinding[] {
+	if (SCAN_SKIP_EXTENSIONS.has(path.extname(entryPath).toLowerCase())) return [];
+	if (buf.byteLength > MAX_SCAN_BYTES) return [];
+	const text = Buffer.from(buf).toString("utf-8");
+	const findings: PluginRiskFinding[] = [];
+	for (const { pattern, regex } of RISK_PATTERNS) {
+		if (regex.test(text)) findings.push({ file: entryPath, pattern });
+	}
+	return findings;
+}
+
+/** Thrown by `installPluginFromGithub` when the static scan (stage 4) finds
+ * risky patterns and the caller hasn't set `acknowledgeRisk: true`. This is
+ * deliberately not a silent block (docs/PLUGIN_SECURITY.md stage 4's
+ * acceptance criterion): the install is aborted, nothing is written to the
+ * DB or left staged on disk, and the caller is expected to show
+ * `riskSummary` to the user and retry with explicit acknowledgement. */
+export class PluginInstallNeedsConfirmationError extends Error {
+	riskSummary: PluginRiskSummary;
+	constructor(riskSummary: PluginRiskSummary) {
+		super(
+			`This plugin has ${riskSummary.findings.length} risky code pattern(s) flagged by the static scan and needs explicit confirmation before installing.`,
+		);
+		this.name = "PluginInstallNeedsConfirmationError";
+		this.riskSummary = riskSummary;
+	}
 }
 
 async function fetchRepoTree(owner: string, repo: string, ref: string): Promise<GithubTreeEntry[]> {
@@ -201,6 +330,7 @@ export interface InstallPluginResult {
 	plugin: PluginRecord;
 	skills: SkillDefinition[];
 	skippedFiles: string[];
+	riskSummary: PluginRiskSummary;
 }
 
 /**
@@ -214,6 +344,10 @@ export interface InstallPluginResult {
 export async function installPluginFromGithub(input: {
 	workspaceId: string;
 	repoUrl: string;
+	/** Set once the caller has shown `riskSummary` from a prior
+	 * `PluginInstallNeedsConfirmationError` to the user and they chose to
+	 * proceed anyway (docs/PLUGIN_SECURITY.md stage 4). */
+	acknowledgeRisk?: boolean;
 }): Promise<InstallPluginResult> {
 	if (!isRemotePluginInstallEnabled()) {
 		throw new Error(
@@ -229,15 +363,24 @@ export async function installPluginFromGithub(input: {
 		);
 	}
 	const { owner, repo } = parsed;
-	const ref = parsed.ref ?? (await resolveDefaultBranch(owner, repo));
-	const tree = await fetchRepoTree(owner, repo, ref);
+	const explicitRef = parsed.ref;
+	const ref = explicitRef ?? (await resolveDefaultBranch(owner, repo));
+	// Only an exact 40-char commit SHA counts as genuinely pinned — a branch
+	// or tag name (explicit or defaulted) can still move out from under the
+	// install on next reinstall (docs/PLUGIN_SECURITY.md threat scenario 2).
+	const refPinned = explicitRef != null && FULL_COMMIT_SHA_PATTERN.test(explicitRef);
+	const resolvedSha = refPinned ? explicitRef : await resolveCommitSha(owner, repo, ref);
+	const branchWarning = !refPinned;
+	const isMovingBranch = !refPinned && (explicitRef == null || isMovingBranchName(ref));
+	const treeRef = resolvedSha ?? ref;
+	const tree = await fetchRepoTree(owner, repo, treeRef);
 
 	const manifestEntry = tree.find(
 		(entry) => entry.type === "blob" && entry.path === ".claude-plugin/plugin.json",
 	);
 	let manifestRaw: Record<string, unknown> = {};
 	if (manifestEntry) {
-		const buf = await downloadFile(owner, repo, ref, manifestEntry.path);
+		const buf = await downloadFile(owner, repo, treeRef, manifestEntry.path);
 		try {
 			manifestRaw = JSON.parse(Buffer.from(buf).toString("utf-8"));
 		} catch {
@@ -247,13 +390,16 @@ export async function installPluginFromGithub(input: {
 	const manifest = parseManifest(manifestRaw, repo);
 	const slug = slugify(manifest.name);
 
-	const existing = await getDb().getPluginBySlug(input.workspaceId, slug);
-	if (existing) {
-		await uninstallPlugin(existing.id);
-	}
-
-	const installDir = pluginInstallDir(input.workspaceId, slug);
-	await mkdir(installDir, { recursive: true });
+	// Downloaded into a staging dir first — nothing under the plugin's real
+	// slug-scoped installDir (and no existing install of the same slug) is
+	// touched until the risk gate below clears, so a rejected/unconfirmed
+	// high-risk install never disturbs a previously-installed plugin.
+	const stagingDir = path.join(
+		PLUGINS_ROOT,
+		input.workspaceId,
+		`.staging__${slug}__${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+	);
+	await mkdir(stagingDir, { recursive: true });
 
 	const blobs = tree.filter((entry) => entry.type === "blob");
 	const skippedFiles: string[] = [];
@@ -265,12 +411,37 @@ export async function installPluginFromGithub(input: {
 		return true;
 	});
 
-	await mapWithConcurrency(downloadable, DOWNLOAD_CONCURRENCY, async (entry) => {
-		const buf = await downloadFile(owner, repo, ref, entry.path);
-		const destPath = path.join(installDir, entry.path);
+	const findingsPerFile = await mapWithConcurrency(downloadable, DOWNLOAD_CONCURRENCY, async (entry) => {
+		const buf = await downloadFile(owner, repo, treeRef, entry.path);
+		const destPath = path.join(stagingDir, entry.path);
 		await mkdir(path.dirname(destPath), { recursive: true });
 		await Bun.write(destPath, buf);
+		return scanForRiskyPatterns(entry.path, buf);
 	});
+	const findings = findingsPerFile.flat();
+
+	const riskSummary: PluginRiskSummary = {
+		ref,
+		resolvedSha,
+		refPinned,
+		branchWarning,
+		isMovingBranch,
+		findings,
+	};
+
+	if (findings.length > 0 && !input.acknowledgeRisk) {
+		await rm(stagingDir, { recursive: true, force: true });
+		throw new PluginInstallNeedsConfirmationError(riskSummary);
+	}
+
+	const existing = await getDb().getPluginBySlug(input.workspaceId, slug);
+	if (existing) {
+		await uninstallPlugin(existing.id);
+	}
+
+	const installDir = pluginInstallDir(input.workspaceId, slug);
+	await rm(installDir, { recursive: true, force: true });
+	await rename(stagingDir, installDir);
 
 	// skills/<name>/SKILL.md bundles, plus a single root SKILL.md if the repo
 	// is a lone-skill plugin rather than a multi-skill collection like claude-seo.
@@ -313,9 +484,13 @@ export async function installPluginFromGithub(input: {
 		agentDefs,
 		fileCount: downloadable.length,
 		installDir,
+		ref,
+		resolvedSha,
+		refPinned,
+		riskFindings: findings.map((f) => `${f.pattern}: ${f.file}`),
 	});
 
-	return { plugin: pluginRecord, skills, skippedFiles };
+	return { plugin: pluginRecord, skills, skippedFiles, riskSummary };
 }
 
 export async function listPlugins(workspaceId: string): Promise<PluginRecord[]> {

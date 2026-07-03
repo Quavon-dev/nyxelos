@@ -1799,6 +1799,10 @@ export function createPgRepository(connectionString: string): DbRepository {
 			agentDefs,
 			fileCount,
 			installDir,
+			ref,
+			resolvedSha,
+			refPinned,
+			riskFindings,
 		}) {
 			const [row] = await db
 				.insert(schema.plugin)
@@ -1818,6 +1822,10 @@ export function createPgRepository(connectionString: string): DbRepository {
 					fileCount,
 					installDir,
 					enabled: true,
+					ref,
+					resolvedSha,
+					refPinned,
+					riskFindings,
 				})
 				.returning();
 			if (!row) throw new Error("Failed to create plugin");
