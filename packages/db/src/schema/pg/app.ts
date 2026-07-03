@@ -128,6 +128,66 @@ export const seoBlogPostStatus = pgEnum("seo_blog_post_status", [
   "written",
   "failed",
 ]);
+
+// Local Lead Scout (see apps/server/src/lead-scout*.ts). `custom_api` is a
+// minimal placeholder adapter; `manual_csv` and `osm_overpass` need no API
+// key, `google_places_api` is disabled until one is configured.
+export const leadScoutProvider = pgEnum("lead_scout_provider", [
+  "manual_csv",
+  "google_places_api",
+  "osm_overpass",
+  "custom_api",
+]);
+// draft_only never offers a send action past the drafted email; review_and_send
+// allows the approve -> send flow. Campaigns default to draft_only (compliance
+// requirement: no cold outreach without explicit review).
+export const leadScoutOutreachMode = pgEnum("lead_scout_outreach_mode", [
+  "draft_only",
+  "review_and_send",
+]);
+export const leadScoutWebsiteStatus = pgEnum("lead_scout_website_status", [
+  "unknown",
+  "has_website",
+  "missing_website",
+  "invalid_website",
+]);
+export const leadScoutLeadStatus = pgEnum("lead_scout_lead_status", [
+  "new",
+  "reviewed",
+  "prototype_requested",
+  "prototype_ready",
+  "email_drafted",
+  "approved_to_send",
+  "sending",
+  "sent",
+  "rejected",
+  "suppressed",
+]);
+export const leadScoutScanRunStatus = pgEnum("lead_scout_scan_run_status", [
+  "running",
+  "completed",
+  "failed",
+]);
+export const leadScoutPrototypeStatus = pgEnum("lead_scout_prototype_status", [
+  "pending",
+  "ready",
+  "failed",
+]);
+export const leadScoutDraftStatus = pgEnum("lead_scout_draft_status", [
+  "draft",
+  "approved",
+  "rejected",
+  "sending",
+  "sent",
+  "failed",
+]);
+export const leadScoutEmailProvider = pgEnum("lead_scout_email_provider", [
+  "smtp",
+  "resend",
+  "mailgun",
+  "custom",
+]);
+
 export const agentRunStatus = pgEnum("agent_run_status", [
   "pending",
   "running",
@@ -1013,6 +1073,241 @@ export const seoBlogPost = pgTable("seo_blog_post", {
   status: seoBlogPostStatus("status").notNull().default("suggested"),
   taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
   errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** A Local Lead Scout campaign — the workspace-scoped config for one region/
+ * niche scan (postal code + radius + niches), mirroring seoProject's
+ * "extensionId FK + own recurring schedule" shape. `prototypeAgentId` is the
+ * existing NyxelOS agent used to draft prototypes/emails (ADR: reuse the
+ * agent/task system rather than a bespoke LLM pipeline) — left null until
+ * the user picks one or a prototype/draft is first requested, at which point
+ * lead-scout.ts lazily provisions a workspace-default agent, same idea as
+ * seo-analyzer's configureSeoFixerAgent. */
+export const leadScoutCampaign = pgTable("lead_scout_campaign", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  extensionId: text("extension_id")
+    .notNull()
+    .references(() => extension.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  postalCode: text("postal_code").notNull(),
+  country: text("country").notNull().default("US"),
+  radiusKm: doublePrecision("radius_km").notNull().default(10),
+  niches: jsonb("niches").notNull().default([]).$type<string[]>(),
+  maxResultsPerRun: integer("max_results_per_run").notNull().default(25),
+  provider: leadScoutProvider("provider").notNull(),
+  minConfidence: integer("min_confidence").notNull().default(50),
+  outreachMode: leadScoutOutreachMode("outreach_mode").notNull().default("draft_only"),
+  scheduleEnabled: boolean("schedule_enabled").notNull().default(false),
+  scheduleCronExpression: text("schedule_cron_expression"),
+  nextScanAt: timestamp("next_scan_at"),
+  lastScanAt: timestamp("last_scan_at"),
+  autoGeneratePrototype: boolean("auto_generate_prototype").notNull().default(false),
+  autoDraftEmail: boolean("auto_draft_email").notNull().default(false),
+  autoSendAfterApproval: boolean("auto_send_after_approval").notNull().default(false),
+  requireApprovalBeforePrototype: boolean("require_approval_before_prototype")
+    .notNull()
+    .default(true),
+  requireApprovalBeforeEmailSend: boolean("require_approval_before_email_send")
+    .notNull()
+    .default(true),
+  prototypeAgentId: text("prototype_agent_id").references(() => agent.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** Per-workspace, per-provider settings — separate from the campaign row so
+ * an encrypted API key (google_places_api/custom_api) is configured once per
+ * workspace and reused across every campaign that picks that provider,
+ * rather than duplicated per campaign. `apiKey` is encrypted/decrypted at
+ * the repo layer, same convention as modelInstallation.apiKey — never
+ * stored or returned raw. */
+export const leadScoutSourceConfig = pgTable(
+  "lead_scout_source_config",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    provider: leadScoutProvider("provider").notNull(),
+    config: jsonb("config").notNull().default({}).$type<Record<string, unknown>>(),
+    apiKey: text("api_key"),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("lead_scout_source_config_workspace_provider_idx").on(
+    table.workspaceId,
+    table.provider,
+  )],
+);
+
+export const leadScoutScanRun = pgTable("lead_scout_scan_run", {
+  id: text("id").primaryKey(),
+  campaignId: text("campaign_id")
+    .notNull()
+    .references(() => leadScoutCampaign.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  provider: leadScoutProvider("provider").notNull(),
+  status: leadScoutScanRunStatus("status").notNull().default("running"),
+  resultCount: integer("result_count").notNull().default(0),
+  newLeadCount: integer("new_lead_count").notNull().default(0),
+  missingWebsiteCount: integer("missing_website_count").notNull().default(0),
+  summary: text("summary"),
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+/** A discovered business. `sourceId` (the provider's own id — CSV row hash,
+ * OSM node/way id, Google Place id) is unique per campaign+provider so
+ * re-running a scan reconciles instead of re-inserting the same business —
+ * same "don't bulk-store more than needed" rule the provider docs require.
+ * `websiteStatus`/`confidence`/`evidenceSummary` are exactly what a reviewer
+ * needs to judge the lead; no reviews/photos/ratings are ever stored. */
+export const leadScoutLead = pgTable(
+  "lead_scout_lead",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    campaignId: text("campaign_id")
+      .notNull()
+      .references(() => leadScoutCampaign.id, { onDelete: "cascade" }),
+    scanRunId: text("scan_run_id").references(() => leadScoutScanRun.id, {
+      onDelete: "set null",
+    }),
+    sourceProvider: leadScoutProvider("source_provider").notNull(),
+    sourceId: text("source_id").notNull(),
+    businessName: text("business_name").notNull(),
+    category: text("category"),
+    niche: text("niche"),
+    formattedAddress: text("formatted_address"),
+    postalCode: text("postal_code"),
+    city: text("city"),
+    phone: text("phone"),
+    email: text("email"),
+    website: text("website"),
+    websiteStatus: leadScoutWebsiteStatus("website_status").notNull().default("unknown"),
+    confidence: integer("confidence").notNull().default(0),
+    evidenceSummary: text("evidence_summary"),
+    missingReason: text("missing_reason"),
+    status: leadScoutLeadStatus("status").notNull().default("new"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("lead_scout_lead_campaign_source_idx").on(
+    table.campaignId,
+    table.sourceProvider,
+    table.sourceId,
+  )],
+);
+
+/** One AI-generated website concept for a lead, produced by dispatching a
+ * task to the campaign's prototypeAgentId (see dispatchLeadScoutPrototype in
+ * lead-scout.ts) — never a bespoke LLM pipeline. `approved` gates its use in
+ * an outreach draft (compliance requirement: review before it goes near an
+ * email). */
+export const leadScoutPrototype = pgTable("lead_scout_prototype", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  leadId: text("lead_id")
+    .notNull()
+    .references(() => leadScoutLead.id, { onDelete: "cascade" }),
+  taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
+  status: leadScoutPrototypeStatus("status").notNull().default("pending"),
+  concept: text("concept"),
+  heroCopy: text("hero_copy"),
+  sections: jsonb("sections").notNull().default([]).$type<string[]>(),
+  callToAction: text("call_to_action"),
+  styleDirection: text("style_direction"),
+  artifactMarkdown: text("artifact_markdown"),
+  approved: boolean("approved").notNull().default(false),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** A drafted outreach email for a lead, tied to the prototype it references.
+ * `status` carries the entire approval-gated send lifecycle as an explicit
+ * state machine (see resolveLeadScoutSendApproval / claimLeadForSend in
+ * lead-scout.ts, which use conditional UPDATEs on this column instead of
+ * check-then-write) rather than a separate approval-request row — there is
+ * exactly one irreversible action per draft (send), so the draft's own
+ * status is the approval record. */
+export const leadScoutOutreachDraft = pgTable("lead_scout_outreach_draft", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  leadId: text("lead_id")
+    .notNull()
+    .references(() => leadScoutLead.id, { onDelete: "cascade" }),
+  prototypeId: text("prototype_id").references(() => leadScoutPrototype.id, {
+    onDelete: "set null",
+  }),
+  taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
+  subject: text("subject"),
+  bodyText: text("body_text"),
+  bodyHtml: text("body_html"),
+  status: leadScoutDraftStatus("status").notNull().default("draft"),
+  errorMessage: text("error_message"),
+  approvedAt: timestamp("approved_at"),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** Per-workspace suppression list (opt-outs, bounces, manual blocks) checked
+ * before every send — at least one of email/domain is always set (enforced
+ * in lead-scout.ts, not at the DB level). */
+export const leadScoutSuppression = pgTable("lead_scout_suppression", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  email: text("email"),
+  domain: text("domain"),
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/** Workspace-level secure outreach email settings — one row per workspace.
+ * `credentials` is a single encrypted JSON blob (shape depends on
+ * `provider`: SMTP host/port/username/password, or an API key for
+ * resend/mailgun) via encryptJsonNullable, encrypted/decrypted at the repo
+ * layer and never returned raw to the client (see
+ * toClientSafeLeadScoutEmailSettings in router.ts). Defaults to
+ * dryRunMode=true so installing the extension can never itself cause a send. */
+export const leadScoutEmailSettings = pgTable("lead_scout_email_settings", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .unique()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  provider: leadScoutEmailProvider("provider").notNull().default("smtp"),
+  fromName: text("from_name").notNull(),
+  fromEmail: text("from_email").notNull(),
+  replyTo: text("reply_to"),
+  credentials: text("credentials"),
+  dailySendLimit: integer("daily_send_limit").notNull().default(20),
+  perCampaignSendLimit: integer("per_campaign_send_limit").notNull().default(10),
+  dryRunMode: boolean("dry_run_mode").notNull().default(true),
+  legalFooter: text("legal_footer"),
+  unsubscribeText: text("unsubscribe_text").notNull().default("Reply STOP to opt out."),
+  sendCountToday: integer("send_count_today").notNull().default(0),
+  sendCountDate: text("send_count_date"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
