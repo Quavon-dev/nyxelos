@@ -160,6 +160,50 @@ describe("secrets are encrypted at rest (SECURITY_AUDIT.md SEC-01)", () => {
     expect(fetched?.oauthState).toBeNull();
   });
 
+  test("leadScoutSourceConfig.apiKey is stored encrypted, decrypted on read", async () => {
+    const user = createTestUser(ctx.path);
+    const workspace = await db.createWorkspace({ userId: user.id, name: "Test workspace" });
+    const config = await db.upsertLeadScoutSourceConfig({
+      workspaceId: workspace.id,
+      provider: "google_places_api",
+      apiKey: "places-live-secret",
+    });
+
+    const raw = readRawColumn(ctx.path, "lead_scout_source_config", "api_key", {
+      column: "id",
+      value: config.id,
+    });
+    expect(raw).not.toBe("places-live-secret");
+    expect(String(raw)).toStartWith("v1:");
+
+    const fetched = await db.getLeadScoutSourceConfig(workspace.id, "google_places_api");
+    expect(fetched?.apiKey).toBe("places-live-secret");
+  });
+
+  test("leadScoutEmailSettings.credentials is stored encrypted, decrypted on read", async () => {
+    const user = createTestUser(ctx.path);
+    const workspace = await db.createWorkspace({ userId: user.id, name: "Test workspace" });
+    const settings = await db.upsertLeadScoutEmailSettings({
+      workspaceId: workspace.id,
+      fromName: "Acme",
+      fromEmail: "acme@example.com",
+      credentials: { host: "smtp.example.com", password: "smtp-live-secret" },
+    });
+
+    const raw = readRawColumn(ctx.path, "lead_scout_email_settings", "credentials", {
+      column: "id",
+      value: settings.id,
+    });
+    expect(String(raw)).not.toContain("smtp-live-secret");
+    expect(String(raw)).toStartWith("v1:");
+
+    const fetched = await db.getLeadScoutEmailSettings(workspace.id);
+    expect(fetched?.credentials).toEqual({
+      host: "smtp.example.com",
+      password: "smtp-live-secret",
+    });
+  });
+
   test("a corrupted oauth_state column value fails closed instead of returning garbage", async () => {
     const user = createTestUser(ctx.path);
     const workspace = await db.createWorkspace({ userId: user.id, name: "Test workspace" });

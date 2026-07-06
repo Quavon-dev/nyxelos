@@ -3,6 +3,7 @@ import {
   DEFAULT_CHAT_WORKING_DIRECTORY,
   getDb,
   type KnowledgeBaseConfigRecord,
+  type LeadScoutSourceConfigRecord,
   type McpServerRecord,
   type ModelInstallationRecord,
 } from "@nyxel/db";
@@ -42,6 +43,27 @@ import {
   listKnowledgeBaseDocuments,
   runDocsAgentForWorkspace,
 } from "../knowledge-base";
+import {
+  approveLeadScoutPrototype,
+  dispatchLeadScoutEmailDraft,
+  dispatchLeadScoutPrototype,
+  markLeadScoutLeadReviewed,
+  runLeadScoutScan,
+} from "../lead-scout";
+import {
+  getLeadScoutEmailSettings,
+  sendLeadScoutTestEmail,
+  testLeadScoutEmailConnection,
+  toClientSafeLeadScoutEmailSettings,
+  upsertLeadScoutEmailSettings,
+} from "../lead-scout-email";
+import {
+  addLeadScoutSuppression,
+  approveLeadScoutOutreachDraft,
+  rejectLeadScoutOutreachDraft,
+  resetLeadScoutLeadForResend,
+  sendLeadScoutOutreachDraft,
+} from "../lead-scout-send";
 import {
   createLibraryFolder,
   deleteLibraryFile,
@@ -437,6 +459,13 @@ export function toClientSafeMcpServer(server: McpServerRecord) {
 export function toClientSafeKnowledgeBaseConfig(config: KnowledgeBaseConfigRecord) {
   const { obsidianApiKey, ...rest } = config;
   return { ...rest, obsidianApiKeySet: obsidianApiKey !== null && obsidianApiKey.length > 0 };
+}
+
+// Same rationale — a lead scout source config's apiKey (google_places_api /
+// custom_api) never needs to leave the server.
+export function toClientSafeLeadScoutSourceConfig(config: LeadScoutSourceConfigRecord) {
+  const { apiKey, ...rest } = config;
+  return { ...rest, hasApiKey: apiKey !== null && apiKey.length > 0 };
 }
 
 export const appRouter = router({
@@ -2708,6 +2737,327 @@ export const appRouter = router({
         );
         return generateSeoBlogPost(input.seoProjectId, input.keyword);
       }),
+  }),
+
+  leadScout: router({
+    listCampaigns: workspaceProcedure
+      .input(z.object({ workspaceId: z.string() }))
+      .query(({ input }) => getDb().listLeadScoutCampaignsByWorkspace(input.workspaceId)),
+    createCampaign: workspaceProcedure
+      .input(
+        z.object({
+          workspaceId: z.string(),
+          name: z.string().min(1),
+          postalCode: z.string().min(1),
+          country: z.string().min(1).optional(),
+          radiusKm: z.number().positive().max(200).optional(),
+          niches: z.array(z.string()).optional(),
+          maxResultsPerRun: z.number().int().min(1).max(200).optional(),
+          provider: z.enum(["manual_csv", "google_places_api", "osm_overpass", "custom_api"]),
+          minConfidence: z.number().int().min(0).max(100).optional(),
+          outreachMode: z.enum(["draft_only", "review_and_send"]).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const db = getDb();
+        const ext = await db.getExtensionByKey(input.workspaceId, "local-lead-scout");
+        if (!ext)
+          throw new Error("The Local Lead Scout extension isn't installed in this workspace.");
+        const { workspaceId, ...rest } = input;
+        return db.createLeadScoutCampaign({ workspaceId, extensionId: ext.id, ...rest });
+      }),
+    updateCampaign: protectedProcedure
+      .input(
+        z.object({
+          id: z.string(),
+          name: z.string().min(1).optional(),
+          postalCode: z.string().min(1).optional(),
+          country: z.string().min(1).optional(),
+          radiusKm: z.number().positive().max(200).optional(),
+          niches: z.array(z.string()).optional(),
+          maxResultsPerRun: z.number().int().min(1).max(200).optional(),
+          provider: z
+            .enum(["manual_csv", "google_places_api", "osm_overpass", "custom_api"])
+            .optional(),
+          minConfidence: z.number().int().min(0).max(100).optional(),
+          outreachMode: z.enum(["draft_only", "review_and_send"]).optional(),
+          autoGeneratePrototype: z.boolean().optional(),
+          autoDraftEmail: z.boolean().optional(),
+          autoSendAfterApproval: z.boolean().optional(),
+          requireApprovalBeforePrototype: z.boolean().optional(),
+          requireApprovalBeforeEmailSend: z.boolean().optional(),
+          prototypeAgentId: z.string().nullable().optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutCampaign(input.id),
+          "Lead scout campaign not found",
+        );
+        const { id, ...patch } = input;
+        return getDb().updateLeadScoutCampaign(id, patch);
+      }),
+    deleteCampaign: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutCampaign(input.id),
+          "Lead scout campaign not found",
+        );
+        return getDb().deleteLeadScoutCampaign(input.id);
+      }),
+    setCampaignSchedule: protectedProcedure
+      .input(z.object({ id: z.string(), cronExpression: z.string().nullable() }))
+      .mutation(async ({ input, ctx }) => {
+        const campaign = await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutCampaign(input.id),
+          "Lead scout campaign not found",
+        );
+        if (input.cronExpression === null) {
+          return getDb().updateLeadScoutCampaign(input.id, {
+            scheduleEnabled: false,
+            scheduleCronExpression: null,
+            nextScanAt: null,
+          });
+        }
+        if (campaign.provider === "manual_csv") {
+          throw new Error(
+            "manual_csv campaigns can't run on a schedule — there's no CSV to read automatically.",
+          );
+        }
+        const nextScanAt = computeNextRunAt(input.cronExpression, new Date());
+        if (!nextScanAt)
+          throw new Error(`"${input.cronExpression}" is not a valid cron expression.`);
+        return getDb().updateLeadScoutCampaign(input.id, {
+          scheduleEnabled: true,
+          scheduleCronExpression: input.cronExpression,
+          nextScanAt,
+        });
+      }),
+
+    listSourceConfigs: workspaceProcedure
+      .input(z.object({ workspaceId: z.string() }))
+      .query(async ({ input }) => {
+        const configs = await getDb().listLeadScoutSourceConfigsByWorkspace(input.workspaceId);
+        return configs.map(toClientSafeLeadScoutSourceConfig);
+      }),
+    upsertSourceConfig: workspaceProcedure
+      .input(
+        z.object({
+          workspaceId: z.string(),
+          provider: z.enum(["manual_csv", "google_places_api", "osm_overpass", "custom_api"]),
+          config: z.record(z.string(), z.unknown()).optional(),
+          apiKey: z.string().nullable().optional(),
+          enabled: z.boolean().optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const record = await getDb().upsertLeadScoutSourceConfig(input);
+        await logAudit({
+          workspaceId: input.workspaceId,
+          actor: "extension",
+          toolLabel: "local_lead_scout.source_config.update",
+          input: { provider: input.provider },
+          output: { hasApiKey: Boolean(input.apiKey) },
+          status: "success",
+        });
+        return toClientSafeLeadScoutSourceConfig(record);
+      }),
+
+    runScan: protectedProcedure
+      .input(z.object({ campaignId: z.string(), csvText: z.string().optional() }))
+      .mutation(async ({ input, ctx }) => {
+        await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutCampaign(input.campaignId),
+          "Lead scout campaign not found",
+        );
+        return runLeadScoutScan(input.campaignId, { csvText: input.csvText });
+      }),
+    listScanRuns: protectedProcedure
+      .input(z.object({ campaignId: z.string() }))
+      .query(async ({ input, ctx }) => {
+        await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutCampaign(input.campaignId),
+          "Lead scout campaign not found",
+        );
+        return getDb().listLeadScoutScanRunsByCampaign(input.campaignId);
+      }),
+
+    listLeads: protectedProcedure
+      .input(z.object({ campaignId: z.string() }))
+      .query(async ({ input, ctx }) => {
+        await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutCampaign(input.campaignId),
+          "Lead scout campaign not found",
+        );
+        return getDb().listLeadScoutLeadsByCampaign(input.campaignId);
+      }),
+    getLead: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .query(async ({ input, ctx }) => {
+        return requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutLead(input.id),
+          "Lead not found",
+        );
+      }),
+    markLeadReviewed: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutLead(input.id),
+          "Lead not found",
+        );
+        await markLeadScoutLeadReviewed(input.id);
+        return getDb().getLeadScoutLead(input.id);
+      }),
+    resetLeadForResend: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutLead(input.id),
+          "Lead not found",
+        );
+        return resetLeadScoutLeadForResend(input.id);
+      }),
+
+    listPrototypes: protectedProcedure
+      .input(z.object({ leadId: z.string() }))
+      .query(async ({ input, ctx }) => {
+        await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutLead(input.leadId),
+          "Lead not found",
+        );
+        return getDb().listLeadScoutPrototypesByLead(input.leadId);
+      }),
+    generatePrototype: protectedProcedure
+      .input(z.object({ leadId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutLead(input.leadId),
+          "Lead not found",
+        );
+        return dispatchLeadScoutPrototype(input.leadId);
+      }),
+    approvePrototype: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutPrototype(input.id),
+          "Prototype not found",
+        );
+        return approveLeadScoutPrototype(input.id);
+      }),
+
+    listDrafts: protectedProcedure
+      .input(z.object({ leadId: z.string() }))
+      .query(async ({ input, ctx }) => {
+        await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutLead(input.leadId),
+          "Lead not found",
+        );
+        return getDb().listLeadScoutOutreachDraftsByLead(input.leadId);
+      }),
+    generateDraft: protectedProcedure
+      .input(z.object({ leadId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutLead(input.leadId),
+          "Lead not found",
+        );
+        return dispatchLeadScoutEmailDraft(input.leadId);
+      }),
+    approveDraft: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutOutreachDraft(input.id),
+          "Outreach draft not found",
+        );
+        return approveLeadScoutOutreachDraft(input.id);
+      }),
+    rejectDraft: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutOutreachDraft(input.id),
+          "Outreach draft not found",
+        );
+        return rejectLeadScoutOutreachDraft(input.id);
+      }),
+    sendDraft: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await requireEntityWorkspaceOwner(
+          ctx.user.id,
+          () => getDb().getLeadScoutOutreachDraft(input.id),
+          "Outreach draft not found",
+        );
+        return sendLeadScoutOutreachDraft(input.id);
+      }),
+
+    listSuppressions: workspaceProcedure
+      .input(z.object({ workspaceId: z.string() }))
+      .query(({ input }) => getDb().listLeadScoutSuppressionsByWorkspace(input.workspaceId)),
+    addSuppression: workspaceProcedure
+      .input(
+        z.object({
+          workspaceId: z.string(),
+          email: z.string().email().nullable().optional(),
+          domain: z.string().nullable().optional(),
+          reason: z.string().min(1),
+        }),
+      )
+      .mutation(({ input }) => addLeadScoutSuppression(input)),
+
+    getEmailSettings: workspaceProcedure
+      .input(z.object({ workspaceId: z.string() }))
+      .query(async ({ input }) => {
+        const settings = await getLeadScoutEmailSettings(input.workspaceId);
+        return settings ? toClientSafeLeadScoutEmailSettings(settings) : null;
+      }),
+    upsertEmailSettings: workspaceProcedure
+      .input(
+        z.object({
+          workspaceId: z.string(),
+          provider: z.enum(["smtp", "resend", "mailgun", "custom"]).optional(),
+          fromName: z.string().min(1),
+          fromEmail: z.string().email(),
+          replyTo: z.string().email().nullable().optional(),
+          credentials: z.record(z.string(), z.string()).nullable().optional(),
+          dailySendLimit: z.number().int().min(0).max(1000).optional(),
+          perCampaignSendLimit: z.number().int().min(0).max(1000).optional(),
+          dryRunMode: z.boolean().optional(),
+          legalFooter: z.string().nullable().optional(),
+          unsubscribeText: z.string().min(1).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const { workspaceId, ...rest } = input;
+        const settings = await upsertLeadScoutEmailSettings(workspaceId, rest);
+        return toClientSafeLeadScoutEmailSettings(settings);
+      }),
+    testEmailConnection: workspaceProcedure
+      .input(z.object({ workspaceId: z.string() }))
+      .mutation(({ input }) => testLeadScoutEmailConnection(input.workspaceId)),
+    sendTestEmail: workspaceProcedure
+      .input(z.object({ workspaceId: z.string(), toEmail: z.string().email() }))
+      .mutation(({ input }) => sendLeadScoutTestEmail(input.workspaceId, input.toEmail)),
   }),
 
   automations: router({

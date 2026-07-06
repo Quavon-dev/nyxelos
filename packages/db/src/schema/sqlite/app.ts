@@ -87,6 +87,36 @@ export type SeoAnalysisRunStatus = "running" | "completed" | "failed";
 export type SeoFindingCategory = "seo" | "geo" | "aeo";
 export type SeoFindingSeverity = "info" | "warning" | "critical";
 export type SeoBlogPostStatus = "suggested" | "generating" | "written" | "failed";
+
+// Local Lead Scout (see ../pg/app.ts for the full rationale on each type).
+export type LeadScoutProvider = "manual_csv" | "google_places_api" | "osm_overpass" | "custom_api";
+export type LeadScoutOutreachMode = "draft_only" | "review_and_send";
+export type LeadScoutWebsiteStatus =
+  | "unknown"
+  | "has_website"
+  | "missing_website"
+  | "invalid_website";
+export type LeadScoutLeadStatus =
+  | "new"
+  | "reviewed"
+  | "prototype_requested"
+  | "prototype_ready"
+  | "email_drafted"
+  | "approved_to_send"
+  | "sending"
+  | "sent"
+  | "rejected"
+  | "suppressed";
+export type LeadScoutScanRunStatus = "running" | "completed" | "failed";
+export type LeadScoutPrototypeStatus = "pending" | "ready" | "failed";
+export type LeadScoutDraftStatus =
+  | "draft"
+  | "approved"
+  | "rejected"
+  | "sending"
+  | "sent"
+  | "failed";
+export type LeadScoutEmailProvider = "smtp" | "resend" | "mailgun" | "custom";
 export type AgentRunStatus =
   | "pending"
   | "running"
@@ -925,6 +955,225 @@ export const seoBlogPost = sqliteTable("seo_blog_post", {
   status: text("status").notNull().default("suggested").$type<SeoBlogPostStatus>(),
   taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
   errorMessage: text("error_message"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+/** See ../pg/app.ts. */
+export const leadScoutCampaign = sqliteTable("lead_scout_campaign", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  extensionId: text("extension_id")
+    .notNull()
+    .references(() => extension.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  postalCode: text("postal_code").notNull(),
+  country: text("country").notNull().default("US"),
+  radiusKm: real("radius_km").notNull().default(10),
+  niches: text("niches", { mode: "json" }).notNull().default([]).$type<string[]>(),
+  maxResultsPerRun: integer("max_results_per_run").notNull().default(25),
+  provider: text("provider").notNull().$type<LeadScoutProvider>(),
+  minConfidence: integer("min_confidence").notNull().default(50),
+  outreachMode: text("outreach_mode")
+    .notNull()
+    .default("draft_only")
+    .$type<LeadScoutOutreachMode>(),
+  scheduleEnabled: integer("schedule_enabled", { mode: "boolean" }).notNull().default(false),
+  scheduleCronExpression: text("schedule_cron_expression"),
+  nextScanAt: integer("next_scan_at", { mode: "timestamp" }),
+  lastScanAt: integer("last_scan_at", { mode: "timestamp" }),
+  autoGeneratePrototype: integer("auto_generate_prototype", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  autoDraftEmail: integer("auto_draft_email", { mode: "boolean" }).notNull().default(false),
+  autoSendAfterApproval: integer("auto_send_after_approval", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  requireApprovalBeforePrototype: integer("require_approval_before_prototype", {
+    mode: "boolean",
+  })
+    .notNull()
+    .default(true),
+  requireApprovalBeforeEmailSend: integer("require_approval_before_email_send", {
+    mode: "boolean",
+  })
+    .notNull()
+    .default(true),
+  prototypeAgentId: text("prototype_agent_id").references(() => agent.id, {
+    onDelete: "set null",
+  }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+/** See ../pg/app.ts. */
+export const leadScoutSourceConfig = sqliteTable(
+  "lead_scout_source_config",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull().$type<LeadScoutProvider>(),
+    config: text("config", { mode: "json" }).notNull().default({}).$type<Record<string, unknown>>(),
+    apiKey: text("api_key"),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("lead_scout_source_config_workspace_provider_idx").on(
+      table.workspaceId,
+      table.provider,
+    ),
+  ],
+);
+
+/** See ../pg/app.ts. */
+export const leadScoutScanRun = sqliteTable("lead_scout_scan_run", {
+  id: text("id").primaryKey(),
+  campaignId: text("campaign_id")
+    .notNull()
+    .references(() => leadScoutCampaign.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull().$type<LeadScoutProvider>(),
+  status: text("status").notNull().default("running").$type<LeadScoutScanRunStatus>(),
+  resultCount: integer("result_count").notNull().default(0),
+  newLeadCount: integer("new_lead_count").notNull().default(0),
+  missingWebsiteCount: integer("missing_website_count").notNull().default(0),
+  summary: text("summary"),
+  errorMessage: text("error_message"),
+  startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+});
+
+/** See ../pg/app.ts. */
+export const leadScoutLead = sqliteTable(
+  "lead_scout_lead",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    campaignId: text("campaign_id")
+      .notNull()
+      .references(() => leadScoutCampaign.id, { onDelete: "cascade" }),
+    scanRunId: text("scan_run_id").references(() => leadScoutScanRun.id, {
+      onDelete: "set null",
+    }),
+    sourceProvider: text("source_provider").notNull().$type<LeadScoutProvider>(),
+    sourceId: text("source_id").notNull(),
+    businessName: text("business_name").notNull(),
+    category: text("category"),
+    niche: text("niche"),
+    formattedAddress: text("formatted_address"),
+    postalCode: text("postal_code"),
+    city: text("city"),
+    phone: text("phone"),
+    email: text("email"),
+    website: text("website"),
+    websiteStatus: text("website_status")
+      .notNull()
+      .default("unknown")
+      .$type<LeadScoutWebsiteStatus>(),
+    confidence: integer("confidence").notNull().default(0),
+    evidenceSummary: text("evidence_summary"),
+    missingReason: text("missing_reason"),
+    status: text("status").notNull().default("new").$type<LeadScoutLeadStatus>(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("lead_scout_lead_campaign_source_idx").on(
+      table.campaignId,
+      table.sourceProvider,
+      table.sourceId,
+    ),
+  ],
+);
+
+/** See ../pg/app.ts. */
+export const leadScoutPrototype = sqliteTable("lead_scout_prototype", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  leadId: text("lead_id")
+    .notNull()
+    .references(() => leadScoutLead.id, { onDelete: "cascade" }),
+  taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
+  status: text("status").notNull().default("pending").$type<LeadScoutPrototypeStatus>(),
+  concept: text("concept"),
+  heroCopy: text("hero_copy"),
+  sections: text("sections", { mode: "json" }).notNull().default([]).$type<string[]>(),
+  callToAction: text("call_to_action"),
+  styleDirection: text("style_direction"),
+  artifactMarkdown: text("artifact_markdown"),
+  approved: integer("approved", { mode: "boolean" }).notNull().default(false),
+  errorMessage: text("error_message"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+/** See ../pg/app.ts. */
+export const leadScoutOutreachDraft = sqliteTable("lead_scout_outreach_draft", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  leadId: text("lead_id")
+    .notNull()
+    .references(() => leadScoutLead.id, { onDelete: "cascade" }),
+  prototypeId: text("prototype_id").references(() => leadScoutPrototype.id, {
+    onDelete: "set null",
+  }),
+  taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
+  subject: text("subject"),
+  bodyText: text("body_text"),
+  bodyHtml: text("body_html"),
+  status: text("status").notNull().default("draft").$type<LeadScoutDraftStatus>(),
+  errorMessage: text("error_message"),
+  approvedAt: integer("approved_at", { mode: "timestamp" }),
+  sentAt: integer("sent_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+/** See ../pg/app.ts. */
+export const leadScoutSuppression = sqliteTable("lead_scout_suppression", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  email: text("email"),
+  domain: text("domain"),
+  reason: text("reason").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+/** See ../pg/app.ts. */
+export const leadScoutEmailSettings = sqliteTable("lead_scout_email_settings", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .unique()
+    .references(() => workspace.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull().default("smtp").$type<LeadScoutEmailProvider>(),
+  fromName: text("from_name").notNull(),
+  fromEmail: text("from_email").notNull(),
+  replyTo: text("reply_to"),
+  credentials: text("credentials"),
+  dailySendLimit: integer("daily_send_limit").notNull().default(20),
+  perCampaignSendLimit: integer("per_campaign_send_limit").notNull().default(10),
+  dryRunMode: integer("dry_run_mode", { mode: "boolean" }).notNull().default(true),
+  legalFooter: text("legal_footer"),
+  unsubscribeText: text("unsubscribe_text").notNull().default("Reply STOP to opt out."),
+  sendCountToday: integer("send_count_today").notNull().default(0),
+  sendCountDate: text("send_count_date"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });

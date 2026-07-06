@@ -1061,6 +1061,179 @@ export type SeoBlogPostSummary = {
   updatedAt: Date;
 };
 
+export type LeadScoutProvider = "manual_csv" | "google_places_api" | "osm_overpass" | "custom_api";
+export type LeadScoutOutreachMode = "draft_only" | "review_and_send";
+export type LeadScoutWebsiteStatus =
+  | "unknown"
+  | "has_website"
+  | "missing_website"
+  | "invalid_website";
+export type LeadScoutLeadStatus =
+  | "new"
+  | "reviewed"
+  | "prototype_requested"
+  | "prototype_ready"
+  | "email_drafted"
+  | "approved_to_send"
+  | "sending"
+  | "sent"
+  | "rejected"
+  | "suppressed";
+export type LeadScoutScanRunStatus = "running" | "completed" | "failed";
+export type LeadScoutPrototypeStatus = "pending" | "ready" | "failed";
+export type LeadScoutDraftStatus =
+  | "draft"
+  | "approved"
+  | "rejected"
+  | "sending"
+  | "sent"
+  | "failed";
+export type LeadScoutEmailProvider = "smtp" | "resend" | "mailgun" | "custom";
+
+export type LeadScoutCampaignSummary = {
+  id: string;
+  workspaceId: string;
+  extensionId: string;
+  name: string;
+  postalCode: string;
+  country: string;
+  radiusKm: number;
+  niches: string[];
+  maxResultsPerRun: number;
+  provider: LeadScoutProvider;
+  minConfidence: number;
+  outreachMode: LeadScoutOutreachMode;
+  scheduleEnabled: boolean;
+  scheduleCronExpression: string | null;
+  nextScanAt: Date | null;
+  lastScanAt: Date | null;
+  autoGeneratePrototype: boolean;
+  autoDraftEmail: boolean;
+  autoSendAfterApproval: boolean;
+  requireApprovalBeforePrototype: boolean;
+  requireApprovalBeforeEmailSend: boolean;
+  prototypeAgentId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+// The raw apiKey never leaves the server — hasApiKey is all the UI needs.
+export type LeadScoutSourceConfigSummary = {
+  id: string;
+  workspaceId: string;
+  provider: LeadScoutProvider;
+  config: Record<string, unknown>;
+  hasApiKey: boolean;
+  enabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type LeadScoutScanRunSummary = {
+  id: string;
+  campaignId: string;
+  workspaceId: string;
+  provider: LeadScoutProvider;
+  status: LeadScoutScanRunStatus;
+  resultCount: number;
+  newLeadCount: number;
+  missingWebsiteCount: number;
+  summary: string | null;
+  errorMessage: string | null;
+  startedAt: Date;
+  completedAt: Date | null;
+};
+
+export type LeadScoutLeadSummary = {
+  id: string;
+  workspaceId: string;
+  campaignId: string;
+  scanRunId: string | null;
+  sourceProvider: LeadScoutProvider;
+  sourceId: string;
+  businessName: string;
+  category: string | null;
+  niche: string | null;
+  formattedAddress: string | null;
+  postalCode: string | null;
+  city: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  websiteStatus: LeadScoutWebsiteStatus;
+  confidence: number;
+  evidenceSummary: string | null;
+  missingReason: string | null;
+  status: LeadScoutLeadStatus;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type LeadScoutPrototypeSummary = {
+  id: string;
+  workspaceId: string;
+  leadId: string;
+  taskId: string | null;
+  status: LeadScoutPrototypeStatus;
+  concept: string | null;
+  heroCopy: string | null;
+  sections: string[];
+  callToAction: string | null;
+  styleDirection: string | null;
+  artifactMarkdown: string | null;
+  approved: boolean;
+  errorMessage: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type LeadScoutOutreachDraftSummary = {
+  id: string;
+  workspaceId: string;
+  leadId: string;
+  prototypeId: string | null;
+  taskId: string | null;
+  subject: string | null;
+  bodyText: string | null;
+  bodyHtml: string | null;
+  status: LeadScoutDraftStatus;
+  errorMessage: string | null;
+  approvedAt: Date | null;
+  sentAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type LeadScoutSuppressionSummary = {
+  id: string;
+  workspaceId: string;
+  email: string | null;
+  domain: string | null;
+  reason: string;
+  createdAt: Date;
+};
+
+// The raw credentials blob never leaves the server — hasCredentials is all
+// the UI needs (same convention as LeadScoutSourceConfigSummary.hasApiKey).
+export type LeadScoutEmailSettingsSummary = {
+  id: string;
+  workspaceId: string;
+  provider: LeadScoutEmailProvider;
+  fromName: string;
+  fromEmail: string;
+  replyTo: string | null;
+  hasCredentials: boolean;
+  dailySendLimit: number;
+  perCampaignSendLimit: number;
+  dryRunMode: boolean;
+  legalFooter: string | null;
+  unsubscribeText: string;
+  sendCountToday: number;
+  sendCountDate: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 // The raw obsidianApiKey never leaves the server (SECURITY_AUDIT.md SEC-01) —
 // both knowledgeBase.overview and knowledgeBase.updateConfig return
 // `obsidianApiKeySet` instead; the UI only needs "configured"/"not configured".
@@ -1934,6 +2107,146 @@ type NyxelTrpcClient = {
     };
     generateBlogPost: {
       mutate(input: { seoProjectId: string; keyword: string }): Promise<SeoBlogPostSummary>;
+    };
+  };
+  leadScout: {
+    listCampaigns: {
+      query(input: { workspaceId: string }): Promise<LeadScoutCampaignSummary[]>;
+    };
+    createCampaign: {
+      mutate(input: {
+        workspaceId: string;
+        name: string;
+        postalCode: string;
+        country?: string;
+        radiusKm?: number;
+        niches?: string[];
+        maxResultsPerRun?: number;
+        provider: LeadScoutProvider;
+        minConfidence?: number;
+        outreachMode?: LeadScoutOutreachMode;
+      }): Promise<LeadScoutCampaignSummary>;
+    };
+    updateCampaign: {
+      mutate(input: {
+        id: string;
+        name?: string;
+        postalCode?: string;
+        country?: string;
+        radiusKm?: number;
+        niches?: string[];
+        maxResultsPerRun?: number;
+        provider?: LeadScoutProvider;
+        minConfidence?: number;
+        outreachMode?: LeadScoutOutreachMode;
+        autoGeneratePrototype?: boolean;
+        autoDraftEmail?: boolean;
+        autoSendAfterApproval?: boolean;
+        requireApprovalBeforePrototype?: boolean;
+        requireApprovalBeforeEmailSend?: boolean;
+        prototypeAgentId?: string | null;
+      }): Promise<LeadScoutCampaignSummary>;
+    };
+    deleteCampaign: {
+      mutate(input: { id: string }): Promise<void>;
+    };
+    setCampaignSchedule: {
+      mutate(input: {
+        id: string;
+        cronExpression: string | null;
+      }): Promise<LeadScoutCampaignSummary>;
+    };
+    listSourceConfigs: {
+      query(input: { workspaceId: string }): Promise<LeadScoutSourceConfigSummary[]>;
+    };
+    upsertSourceConfig: {
+      mutate(input: {
+        workspaceId: string;
+        provider: LeadScoutProvider;
+        config?: Record<string, unknown>;
+        apiKey?: string | null;
+        enabled?: boolean;
+      }): Promise<LeadScoutSourceConfigSummary>;
+    };
+    runScan: {
+      mutate(input: { campaignId: string; csvText?: string }): Promise<LeadScoutScanRunSummary>;
+    };
+    listScanRuns: {
+      query(input: { campaignId: string }): Promise<LeadScoutScanRunSummary[]>;
+    };
+    listLeads: {
+      query(input: { campaignId: string }): Promise<LeadScoutLeadSummary[]>;
+    };
+    getLead: {
+      query(input: { id: string }): Promise<LeadScoutLeadSummary>;
+    };
+    markLeadReviewed: {
+      mutate(input: { id: string }): Promise<LeadScoutLeadSummary | null>;
+    };
+    resetLeadForResend: {
+      mutate(input: { id: string }): Promise<LeadScoutLeadSummary>;
+    };
+    listPrototypes: {
+      query(input: { leadId: string }): Promise<LeadScoutPrototypeSummary[]>;
+    };
+    generatePrototype: {
+      mutate(input: { leadId: string }): Promise<LeadScoutPrototypeSummary>;
+    };
+    approvePrototype: {
+      mutate(input: { id: string }): Promise<LeadScoutPrototypeSummary>;
+    };
+    listDrafts: {
+      query(input: { leadId: string }): Promise<LeadScoutOutreachDraftSummary[]>;
+    };
+    generateDraft: {
+      mutate(input: { leadId: string }): Promise<LeadScoutOutreachDraftSummary>;
+    };
+    approveDraft: {
+      mutate(input: { id: string }): Promise<LeadScoutOutreachDraftSummary>;
+    };
+    rejectDraft: {
+      mutate(input: { id: string }): Promise<LeadScoutOutreachDraftSummary>;
+    };
+    sendDraft: {
+      mutate(input: { id: string }): Promise<LeadScoutOutreachDraftSummary>;
+    };
+    listSuppressions: {
+      query(input: { workspaceId: string }): Promise<LeadScoutSuppressionSummary[]>;
+    };
+    addSuppression: {
+      mutate(input: {
+        workspaceId: string;
+        email?: string | null;
+        domain?: string | null;
+        reason: string;
+      }): Promise<LeadScoutSuppressionSummary>;
+    };
+    getEmailSettings: {
+      query(input: { workspaceId: string }): Promise<LeadScoutEmailSettingsSummary | null>;
+    };
+    upsertEmailSettings: {
+      mutate(input: {
+        workspaceId: string;
+        provider?: LeadScoutEmailProvider;
+        fromName: string;
+        fromEmail: string;
+        replyTo?: string | null;
+        credentials?: Record<string, string> | null;
+        dailySendLimit?: number;
+        perCampaignSendLimit?: number;
+        dryRunMode?: boolean;
+        legalFooter?: string | null;
+        unsubscribeText?: string;
+      }): Promise<LeadScoutEmailSettingsSummary>;
+    };
+    testEmailConnection: {
+      mutate(input: { workspaceId: string }): Promise<{ ok: boolean; message: string }>;
+    };
+    sendTestEmail: {
+      mutate(input: {
+        workspaceId: string;
+        toEmail: string;
+      }): Promise<{ sent: boolean; dryRun: boolean }>;
     };
   };
   automations: {

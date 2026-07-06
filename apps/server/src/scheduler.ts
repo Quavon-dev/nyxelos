@@ -8,6 +8,7 @@ import { logAudit } from "./audit";
 import { emitNyxelEvent } from "./event-bus";
 import { NyxelEvent } from "./events";
 import { reviewDueGoals } from "./goal-orchestrator";
+import { runLeadScoutScan } from "./lead-scout";
 import { notifyWorkspaceOwner } from "./push";
 import { runSeoAnalysis } from "./seo-analyzer";
 import { runWorkflowAndWait } from "./workflow-runner";
@@ -375,6 +376,47 @@ async function checkDueSeoProjects(): Promise<void> {
 }
 
 /**
+ * Checks every Local Lead Scout campaign with scheduling enabled whose
+ * nextScanAt has passed and runs its scan — same rationale as
+ * checkDueSeoProjects (a scan isn't an agent chat turn, so it's polled here
+ * rather than through the automation table). manual_csv campaigns can't run
+ * unattended (a scan needs freshly uploaded CSV text each time), so those
+ * are skipped even if scheduling was left on for one — the UI disables
+ * enabling a schedule for manual_csv campaigns, but a campaign switched to
+ * manual_csv after scheduling was enabled would otherwise be stuck retrying
+ * forever.
+ */
+async function checkDueLeadScoutCampaigns(): Promise<void> {
+  const db = getDb();
+  let due: Awaited<ReturnType<typeof db.listDueLeadScoutCampaigns>>;
+  try {
+    due = await db.listDueLeadScoutCampaigns(new Date());
+  } catch (err) {
+    console.error("Scheduler: failed to query due lead scout campaigns:", err);
+    return;
+  }
+  for (const campaign of due) {
+    if (campaign.provider === "manual_csv") {
+      await db.updateLeadScoutCampaign(campaign.id, { scheduleEnabled: false });
+      continue;
+    }
+    try {
+      await runLeadScoutScan(campaign.id);
+      const now = new Date();
+      const nextScanAt = campaign.scheduleCronExpression
+        ? computeNextRunAt(campaign.scheduleCronExpression, now)
+        : null;
+      await db.updateLeadScoutCampaign(campaign.id, { nextScanAt });
+    } catch (err) {
+      console.error(
+        `Scheduler: lead scout scan for "${campaign.name}" (${campaign.id}) failed:`,
+        err,
+      );
+    }
+  }
+}
+
+/**
  * Recovers agent runs left stuck in "running" by a process that died or
  * restarted before it could mark them cancelled/completed/failed itself —
  * see apps/server/src/agent-runtime.ts's lease/heartbeat mechanism. A run
@@ -484,6 +526,7 @@ export function startScheduler(): () => void {
 
     await checkFileWatchAutomations();
     await checkDueSeoProjects();
+    await checkDueLeadScoutCampaigns();
     await checkGoalsForReview();
     await checkStaleAgentRuns();
   }, POLL_INTERVAL_MS);

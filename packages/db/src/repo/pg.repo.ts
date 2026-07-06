@@ -2551,5 +2551,475 @@ export function createPgRepository(connectionString: string): DbRepository {
       if (!row) throw new Error(`SEO blog post not found: ${id}`);
       return row;
     },
+
+    async createLeadScoutCampaign({
+      workspaceId,
+      extensionId,
+      name,
+      postalCode,
+      country,
+      radiusKm,
+      niches,
+      maxResultsPerRun,
+      provider,
+      minConfidence,
+      outreachMode,
+    }) {
+      const [row] = await db
+        .insert(schema.leadScoutCampaign)
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          extensionId,
+          name,
+          postalCode,
+          ...(country !== undefined ? { country } : {}),
+          ...(radiusKm !== undefined ? { radiusKm } : {}),
+          ...(niches !== undefined ? { niches } : {}),
+          ...(maxResultsPerRun !== undefined ? { maxResultsPerRun } : {}),
+          provider,
+          ...(minConfidence !== undefined ? { minConfidence } : {}),
+          ...(outreachMode !== undefined ? { outreachMode } : {}),
+        })
+        .returning();
+      if (!row) throw new Error("Failed to create lead scout campaign");
+      return row;
+    },
+
+    async listLeadScoutCampaignsByWorkspace(workspaceId) {
+      return db
+        .select()
+        .from(schema.leadScoutCampaign)
+        .where(eq(schema.leadScoutCampaign.workspaceId, workspaceId))
+        .orderBy(desc(schema.leadScoutCampaign.createdAt));
+    },
+
+    async getLeadScoutCampaign(id) {
+      const row = await db.query.leadScoutCampaign.findFirst({
+        where: eq(schema.leadScoutCampaign.id, id),
+      });
+      return row ?? null;
+    },
+
+    async updateLeadScoutCampaign(id, patch) {
+      const [row] = await db
+        .update(schema.leadScoutCampaign)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(eq(schema.leadScoutCampaign.id, id))
+        .returning();
+      if (!row) throw new Error(`Lead scout campaign not found: ${id}`);
+      return row;
+    },
+
+    async deleteLeadScoutCampaign(id) {
+      await db.delete(schema.leadScoutCampaign).where(eq(schema.leadScoutCampaign.id, id));
+    },
+
+    async listDueLeadScoutCampaigns(now) {
+      return db
+        .select()
+        .from(schema.leadScoutCampaign)
+        .where(
+          and(
+            eq(schema.leadScoutCampaign.scheduleEnabled, true),
+            isNotNull(schema.leadScoutCampaign.nextScanAt),
+            lte(schema.leadScoutCampaign.nextScanAt, now),
+          ),
+        );
+    },
+
+    async upsertLeadScoutSourceConfig({ workspaceId, provider, config, apiKey, enabled }) {
+      const existing = await db.query.leadScoutSourceConfig.findFirst({
+        where: and(
+          eq(schema.leadScoutSourceConfig.workspaceId, workspaceId),
+          eq(schema.leadScoutSourceConfig.provider, provider),
+        ),
+      });
+
+      if (existing) {
+        const [row] = await db
+          .update(schema.leadScoutSourceConfig)
+          .set({
+            ...(config !== undefined ? { config } : {}),
+            ...(apiKey !== undefined ? { apiKey: encryptNullable(apiKey) } : {}),
+            ...(enabled !== undefined ? { enabled } : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.leadScoutSourceConfig.id, existing.id))
+          .returning();
+        if (!row) throw new Error(`Lead scout source config not found: ${existing.id}`);
+        return { ...row, apiKey: decryptNullable(row.apiKey) };
+      }
+
+      const [row] = await db
+        .insert(schema.leadScoutSourceConfig)
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          provider,
+          config: config ?? {},
+          apiKey: encryptNullable(apiKey ?? null),
+          enabled: enabled ?? true,
+        })
+        .returning();
+      if (!row) throw new Error("Failed to create lead scout source config");
+      return { ...row, apiKey: decryptNullable(row.apiKey) };
+    },
+
+    async listLeadScoutSourceConfigsByWorkspace(workspaceId) {
+      const rows = await db
+        .select()
+        .from(schema.leadScoutSourceConfig)
+        .where(eq(schema.leadScoutSourceConfig.workspaceId, workspaceId));
+      return rows.map((row) => ({ ...row, apiKey: decryptNullable(row.apiKey) }));
+    },
+
+    async getLeadScoutSourceConfig(workspaceId, provider) {
+      const row = await db.query.leadScoutSourceConfig.findFirst({
+        where: and(
+          eq(schema.leadScoutSourceConfig.workspaceId, workspaceId),
+          eq(schema.leadScoutSourceConfig.provider, provider),
+        ),
+      });
+      return row ? { ...row, apiKey: decryptNullable(row.apiKey) } : null;
+    },
+
+    async createLeadScoutScanRun({ campaignId, workspaceId, provider }) {
+      const [row] = await db
+        .insert(schema.leadScoutScanRun)
+        .values({ id: randomUUID(), campaignId, workspaceId, provider })
+        .returning();
+      if (!row) throw new Error("Failed to create lead scout scan run");
+      return row;
+    },
+
+    async getLeadScoutScanRun(id) {
+      const row = await db.query.leadScoutScanRun.findFirst({
+        where: eq(schema.leadScoutScanRun.id, id),
+      });
+      return row ?? null;
+    },
+
+    async listLeadScoutScanRunsByCampaign(campaignId) {
+      return db
+        .select()
+        .from(schema.leadScoutScanRun)
+        .where(eq(schema.leadScoutScanRun.campaignId, campaignId))
+        .orderBy(desc(schema.leadScoutScanRun.startedAt));
+    },
+
+    async updateLeadScoutScanRun(id, patch) {
+      const [row] = await db
+        .update(schema.leadScoutScanRun)
+        .set(patch)
+        .where(eq(schema.leadScoutScanRun.id, id))
+        .returning();
+      if (!row) throw new Error(`Lead scout scan run not found: ${id}`);
+      return row;
+    },
+
+    async createLeadScoutLead({
+      workspaceId,
+      campaignId,
+      scanRunId,
+      sourceProvider,
+      sourceId,
+      businessName,
+      category,
+      niche,
+      formattedAddress,
+      postalCode,
+      city,
+      phone,
+      email,
+      website,
+      websiteStatus,
+      confidence,
+      evidenceSummary,
+      missingReason,
+    }) {
+      const [row] = await db
+        .insert(schema.leadScoutLead)
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          campaignId,
+          scanRunId: scanRunId ?? null,
+          sourceProvider,
+          sourceId,
+          businessName,
+          category: category ?? null,
+          niche: niche ?? null,
+          formattedAddress: formattedAddress ?? null,
+          postalCode: postalCode ?? null,
+          city: city ?? null,
+          phone: phone ?? null,
+          email: email ?? null,
+          website: website ?? null,
+          ...(websiteStatus !== undefined ? { websiteStatus } : {}),
+          ...(confidence !== undefined ? { confidence } : {}),
+          evidenceSummary: evidenceSummary ?? null,
+          missingReason: missingReason ?? null,
+        })
+        .returning();
+      if (!row) throw new Error("Failed to create lead scout lead");
+      return row;
+    },
+
+    async getLeadScoutLeadBySource(campaignId, sourceProvider, sourceId) {
+      const row = await db.query.leadScoutLead.findFirst({
+        where: and(
+          eq(schema.leadScoutLead.campaignId, campaignId),
+          eq(schema.leadScoutLead.sourceProvider, sourceProvider),
+          eq(schema.leadScoutLead.sourceId, sourceId),
+        ),
+      });
+      return row ?? null;
+    },
+
+    async listLeadScoutLeadsByCampaign(campaignId) {
+      return db
+        .select()
+        .from(schema.leadScoutLead)
+        .where(eq(schema.leadScoutLead.campaignId, campaignId))
+        .orderBy(desc(schema.leadScoutLead.createdAt));
+    },
+
+    async getLeadScoutLead(id) {
+      const row = await db.query.leadScoutLead.findFirst({
+        where: eq(schema.leadScoutLead.id, id),
+      });
+      return row ?? null;
+    },
+
+    async updateLeadScoutLead(id, patch) {
+      const [row] = await db
+        .update(schema.leadScoutLead)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(eq(schema.leadScoutLead.id, id))
+        .returning();
+      if (!row) throw new Error(`Lead scout lead not found: ${id}`);
+      return row;
+    },
+
+    async claimLeadScoutLeadStatus({ id, fromStatus, toStatus }) {
+      const [row] = await db
+        .update(schema.leadScoutLead)
+        .set({ status: toStatus, updatedAt: new Date() })
+        .where(and(eq(schema.leadScoutLead.id, id), eq(schema.leadScoutLead.status, fromStatus)))
+        .returning();
+      return row ?? null;
+    },
+
+    async createLeadScoutPrototype({ workspaceId, leadId, taskId }) {
+      const [row] = await db
+        .insert(schema.leadScoutPrototype)
+        .values({ id: randomUUID(), workspaceId, leadId, taskId: taskId ?? null })
+        .returning();
+      if (!row) throw new Error("Failed to create lead scout prototype");
+      return row;
+    },
+
+    async getLeadScoutPrototype(id) {
+      const row = await db.query.leadScoutPrototype.findFirst({
+        where: eq(schema.leadScoutPrototype.id, id),
+      });
+      return row ?? null;
+    },
+
+    async listLeadScoutPrototypesByLead(leadId) {
+      return db
+        .select()
+        .from(schema.leadScoutPrototype)
+        .where(eq(schema.leadScoutPrototype.leadId, leadId))
+        .orderBy(desc(schema.leadScoutPrototype.createdAt));
+    },
+
+    async updateLeadScoutPrototype(id, patch) {
+      const [row] = await db
+        .update(schema.leadScoutPrototype)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(eq(schema.leadScoutPrototype.id, id))
+        .returning();
+      if (!row) throw new Error(`Lead scout prototype not found: ${id}`);
+      return row;
+    },
+
+    async createLeadScoutOutreachDraft({ workspaceId, leadId, prototypeId, taskId }) {
+      const [row] = await db
+        .insert(schema.leadScoutOutreachDraft)
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          leadId,
+          prototypeId: prototypeId ?? null,
+          taskId: taskId ?? null,
+        })
+        .returning();
+      if (!row) throw new Error("Failed to create lead scout outreach draft");
+      return row;
+    },
+
+    async getLeadScoutOutreachDraft(id) {
+      const row = await db.query.leadScoutOutreachDraft.findFirst({
+        where: eq(schema.leadScoutOutreachDraft.id, id),
+      });
+      return row ?? null;
+    },
+
+    async listLeadScoutOutreachDraftsByLead(leadId) {
+      return db
+        .select()
+        .from(schema.leadScoutOutreachDraft)
+        .where(eq(schema.leadScoutOutreachDraft.leadId, leadId))
+        .orderBy(desc(schema.leadScoutOutreachDraft.createdAt));
+    },
+
+    async updateLeadScoutOutreachDraft(id, patch) {
+      const [row] = await db
+        .update(schema.leadScoutOutreachDraft)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(eq(schema.leadScoutOutreachDraft.id, id))
+        .returning();
+      if (!row) throw new Error(`Lead scout outreach draft not found: ${id}`);
+      return row;
+    },
+
+    async claimLeadScoutOutreachDraftStatus({ id, fromStatus, toStatus }) {
+      const [row] = await db
+        .update(schema.leadScoutOutreachDraft)
+        .set({ status: toStatus, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.leadScoutOutreachDraft.id, id),
+            eq(schema.leadScoutOutreachDraft.status, fromStatus),
+          ),
+        )
+        .returning();
+      return row ?? null;
+    },
+
+    async createLeadScoutSuppression({ workspaceId, email, domain, reason }) {
+      const [row] = await db
+        .insert(schema.leadScoutSuppression)
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          email: email ?? null,
+          domain: domain ?? null,
+          reason,
+        })
+        .returning();
+      if (!row) throw new Error("Failed to create lead scout suppression");
+      return row;
+    },
+
+    async listLeadScoutSuppressionsByWorkspace(workspaceId) {
+      return db
+        .select()
+        .from(schema.leadScoutSuppression)
+        .where(eq(schema.leadScoutSuppression.workspaceId, workspaceId))
+        .orderBy(desc(schema.leadScoutSuppression.createdAt));
+    },
+
+    async getLeadScoutSuppressionMatch(workspaceId, email, domain) {
+      const matches: ReturnType<typeof eq>[] = [];
+      if (email) matches.push(eq(schema.leadScoutSuppression.email, email));
+      if (domain) matches.push(eq(schema.leadScoutSuppression.domain, domain));
+      if (matches.length === 0) return null;
+      const row = await db.query.leadScoutSuppression.findFirst({
+        where: and(eq(schema.leadScoutSuppression.workspaceId, workspaceId), or(...matches)),
+      });
+      return row ?? null;
+    },
+
+    async getLeadScoutEmailSettings(workspaceId) {
+      const row = await db.query.leadScoutEmailSettings.findFirst({
+        where: eq(schema.leadScoutEmailSettings.workspaceId, workspaceId),
+      });
+      return row
+        ? { ...row, credentials: decryptJsonNullable<Record<string, string>>(row.credentials) }
+        : null;
+    },
+
+    async upsertLeadScoutEmailSettings({
+      workspaceId,
+      provider,
+      fromName,
+      fromEmail,
+      replyTo,
+      credentials,
+      dailySendLimit,
+      perCampaignSendLimit,
+      dryRunMode,
+      legalFooter,
+      unsubscribeText,
+    }) {
+      const existing = await db.query.leadScoutEmailSettings.findFirst({
+        where: eq(schema.leadScoutEmailSettings.workspaceId, workspaceId),
+      });
+
+      if (existing) {
+        const [row] = await db
+          .update(schema.leadScoutEmailSettings)
+          .set({
+            ...(provider !== undefined ? { provider } : {}),
+            fromName,
+            fromEmail,
+            ...(replyTo !== undefined ? { replyTo } : {}),
+            ...(credentials !== undefined ? { credentials: encryptJsonNullable(credentials) } : {}),
+            ...(dailySendLimit !== undefined ? { dailySendLimit } : {}),
+            ...(perCampaignSendLimit !== undefined ? { perCampaignSendLimit } : {}),
+            ...(dryRunMode !== undefined ? { dryRunMode } : {}),
+            ...(legalFooter !== undefined ? { legalFooter } : {}),
+            ...(unsubscribeText !== undefined ? { unsubscribeText } : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.leadScoutEmailSettings.id, existing.id))
+          .returning();
+        if (!row) throw new Error(`Lead scout email settings not found: ${existing.id}`);
+        return {
+          ...row,
+          credentials: decryptJsonNullable<Record<string, string>>(row.credentials),
+        };
+      }
+
+      const [row] = await db
+        .insert(schema.leadScoutEmailSettings)
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          ...(provider !== undefined ? { provider } : {}),
+          fromName,
+          fromEmail,
+          replyTo: replyTo ?? null,
+          credentials: encryptJsonNullable(credentials ?? null),
+          ...(dailySendLimit !== undefined ? { dailySendLimit } : {}),
+          ...(perCampaignSendLimit !== undefined ? { perCampaignSendLimit } : {}),
+          ...(dryRunMode !== undefined ? { dryRunMode } : {}),
+          legalFooter: legalFooter ?? null,
+          ...(unsubscribeText !== undefined ? { unsubscribeText } : {}),
+        })
+        .returning();
+      if (!row) throw new Error("Failed to create lead scout email settings");
+      return { ...row, credentials: decryptJsonNullable<Record<string, string>>(row.credentials) };
+    },
+
+    async incrementLeadScoutEmailSendCount(workspaceId, today) {
+      const existing = await db.query.leadScoutEmailSettings.findFirst({
+        where: eq(schema.leadScoutEmailSettings.workspaceId, workspaceId),
+      });
+      if (!existing) {
+        throw new Error(`Lead scout email settings not configured for workspace: ${workspaceId}`);
+      }
+      const nextCount = existing.sendCountDate === today ? existing.sendCountToday + 1 : 1;
+      const [row] = await db
+        .update(schema.leadScoutEmailSettings)
+        .set({ sendCountToday: nextCount, sendCountDate: today, updatedAt: new Date() })
+        .where(eq(schema.leadScoutEmailSettings.id, existing.id))
+        .returning();
+      if (!row) throw new Error(`Lead scout email settings not found: ${existing.id}`);
+      return { ...row, credentials: decryptJsonNullable<Record<string, string>>(row.credentials) };
+    },
   };
 }
