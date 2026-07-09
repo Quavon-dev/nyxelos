@@ -25,8 +25,8 @@
     "nyxel": "bun run ./scripts/nyxel.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.2",
-    "turbo": "^2.5.0",
-    "typescript": "^6.0.3"
+    "@biomejs/biome": "^2.5.3",
+    "turbo": "^2.10.4",
+    "typescript": "^7.0.2"
   }
 }
